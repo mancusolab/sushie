@@ -73,7 +73,6 @@ def run_sushie(
     opt_mode: str = "noop",
     threshold: float = 0.9,
     purity: float = 0.5,
-    min_sample: int=100,
 ) -> core.SushieResult:
     """
     Vanilla SuSiE model
@@ -130,7 +129,6 @@ def run_sushie(
         min_tol,
         threshold,
         purity,
-        min_sample,
     )
 
     return sushie_res
@@ -145,7 +143,6 @@ def _inner_sushie(
     min_tol: float,
     threshold: float,
     purity: float,
-    min_sample: int,
 ):
     log = logging.getLogger(sushie.LOG)
 
@@ -220,7 +217,7 @@ def _inner_sushie(
     else:
         raise ValueError("ELBO is not increasing. Something is wrong.")
     pip = core.get_pip(alpha)
-    cs = core.get_cs_sushie(alpha, X, threshold = threshold, purity_threshold = purity, min_sample = min_sample)
+    cs = core.get_cs_sushie(alpha, X, threshold = threshold, purity_threshold = purity)
 
     sushie_res = core.SushieResult(
         alpha=alpha, b=bv, bsq=bsq, prior_covar_b=prior_covar_b, resid_covar=priors.resid_var, pip=pip, cs = cs)

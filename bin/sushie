@@ -607,7 +607,8 @@ def run_finemap(args):
         result = sushie.run_sushie(geno_data, pheno_data, L = args.L, pi = args.pi, resid_var = args.resid_prior,
                                    effect_var = args.effect_prior, rho = args.rho, max_iter = args.max_iter,
                                    min_tol = args.min_tol, opt_mode = args.opt_mode, threshold = args.cs_threshold,
-                                   purity = args.purity, min_sample = args.purity)
+                                   purity = args.purity)
+        import pdb; pdb.set_trace()
 
     except Exception as err:
         log.error(err)

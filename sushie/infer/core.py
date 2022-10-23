@@ -39,9 +39,7 @@ def get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
 def get_cs_sushie(alpha: jnp.ndarray,
            X: jnp.ndarray,
            threshold = 0.9,
-           purity_threshold = 0.5,
-           min_sample = 100) -> pd.DataFrame:
-    import pdb; pdb.set_trace()
+           purity_threshold = 0.5,) -> pd.DataFrame:
 
     P, L = alpha.shape
     tr_alpha = pd.DataFrame(alpha).reset_index()
@@ -59,22 +57,20 @@ def get_cs_sushie(alpha: jnp.ndarray,
         tmp_pd = tr_alpha[["index", idx]].sort_values(idx, ascending=False)
         tmp_pd["csum"]  = tmp_pd[[idx]].cumsum()
         tmp_cs = pd.DataFrame(columns=["Lidx", "Pidx", "pip", "cpip"])
-        
+
+        # for each SNP, add to credible set until the threshold is met
         for jdx in range(P):
             tmp_dict={"Lidx": idx, "Pidx": tmp_pd.iloc[jdx, 0], "pip": tmp_pd.iloc[jdx, 1], "cpip": tmp_pd.iloc[jdx, 2]}
             tmp_cs=pd.concat([tmp_cs, pd.DataFrame([tmp_dict])], ignore_index=True)
-            cpip = tmp_pd.iloc[j, 2]
+            cpip = tmp_pd.iloc[jdx, 2]
             if cpip > threshold:
                 break
-        # select SNP idx
-        pidx = (tmp_cs.loc[tmp_cs.Lidx == i].Pidx.values).astype("int64")
-        if len(pidx) > min_sample:
-            iid = random.choice(random.PRNGKey(123), len(pidx), shape=(min_sample,), replace=False)
-            pidx = pidx[iid]
 
+        # check the impurity
+        pidx = (tmp_cs.Pidx.values).astype("int64")
         include_cs = True
-        for idx in range(n_pop):
-            if jnp.all(Xcorr[idx][pidx].T[pidx] < purity_threshold):
+        for jdx in range(n_pop):
+            if jnp.min(Xcorr[jdx][pidx].T[pidx]) < purity_threshold:
                 include_cs = False
         if include_cs:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
