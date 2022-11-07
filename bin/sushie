@@ -334,7 +334,7 @@ def run_finemap(args):
             raise ValueError("Pi prior is not a probability (0-1). Specify a valid pi prior.")
 
         if args.L <= 0:
-            raise ValueError("Inferred L is negative, choose a positive L.")
+            raise ValueError("Inferred L is invalid, choose a positive L.")
         elif args.L > 20:
             log.warning(f"The number of inferred L is too large. It may be impractical, and inference may be slow.")
 
@@ -411,6 +411,11 @@ def run_finemap(args):
 
         # output cross validation results if allowed
         if args.crossval:
+            if args.cross_val_num <= 1:
+                raise ValueError(f"The number of folds in cross validation is invalid. Choose some number greater than 1.")
+            elif args.crossval_num > 10:
+                log.warning(f"The number of folds in corss validation is too large. Calculation may be slow.")
+
             rng_key = random.PRNGKey(int(args.seed))
             cv_geno = copy.deepcopy(geno_data)
             cv_pheno = copy.deepcopy(pheno_data)
