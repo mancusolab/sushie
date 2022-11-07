@@ -9,8 +9,9 @@ import os
 import re
 import sys
 import warnings
+import copy
+import limix.her as her
 
-import sushie
 import numpy as np
 import pandas as pd
 
@@ -18,7 +19,6 @@ from scipy.stats import chi2
 from sqlalchemy import exc as sa_exc
 
 from pandas_plink import read_plink
-from pandas_plink import read_plink1_bin
 import scipy.linalg as linalg
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
@@ -27,106 +27,17 @@ import math
 from jax import random
 import statsmodels.api as sm
 import sushie
+
+warnings.filterwarnings('ignore')
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     import jax.numpy as jnp
 
-
 np.seterr(invalid='ignore')
-
-def parse_pint(str):
-    try:
-        value = int(str)
-        if value <= 0:
-            raise ValueError()
-    except ValueError as ve:
-        raise argparse.ArgumentTypeError("Value needs to be positive interger")
-
-    return value
-
-
-def parse_prob(str):
-    try:
-        value = float(str)
-        if value < 0 or value > 1:
-            raise ValueError()
-    except ValueError as ve:
-        raise argparse.ArgumentTypeError('Value has to be between 0 and 1')
-
-    return value
-
-
-def parse_chisq(str):
-    try:
-        value = float(str)
-        if value < 0:
-            raise ValueError()
-    except ValueError as ve:
-        raise argparse.ArgumentTypeError('Value has to be at least 0')
-
-    return value
-
-
-def parse_pos(pos, option):
-    """
-    Parse a specified genomic position.
-    Should be digits followed optionally by case-insensitive Mb or Kb modifiers.
-    """
-    match = re.match("^(([0-9]*[.])?[0-9]+)(mb|kb)?$", pos, flags=re.IGNORECASE)
-    if match:
-        pos_tmp = float(match.group(1))  # position
-        pos_mod = match.group(3)  # modifier
-        if pos_mod:
-            pos_mod = pos_mod.upper()
-            if pos_mod == "MB":
-                pos_tmp *= 1000000
-            elif pos_mod == "KB":
-                pos_tmp *= 1000
-
-        position = pos_tmp
-    else:
-        raise ValueError("Option {} {} is an invalid genomic position".format(option, pos))
-
-    return position
-
-
-def parse_locations(locations, chrom=None, start_bp=None, stop_bp=None):
-    """
-    Parse user-specified BED file with [CHR, START, STOP] windows defining where to perform
-    imputation.
-
-    If user also specified chr, start-bp, or stop-bp arguments filter on those as well.
-    """
-    for idx, line in enumerate(locations):
-        # skip comments
-        if "#" in line:
-            continue
-
-        row = line.split()
-
-        if len(row) < 3:
-            raise ValueError("Line {} in locations file does not contain [CHR, START, STOP]".format(idx))
-
-        chrom_arg = row[0]
-        start_arg = parse_pos(row[1], "start argument in locations file")
-        stop_arg = parse_pos(row[2], "stop argument in locations file")
-
-        if chrom is not None and chrom_arg != chrom:
-            continue
-        elif start_bp is not None and start_arg < start_bp:
-            continue
-        elif stop_bp is not None and stop_arg > stop_bp:
-            continue
-
-        yield [chrom_arg, start_arg, stop_arg]
-
-    return
-
 
 def get_command_string(args):
     """
     Format focus call and options into a string for logging/printing
-
     :return: string containing formatted arguments to focus
     """
 
@@ -136,7 +47,7 @@ def get_command_string(args):
     needs_tab = True
     for cmd in rest:
         if "-" == cmd[0]:
-            if cmd in ["--quiet", "-q", "--verbose", "-v", "--plot", "--strict-tissue", "--use-ens-id", "--from-gencode"]:
+            if cmd in ["--quiet", "-q", "--verbose", "-v"]:
                 rest_strs.append("\t{}{}".format(cmd, os.linesep))
                 needs_tab = True
             else:
@@ -152,292 +63,6 @@ def get_command_string(args):
 
     return base + "".join(rest_strs) + os.linesep
 
-
-def read_header(fh):
-    """Read the first line of a file and returns a list with the column names."""
-    openfunc, compression = get_compression(fh)
-    return [x.rstrip('\n') for x in openfunc(fh).readline().split()]
-
-
-def get_cname_map(flag, default, ignore):
-    """
-    Figure out which column names to use.
-
-    Priority is
-    (1) ignore everything in ignore
-    (2) use everything in flags that is not in ignore
-    (3) use everything in default that is not in ignore or in flags
-
-    The keys of flag are cleaned. The entries of ignore are not cleaned. The keys of defualt
-    are cleaned. But all equality is modulo clean_header().
-
-    """
-    clean_ignore = {clean_header(x) for x in ignore}
-    both = clean_ignore | set(flag)
-    cname_map = {x: flag[x] for x in flag if x not in clean_ignore}
-    cname_map.update({x: default[x] for x in default if x not in both})
-
-    return cname_map
-
-
-def get_compression(fh):
-    """
-    Read filename suffixes and figure out whether it is gzipped,bzip2'ed or not compressed
-    """
-
-    """Which sort of compression should we use with read_csv?"""
-    if hasattr(fh, "name"):
-        _, ext = os.path.splitext(fh.name)
-    elif isinstance(fh, str):
-        _, ext = os.path.splitext(fh)
-    else:
-        raise ValueError("get_compression: argument must be file handle or path")
-
-    if ext.endswith('gz'):
-        compression = 'gzip'
-        openfunc = lambda x: gzip.open(x, "rt")
-    elif ext.endswith('bz2'):
-        compression = 'bz2'
-        openfunc = lambda x: bz2.open(x, "rt")
-    else:
-        openfunc = open
-        compression = None
-
-    return openfunc, compression
-
-
-def p_to_z(pvals):
-    """Convert P-value and N to standardized beta."""
-    return np.sqrt(chi2.isf(pvals, 1))
-
-
-def pass_median_check(m, expected_median, tolerance):
-    """Check that median(x) is within tolerance of expected_median."""
-    return np.abs(m - expected_median) <= tolerance
-
-
-def run_twas(args):
-    log = logging.getLogger(sushie.LOG)
-
-    try:
-        # perform sanity arguments checking before continuing
-        chrom, start_bp, stop_bp = region_sanity_check(args.chr, args.start, args.stop)
-
-        # load GWAS summary data for each ancestry
-        # log.info("Preparing GWAS summary data.")
-
-        df_paths = args.gwas.split(":")
-        n_pop = len(df_paths)
-        log.info(f"Detecting {n_pop} ancestrys for fine-mapping.")
-
-        if n_pop > 1:
-            log.info("As a result, running single-ancestry FOCUS on each ancestry, and then Multi-ancestry FOCUS across all ancestrys.")
-        else:
-            log.info("As a result, running single-ancestry FOCUS.")
-
-        gwas = [None] * n_pop
-        for i in range(n_pop):
-            log.info(f"Preparing GWAS summary file for ancestry at {df_paths[i]}.")
-            gwas_tmp = sushie.GWAS.parse_gwas(df_paths[i])
-            if len(gwas_tmp) == 0:
-                raise ValueError(f"No GWAS summary file for ancestry at {df_paths[i]}.")
-            gwas[i] = gwas_tmp
-
-        # if chrom is supplied just filter here
-        if chrom is not None:
-            for i in range(n_pop):
-                gwas[i] = gwas[i].subset_by_pos(chrom)
-
-                if len(gwas[i]) == 0:
-                    err_str = f"No GWAS SNPs found at chromosome {chrom} at {df_paths[i]}."
-                    raise ValueError(err_str)
-
-        # load reference genotype data for each ancestry
-        # log.info("Preparing reference SNP data.")
-        df_refs = args.ref.split(":")
-
-        if len(df_refs) != n_pop:
-            raise Exception("The number of LD refernece panel is different from the number of GWAS data.")
-
-        ref = [None] * n_pop
-        for i in range(n_pop):
-            log.info(f"Preparing reference SNP data for ancestry at {df_refs[i]}.")
-            ref_tmp = sushie.LDRefPanel.parse_plink(df_refs[i])
-            if len(ref_tmp) == 0:
-                raise ValueError(f"No reference SNP data for ancestry at {df_refs[i]}.")
-            ref[i] = ref_tmp
-
-        # if chrom is supplied just filter here
-        if chrom is not None:
-            for i in range(n_pop):
-                ref[i] = ref[i].subset_by_pos(chrom)
-                if len(ref[i]) == 0:
-                    err_str = f"No reference LD SNPs found at chromosome {chrom} at {df_refs[i]}."
-                    raise Exception(err_str)
-
-
-        df_dbs = args.weights.split(":")
-
-        if len(df_dbs) != n_pop:
-            raise Exception("The number of weight database is different from the number of GWAS data.")
-
-        session = [None] * n_pop
-        for i in range(n_pop):
-            # not the best approach, but load_db creates an empty db if the file does not exist
-            # so check here that we actually -have- some db
-            if not os.path.isfile(df_dbs[i]):
-                raise ValueError(f"Cannot find database at {df_dbs[i]}.")
-
-        for i in range(n_pop):
-            log.info(f"Preparing weight database at {df_dbs[i]}.")
-            session[i] = sushie.load_db(df_dbs[i], idx = i)
-
-        # alias
-        Weight = sushie.Weight
-        Model = sushie.Model
-        MolecularFeature = sushie.MolecularFeature
-        RefPanel = sushie.RefPanel
-
-        with open("{}.focus.tsv".format(args.output), "w") as output:
-            log.info(f"Preparing user-defined locations at {args.locations}.")
-
-            partitions = sushie.IndBlocks(args.locations)
-            log.info(f"Found {partitions.show_nrow()} independent regions on the entire genome.")
-
-            if chrom is not None:
-                partitions = partitions.subset_by_pos(chrom, start_bp, stop_bp)
-                log.info(f"{partitions.show_nrow()} independent regions currently used after being filtered on chromosome, start, and stop.")
-
-            written = False
-            for region in partitions:
-                chrom, start, stop = region
-                block = f"{chrom}:{int(start)}-{chrom}:{int(stop)}"
-                log.info(f"Preparing data at region {block}. Skipping if following warning occurs.")
-
-                # Decide prior prob for a gene to be causal
-                log.info(f"Deciding prior probability for a gene to be causal.")
-
-                # conver prior_prob to float if it's float
-                try:
-                    arg_prior_prob = float(args.prior_prob)
-                    if arg_prior_prob > 0 and arg_prior_prob < 1:
-                        prior_prob = arg_prior_prob
-                        log.info(f"Using fixed numeric prior probability {args.prior_prob}.")
-                    else:
-                        raise ValueError(f"Numeric prior probability {arg_prior_prob} is invalid.")
-                except ValueError:
-                    gencodeBlocks = sushie.GencodeBlocks(args.prior_prob)
-                    prior_prob = gencodeBlocks.subset_by_pos(chrom, start, stop)
-                    log.info(f"Using gencode file prior probability {prior_prob}.")
-
-                # grab local GWAS data
-                local_gwas = [None] * n_pop
-                skip = False
-                ct = 0
-                for i in range(n_pop):
-                    local_gwas_tmp = gwas[i].subset_by_pos(chrom, start=start, stop=stop)
-                    # only fine-map regions that contain GWAS data
-                    if len(local_gwas_tmp) == 0:
-                        log.warning(f"No GWAS data found found at region {block} at {df_paths[i]}. Skipping.")
-                        skip = True
-                        break
-
-                    # only fine-map regions that contain GWAS signal
-                    if min(local_gwas_tmp.P) >= args.p_threshold:
-                        # The idea is for single pop, it gives warning skipping message later
-                        # For multiple pops, it gives no GWAS info here, and give warning skipping message later
-                        if n_pop != 1:
-                            log.info(f"No GWAS SNPs with p-value < {args.p_threshold} found at region {block} at {df_paths[i]}.")
-                        ct += 1
-                    local_gwas[i] = local_gwas_tmp
-
-                if skip:
-                    continue
-
-                if ct == n_pop:
-                    # Make sure no duplicated warnings for single pop
-                    if n_pop != 1:
-                        log.warning(f"No GWAS SNPs with p-value < {args.p_threshold} found at region {block} for all popluations. Skipping.")
-                    else:
-                        log.warning(f"No GWAS SNPs with p-value < {args.p_threshold} found at region {block} at {df_paths[0]}. Skipping.")
-                    continue
-                elif ct != 0 and bool(args.all_gwas_sig):
-                    log.warning(f"At least one popluation (n={ct} out of {n_pop}) has no GWAS SNPs with p-value < {args.p_threshold} found at region {block} while all_gwas_sig parameter is specified True. Skipping.")
-                    continue
-
-                # grab local reference genotype data
-                local_ref = [None] * n_pop
-                for i in range(n_pop):
-                    local_ref_tmp = ref[i].subset_by_pos(chrom, start=start, stop=stop)
-                    if len(local_ref_tmp) == 0:
-                        log.warning(f"No reference LD SNPs found at region {block} at {df_refs[i]}. Skipping")
-                        skip = True
-                        break
-                    local_ref[i] = local_ref_tmp
-
-                if skip:
-                    continue
-
-                # grab local SNP weights
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=sa_exc.SAWarning)
-
-                    # sqlite has a limit of at most 999 parameters for queries
-                    # just split up the query into chunks and append at the end
-                    # its going to be slower, but not much we can do
-                    LIMIT = 999
-                    snp_weights = [None] * n_pop
-                    for i in range(n_pop):
-                        snp_weights_tmp = []
-                        for gwas_chunk in np.array_split(local_gwas[i], np.ceil(len(local_gwas[i]) / LIMIT)):
-                            snp_weights_tmp.append(pd.read_sql(session[i].query(Weight, Model, MolecularFeature, RefPanel)
-                                                       .filter(Weight.snp.in_(gwas_chunk.SNP.values))
-                                                       .join(Model, Model.id == Weight.model_id)
-                                                       .join(MolecularFeature, MolecularFeature.id == Model.mol_id)
-                                                       .join(RefPanel, RefPanel.id == Model.ref_id)
-                                                       .statement, con=session[i].connection()))
-
-                        snp_weights_tmp = pd.concat(snp_weights_tmp, ignore_index=True)
-                        # if there are no SNPs found in this region or none of the SNPs overlap the GWAS skip it
-                        if len(snp_weights_tmp) == 0:
-                            log.warning(f"No overlapping weights at region {block} at {df_dbs[i]}. Skipping")
-                            skip = True
-                            break
-                        snp_weights[i] = snp_weights_tmp
-                if skip:
-                    continue
-
-                tissue_pr_gene = True if args.tissue is not None else False
-                if args.tissue is not None:
-                    for i in range(n_pop):
-                        log.info(f"Prioritizing genes by {args.tissue} tissue then on predictive performance at region {local_ref[i]} of {df_refs[i]}.")
-                        snp_weights[i] = get_tissue_prioritized_genes(snp_weights[i], args.tissue, session[i],
-                                                               metric="cv.R2", strict=args.strict_tissue)
-
-                # fine-map, my dudes
-                result = sushie.fine_map(local_gwas, snp_weights, local_ref, block, intercept=args.intercept,
-                                          max_genes=args.max_genes, ridge=args.ridge_term, prior_prob=prior_prob,
-                                          credible_level=args.credible_level, plot=args.plot, min_r2pred=args.min_r2pred,
-                                          max_impute=args.max_impute, tissue_pr_gene = tissue_pr_gene, trait = args.trait)
-
-                # fine-map can break and return early if there are issues so check for non-None result
-                if result is not None:
-                    if args.plot:
-                        result, plots = result
-                        for i in range(n_pop):
-                            for j, plot in enumerate(plots[i]):
-                                fig_name = f"{args.output}.chr{chrom}.{int(start)}.{int(stop)}.pop{i+1}.pdf"
-                                plot.savefig(fig_name, format="pdf", dpi=600)
-                    sushie.write_output(result, output, append=written)
-                    written = True
-
-    except Exception as err:
-        log.error(err)
-    finally:
-        log.info("Finished TWAS & fine-mapping. Thanks for using FOCUS, and have a nice day!")
-
-    return 0
-
 def drop_nainf(df, nam, idx):
     log = logging.getLogger(sushie.LOG)
     old_row = df.shape[0]
@@ -452,8 +77,8 @@ def regress_resid(X, y):
     """
     Perform a marginal linear regression for each snp on the phenotype.
 
-    :param Z: numpy.ndarray n x p genotype matrix to regress over
-    :param pheno: numpy.ndarray phenotype vector
+    :param X: numpy.ndarray n x p genotype matrix to regress over
+    :param y: numpy.ndarray phenotype vector
 
     :return: pandas.DataFrame containing estimated beta and standard error
     """
@@ -463,8 +88,40 @@ def regress_resid(X, y):
 
     return result.resid
 
+def allele_check(base0, base1, comp0, comp1):
+    """
+    Check whether SNPs alleles match across ancestries.
+
+    :param base0: A0 for the first ancestry (baseline)
+    :param base1: A1 for the first ancestry (baseline)
+    :param comp0: A0 for the compared ancestry
+    :param comp1: A1 for the compared ancestry
+
+    :return: pandas.DataFrame containing estimated beta and standard error
+    """
+
+    log = logging.getLogger(sushie.LOG)
+    base0 = base0.astype("object")
+    base1 = base1.astype("object")
+    comp0 = comp0.astype("object")
+    comp1 = comp1.astype("object")
+    correct_idx = jnp.where(jnp.logical_and(base0 == comp0, base1 == comp1))[0]
+    flipped_idx = jnp.where(jnp.logical_and(base0 == comp1, base1 == comp0))[0]
+    wrong_idx = jnp.where(jnp.logical_not(jnp.logical_or(jnp.logical_and(base0 == comp0, base1 == comp1),
+                                                        jnp.logical_and(base0 == comp1, base1 == comp0))))[0]
+
+    return correct_idx, flipped_idx, wrong_idx
+
+def estimate_her(X, y, C):
+    n, p = X.shape
+    A = jnp.dot(X, X.T) / p
+    h2g = her.estimate(y, "normal", A, C, verbose=False)
+
+    return h2g
+
 def process_raw(geno_paths, pheno_paths, covar_paths, L, resid):
     log = logging.getLogger(sushie.LOG)
+
     n_pop = len(geno_paths)
 
     bim = []
@@ -475,16 +132,24 @@ def process_raw(geno_paths, pheno_paths, covar_paths, L, resid):
     for idx in range(n_pop):
         log.info(f"Ancestry {idx+1}: Reading in genotype data and phenotype data.")
         tmp_bim, tmp_fam, tmp_bed = read_plink(geno_paths[idx], verbose=False)
+
+        # read pheno data
         tmp_pheno = pd.read_csv(pheno_paths[idx], sep = "\t", header = None, dtype={0: object})
 
         # drop all the nan inf values
         tmp_bim = drop_nainf(tmp_bim, "bim", idx)
         tmp_fam = drop_nainf(tmp_fam, "fam", idx)
         tmp_pheno = drop_nainf(tmp_pheno, "pheno", idx)
-        tmp_bim = tmp_bim[["chrom", "snp", "a0", "a1", "i"]].rename(columns = {"i":f"bimIDX_{idx}", "a0":f"a0_{idx}", "a1":f"a1_{idx}"})
-        tmp_fam = tmp_fam[["fid", "iid", "i"]].rename(columns = {"i":f"famIDX_{idx}"})
+        # rename the columns with pop index for better processing in the future
+        tmp_bim = tmp_bim[["chrom", "snp", "a0", "a1", "cm", "pos", "i"]].rename(columns = {"i":f"bimIDX_{idx+1}",
+                                            "a0":f"a0_{idx+1}",
+                                            "a1":f"a1_{idx+1}",
+                                            "cm": f"cm_{idx+1}",
+                                            "pos": f"pos_{idx+1}"})
+        tmp_fam = tmp_fam[["fid", "iid", "i"]].rename(columns = {"i":f"famIDX_{idx+1}"})
         tmp_pheno.reset_index(inplace=True)
-        tmp_pheno = tmp_pheno.rename(columns={"index": f"phenoIDX_{idx}", 0:"fid", 1:"iid"})
+        # keep track of pheno index for future mathcing the bed file if bed files are shuffled due to merging
+        tmp_pheno = tmp_pheno.rename(columns={"index": f"phenoIDX_{idx+1}", 0:"fid", 1:"iid"})
 
         if len(tmp_bim) == 0:
             raise ValueError(f"Ancestry {idx+1}: No genotype data found for ancestry at {df_paths[idx]}.")
@@ -502,10 +167,11 @@ def process_raw(geno_paths, pheno_paths, covar_paths, L, resid):
             tmp_covar = pd.read_csv(covar_paths[idx], sep = "\t", header = None, dtype={0: object})
             tmp_covar = drop_nainf(tmp_covar, "covar", idx)
             tmp_covar.reset_index(inplace=True)
-            tmp_covar = tmp_covar.rename(columns={"index": f"covarIDX_{idx}", 0:"fid", 1:"iid"})
+            # keep track of covar index for future mathcing the bed file if bed files are shuffled due to merging
+            tmp_covar = tmp_covar.rename(columns={"index": f"covarIDX_{idx+1}", 0:"fid", 1:"iid"})
             covar.append(tmp_covar)
     else:
-        covar = None
+        covar = [None] * n_pop
         log.warning(f"No covariates detected for this analysis.")
 
     # find common snps across ancestries
@@ -513,38 +179,55 @@ def process_raw(geno_paths, pheno_paths, covar_paths, L, resid):
         snps = pd.merge(bim[0], bim[1], how="inner", on=["chrom", "snp"])
         for idx in range(n_pop - 2):
             snps = pd.merge(snps, bim[idx+2], how="inner", on=["chrom", "snp"])
+        # report how many snps we removed due to indep SNP
+        for idx in range(n_pop):
+            snps_num_diff = bim[idx].shape[0] - snps.shape[0]
+            log.warning(f"Ancestry{idx+1} has {snps_num_diff} independent SNPs and {snps.shape[0]} common SNPs. Will remove these independent SNPs.")
+    else:
+        snps = bim[0]
 
     if snps.shape[0] < L:
-        raise ValueError(f"The number of common SNPs across ancestries is less than inferred L. Please choose a smaller L.")
+        raise ValueError(f"The number of common SNPs across ancestries is less than inferred L. Please choose a smaller L or expand the genomic window.")
 
     # find filped reference alleles across ancestires
-    diff_idx = []
+    flip_idx = []
     if n_pop > 1:
         for idx in range(1, n_pop):
-            tmp_diff_idx = jnp.where(snps["a0_0"].values != snps["a0_1"].values)
-            diff_idx.append(tmp_diff_idx)
-            diff_num = jnp.sum(snps["a0_0"].values != snps["a0_1"].values)
-            log.warning(f"Ancestry{idx+1} has {diff_num} flipped alleles from ancestry 1. Will adjust genotype data accordingly.")
-            snps = snps.drop(columns = [f"a0_{idx}", f"a1_{idx}"])
-        snps = snps.rename(columns={"a0_0":"a0", "a1_0":"a1"})
+            correct_idx, tmp_flip_idx, wrong_idx = allele_check(snps["a0_1"].values, snps["a1_1"].values, snps[f"a0_{idx+1}"].values, snps[f"a1_{idx+1}"].values)
 
-    # find common individuals across geno, pheno, and covar
+            # save the index for future swapping
+            flip_idx.append(tmp_flip_idx)
+            log.warning(f"Ancestry{idx+1} has {tmp_flip_idx.shape[0]} flipped alleles from ancestry 1. Will flip these SNPs.")
+            if wrong_idx.shape[0] != 0:
+                snps = snps.drop(index = wrong_idx)
+                log.warning(f"Ancestry{idx+1} has {wrong_idx.shape[0]} problematic alleles that couldn't be swapped. Will remove these SNPs.")
+            # drop unused columns
+            snps = snps.drop(columns = [f"a0_{idx+1}", f"a1_{idx+1}"])
+    # rename columns for better indexing in the future
+    snps = snps.rename(columns={"a0_1":"a0", "a1_1":"a1"})
+    snps.reset_index(inplace=True)
+    snps = snps.rename(columns = {"index":"SNPIndex"})
+
+    # find common individuals across geno, pheno, and covar within an ancestry
     common_fam = []
     for idx in range(n_pop):
-        tmp_common_fam = pd.merge(fam[idx], pheno[idx][[f"phenoIDX_{idx}", "fid", "iid"]], how="inner", on=["fid", "iid"])
-        if covar is not None:
-            tmp_common_fam = pd.merge(tmp_common_fam, covar[idx][[f"covarIDX_{idx}", "fid", "iid"]], how="inner", on=["fid", "iid"])
+        # match fam id and pheno id
+        tmp_common_fam = pd.merge(fam[idx], pheno[idx][[f"phenoIDX_{idx+1}", "fid", "iid"]], how="inner", on=["fid", "iid"])
+        if covar[idx] is not None:
+            # match fam id and covar id
+            tmp_common_fam = pd.merge(tmp_common_fam, covar[idx][[f"covarIDX_{idx+1}", "fid", "iid"]], how="inner", on=["fid", "iid"])
         common_fam.append(tmp_common_fam)
         common_ind = tmp_common_fam.shape[0]
         if common_ind == 0:
             raise ValueError(f"Ancestry {idx+1}: No common individuals between phenotype and genotype found. Please double check source data.")
         else:
+            # sanity check how many we lose
             fam_drop_ind = fam[idx].shape[0] - common_ind
             pheno_drop_ind = pheno[idx].shape[0] - common_ind
-            if covar is not None:
+            covar_drop_ind = 0
+            if covar[idx] is not None:
                 covar_drop_ind = covar[idx].shape[0] - common_ind
-            else:
-                covar_drop_ind = 0
+
             if (fam_drop_ind != 0 or pheno_drop_ind != 0) or covar_drop_ind != 0:
                 log.info(f"Ancestry {idx+1}: Found {common_ind} common individuals between pehnotype and genotype.")
                 log.warning(f"Ancestry {idx+1}: Delete {fam_drop_ind} from fam file. ")
@@ -553,28 +236,35 @@ def process_raw(geno_paths, pheno_paths, covar_paths, L, resid):
 
     # filter on geno, pheno, and covar
     for idx in range(n_pop):
-        # filter on individuals, snps for bed files
-        tmp_bed = bed[idx][:, common_fam[idx][f"famIDX_{idx}"].values]
-        tmp_bed = tmp_bed[snps[f"bimIDX_{idx}"].values, :]
-        snps = snps.drop(columns = [f"bimIDX_{idx}"])
+        # filter on individuals who have both geno, pheno, and covar (if applicable)
+        tmp_bed = bed[idx][:, common_fam[idx][f"famIDX_{idx+1}"].values]
+        # filter on shared snps across ancestries
+        tmp_bed = tmp_bed[snps[f"bimIDX_{idx+1}"].values, :]
+        snps = snps.drop(columns = [f"bimIDX_{idx+1}"])
         # flip genotypes for bed files starting second ancestry
         if idx > 0:
-            tmp_bed[diff_idx[idx-1]] = 2 - tmp_bed[diff_idx[idx-1]]
+            tmp_bed[flip_idx[idx-1]] = 2 - tmp_bed[flip_idx[idx-1]]
         tmp_bed = tmp_bed.T
         # standardize genotype data
         tmp_bed -= jnp.mean(tmp_bed, axis=0)
         tmp_bed /= jnp.std(tmp_bed, axis=0)
         bed[idx] = tmp_bed
 
-        # swap pheno and resid order to match fam/bed file
-        pheno[idx] = pheno[idx].iloc[common_fam[idx][f"phenoIDX_{idx}"].values].iloc[:,3].values
-        if covar is not None:
-            covar[idx] = covar[idx].iloc[common_fam[idx][f"covarIDX_{idx}"].values].iloc[:, 3:(covar[idx].shape[1])].values
+        # swap pheno and covar rows order to match fam/bed file, and then select the values for future fine-mapping
+        pheno[idx] = pheno[idx].iloc[common_fam[idx][f"phenoIDX_{idx+1}"].values].iloc[:,3].values
+        if covar[idx] is not None:
+            covar[idx] = covar[idx].iloc[common_fam[idx][f"covarIDX_{idx+1}"].values].iloc[:, 3:(covar[idx].shape[1])].values
         # do we want to add an option to standardize y?
 
+    # estimate heritability
+    est_h2g =[]
+    for idx in range(n_pop):
+        tmp_h2g = estimate_her(bed[idx], pheno[idx], covar[idx])
+        est_h2g.append(tmp_h2g)
+
     # regress covar on y
-    if covar is not None:
-        for idx in range(n_pop):
+    for idx in range(n_pop):
+        if covar[idx] is not None:
             pheno[idx] = regress_resid(covar[idx], pheno[idx])
             # regress covar on each SNP, it might be slow, the dafault is False
             if resid:
@@ -582,8 +272,9 @@ def process_raw(geno_paths, pheno_paths, covar_paths, L, resid):
                 for snp in range(tmp_p):
                     # seems jnp array doesn't work in sm, so use np.array
                     bed[idx] = bed[idx].at[:,snp].set(regress_resid(covar[idx], np.array(bed[idx][:,snp])))
+    log.info(f"Finished data cleaning. Will fine-map on {bed[0].shape[1]} SNPs.")
 
-    return bed, pheno
+    return bed, pheno, covar, snps, est_h2g
 
 
 def run_finemap(args):
@@ -593,22 +284,192 @@ def run_finemap(args):
         geno_paths = args.geno.split(":")
         pheno_paths = args.pheno.split(":")
 
+        if len(geno_paths) == len(pheno_paths):
+            n_pop = len(geno_paths)
+            log.info(f"Detecting {n_pop} features for SuShiE fine-mapping.")
+        else:
+            raise ValueError("The number of geno and pheno data does not match. Check your input.")
+
         if args.covar is not None:
             covar_paths = args.covar.split(":")
+            if len(covar_paths) != n_pop:
+                raise ValueError("The number of covariate data does not match geno data. Check your input.")
         else:
             covar_paths = None
 
-        n_pop = len(geno_paths)
-        log.info(f"Detecting {n_pop} ancestrys for SuShiE fine-mapping.")
+        if args.resid_prior is not None:
+            resid_prior = args.resid_prior.split(":")
+            if len(resid_prior) != n_pop:
+                raise ValueError("The number of specified residual prior does not match feature number. Check your input.")
+            resid_prior = [float(i) for i in resid_prior]
+            if jnp.any(jnp.array(resid_prior) <= 0):
+                raise ValueError(f"The input of residual prior is invalid (<0). Check your input.")
+        else:
+            resid_prior = None
 
-        geno_data, pheno_data = process_raw(geno_paths, pheno_paths, covar_paths, args.L, args.resid)
+        if args.effect_prior is not None:
+            effect_prior = args.effect_prior.split(":")
+            if len(effect_prior ) != n_pop:
+                raise ValueError("The number of specified effect prior does not match feature number. Check your input.")
+            effect_prior = [float(i) for i in effect_prior]
+            if jnp.any(jnp.array(effect_prior) <= 0):
+                raise ValueError(f"The input of effect size prior is invalid (<0). Check your input.")
+        else:
+            effect_prior = None
+
+        if n_pop != 1 and args.rho is not None:
+            rho = args.rho.split(":")
+            exp_num_rho = math.comb(n_pop, 2)
+            if len(rho) != exp_num_rho:
+                raise ValueError(f"The number of specified rho ({len(rho)}) does not match expected number {exp_num_rho}. Check your input.")
+            rho = [float(i) for i in rho]
+            # double check the if it's invalid rho
+            if jnp.any(jnp.abs(jnp.array(rho)) >= 1):
+                raise ValueError(f"The input of rho is invalid (>=1 or <=-1). Check your input.")
+        else:
+            rho = None
+
+        # check if the parameters are valid
+        if args.pi is not None and (args.pi >= 1 or args.pi <= 0):
+            raise ValueError("Pi prior is not a probability (0-1). Specify a valid pi prior.")
+
+        if args.L <= 0:
+            raise ValueError("Inferred L is negative, choose a positive L.")
+        elif args.L > 20:
+            log.warning(f"The number of inferred L is too large. It may be impractical, and inference may be slow.")
+
+        if args.max_iter < 50:
+            log.warning(f"Maximum iteration is low. Inference may not be accurate, try a larger value.")
+
+        if args.min_tol > 0.1:
+            log.warning(f"Minimum intolerance is low. Inference may not be accurate, try a larger value.")
+
+        if args.cs_threshold > 0 and args.cs_threshold < 1:
+            cs_threshold = args.cs_threshold
+        else:
+            raise ValueError("CS threhold is not between 0 and 1. Specify a valid one.")
+
+        if args.purity > 0 and args.purity < 1:
+            purity = args.purity
+        else:
+            raise ValueError("Purity is not between 0 and 1. Specify a valid one.")
+
+        geno_data, pheno_data, covar_data, snps, h2g = process_raw(geno_paths, pheno_paths, covar_paths, args.L, args.resid)
         log.info(f"Successfully prepare genotype and phenotype data for {n_pop} ancestrys, and start fine-mapping using SuShiE.")
 
-        result = sushie.run_sushie(geno_data, pheno_data, L = args.L, pi = args.pi, resid_var = args.resid_prior,
-                                   effect_var = args.effect_prior, rho = args.rho, max_iter = args.max_iter,
-                                   min_tol = args.min_tol, opt_mode = args.opt_mode, threshold = args.cs_threshold,
-                                   purity = args.purity)
-        import pdb; pdb.set_trace()
+        if args.opt_mode == "noop":
+            log.warning(f"No updates on the effect size prior because of 'noop' setting for opt_mode. Inference may not be accurate.")
+
+        result = sushie.run_sushie(geno_data, pheno_data, L = args.L, pi = args.pi, resid_var = resid_prior,
+                                   effect_var = effect_prior, rho = rho, max_iter = args.max_iter,
+                                   min_tol = args.min_tol, opt_mode = args.opt_mode, threshold = cs_threshold,
+                                   purity = purity)
+
+        # output credible set
+        cs = pd.merge(snps, result.cs, how="inner", on=["SNPIndex"]).drop(columns = ["SNPIndex"]).assign(trait = args.trait).sort_values(by = ["CSIndex", "pip", "cpip"], ascending = [True, False, True])
+        cs.to_csv(f"{args.output}.cs.tsv", sep = "\t", index=None)
+
+        # output heritability
+        est_her = pd.DataFrame(data = h2g, index = [f"feature{idx+1}" for idx in range(n_pop)], columns = ["h2g"])
+        shared_h2g = []
+        # only output h2g that has credible sets
+        SNPIndex = result.cs.SNPIndex.values.astype(int)
+        for idx in range(n_pop):
+            tmp_shared_h2g = None
+            if result.cs.shape[0] != 0:
+                tmp_shared_h2g = estimate_her(geno_data[idx][:, SNPIndex], pheno_data[idx], covar_data[idx])
+            shared_h2g.append(tmp_shared_h2g)
+        shared_pd = pd.DataFrame(data = shared_h2g, index = [f"feature{idx+1}" for idx in range(n_pop)], columns = ["shared_h2g"])
+        est_her = pd.concat([est_her, shared_pd], axis=1).assign(trait = args.trait).reset_index()
+        est_her.to_csv(f"{args.output}.h2g.tsv", sep = "\t", index=None)
+
+        # output weights
+        snpcopy = copy.deepcopy(snps).assign(trait = args.trait)
+        tmp_weights = pd.DataFrame(data = jnp.sum(result.b, axis=0), columns = [f"feature{idx+1}_sushie" for idx in range(n_pop)])
+        weights = pd.concat([snpcopy, tmp_weights], axis=1)
+        weights.to_csv(f"{args.output}.weights.tsv", sep = "\t", index=None)
+
+        # output variance, covaraince, correlation results
+        CSIndex = jnp.unique(result.cs.CSIndex.values.astype(int))
+        # only output after-purity CS
+        corr_cs_only = jnp.transpose(result.prior_covar_b[CSIndex-1])
+        corr = pd.DataFrame(data = {"trait": args.trait, "CSIndex": CSIndex})
+        for idx in range(n_pop):
+            _var = corr_cs_only[idx, idx]
+            tmp_pd = pd.DataFrame(data = {f"feature{idx+1}_est_var": _var})
+            corr = pd.concat([corr, tmp_pd], axis=1)
+            for jdx in range(idx+1, n_pop):
+                _covar = corr_cs_only[idx, jdx]
+                _var1 = corr_cs_only[idx, idx]
+                _var2 = corr_cs_only[jdx, jdx]
+                _corr = _covar / jnp.sqrt(_var1 * _var2)
+                tmp_pd_covar = pd.DataFrame(data = {f"feature{idx+1}_feature{jdx+1}_est_covar": _covar})
+                tmp_pd_corr = pd.DataFrame(data = {f"feature{idx+1}_feature{jdx+1}_est_corr": _corr})
+                corr = pd.concat([corr, tmp_pd_covar, tmp_pd_corr], axis=1)
+
+        corr.to_csv(f"{args.output}.corr.tsv", sep = "\t", index=None)
+
+        # output cross validation results if allowed
+        if args.crossval:
+            rng_key = random.PRNGKey(int(args.seed))
+            cv_geno = copy.deepcopy(geno_data)
+            cv_pheno = copy.deepcopy(pheno_data)
+            if args.crossval_num < 2:
+                log.warning(f"Please check cross validation value.")
+
+            log.info(f"Start to create FUSION file.")
+            # shuffle the data first
+            for idx in range(n_pop):
+                rng_key, c_key = random.split(rng_key, 2)
+                tmp_n = cv_geno[idx].shape[0]
+                ran_index = random.choice(c_key, tmp_n, (tmp_n,), replace=False)
+                cv_pheno[idx] = cv_pheno[idx][ran_index]
+                cv_geno[idx] = cv_geno[idx][ran_index]
+
+            # create a list to store future estatimated y value
+            est_y = [jnp.array([])] * n_pop
+            for cv in range(args.crossval_num):
+                test_X = []
+                train_X = []
+                train_y = []
+                # make the traing and test for each population separately because sampel size may be different
+                for idx in range(n_pop):
+                    tmp_n = cv_geno[idx].shape[0]
+                    increment = int(tmp_n / args.crossval_num)
+                    start = cv * increment
+                    end = (cv + 1) * increment
+                    # if it is the last fold, take all the rest of the data.
+                    if cv == args.crossval_num - 1:
+                        end = max(tmp_n, (cv + 1) * increment)
+                    test_X.append(cv_geno[idx][start:end])
+                    train_X.append(cv_geno[idx][jnp.r_[:start,end:tmp_n]])
+                    train_y.append(cv_pheno[idx][jnp.r_[:start,end:tmp_n]])
+
+                log.info(f"Run SuShiE on fold {cv+1}.")
+                cv_result = sushie.run_sushie(train_X, train_y, L = args.L, pi = args.pi, resid_var = resid_prior,
+                                           effect_var = effect_prior, rho = rho, max_iter = args.max_iter,
+                                           min_tol = args.min_tol, opt_mode = args.opt_mode, threshold = cs_threshold,
+                                           purity = purity)
+                for idx in range(n_pop):
+                    tmp_cv_weight = jnp.sum(cv_result.b, axis=0)[:,idx]
+                    est_y[idx] = jnp.append(est_y[idx], test_X[idx] @ tmp_cv_weight)
+            cv_res = []
+            for idx in range(n_pop):
+                tmp_est_y = sm.add_constant(est_y[idx])
+                get_cvr2 = sm.OLS(np.array(cv_pheno[idx]), tmp_est_y).fit()
+                cv_res.append([get_cvr2.rsquared_adj, get_cvr2.pvalues[1]])
+
+            cv_r2 = pd.DataFrame(data=cv_res, index = [f"feature{idx+1}" for idx in range(n_pop)], columns = ["rsq", "pval"]).reset_index()
+            cv_r2.to_csv(f"{args.output}.cv.r2.tsv", sep = "\t", index=None)
+        # for idx in range(n_pop):
+        #     import pdb; pdb.set_trace()
+        #     tmp_hsq = pd.DataFrame(data = {"hsq": [h2g[idx]]})
+        #     pyreadr.write_rdata(f"{args.output}.fusion.RData", tmp_hsq, df_name="dataset")
+        #     tmp_hsqpval = None
+        #     tmp_N = geno_data[idx].shape[0]
+        #     tmp_snps = snps[["chrom", "snp", f"cm_{idx+1}", f"pos_{idx+1}", "a0", "a1"]].rename(columns = {f"cm_{idx+1}": "cm", f"pos_{idx+1}": "pos"})
+        #     tmp_wgt_matrix = weights[["snp", f"feature{idx+1}_sushie"]].rename(columns = {f"feature{idx+1}_sushie": "sushie"}).set_index("snp")
+        #     tmp_cv_p = pd.DataFrame(data = {"sushie": cv_res[idx]}).rename(index = {0:"rsq", 1:"pval"})
 
     except Exception as err:
         log.error(err)
@@ -616,62 +477,6 @@ def run_finemap(args):
         log.info("Finished SuShiE fine-mapping. Thanks for using SuShiE, and have a nice day!")
 
     return 0
-
-
-def build_weights(args):
-    log = logging.getLogger(sushie.LOG)
-    try:
-        log.info("Preparing genotype data")
-        ref_panel = sushie.ExprRef.from_plink(args.genotype)
-
-        log.info("Preparing phenotype data")
-        ref_panel.parse_pheno(args.pheno)
-
-        log.info("Preparing covariate data")
-        ref_panel.parse_covar(args.covar)
-
-        log.info("Preparing expression meta-data")
-        ref_panel.parse_gene_info(args.info)
-
-        log.info("Preparing weight database")
-        session = sushie.load_db(f"{args.output}.db")
-
-        db_ref_panel = sushie.RefPanel(
-            ref_name=args.name,
-            tissue=args.tissue,
-            assay=args.assay
-        )
-
-        for train_data in ref_panel:
-            # here is where we will iterate over genes, train models, and add to database
-            y, X, G, snp_info, gene_info = train_data
-
-            # fit predictive model using specified method
-            log.info(f"Performing {gene_info['geneid']} model inference")
-            result = sushie.train_model(y, X, G, args.method, args.include_ses, args.p_threshold)
-
-            if result is None:
-                continue
-
-            weights, ses, attrs = result
-
-            # build database object and commit
-            model = sushie.build_model(gene_info, snp_info, db_ref_panel, weights, ses, attrs, args.method)
-            session.add(model)
-            try:
-                session.commit()
-            except Exception as comm_err:
-                session.rollback()
-                raise
-
-    except Exception as err:
-        log.error(err)
-    finally:
-        session.close()
-        log.info("Finished building prediction models")
-
-    return 0
-
 
 def build_finemap_parser(subp):
     # add imputation parser
@@ -691,7 +496,7 @@ def build_finemap_parser(subp):
     finemap.add_argument("--resid", default = False,
                      help="Also regress the covariates out of the genotypes. Default is False.")
 
-    finemap.add_argument("--trait/tissue", default="trait/tissue",
+    finemap.add_argument("--trait", default="trait",
                      help="Trait or tissue name for the phenotype.")
 
     finemap.add_argument("--L", default=10,type=int,
@@ -709,10 +514,10 @@ def build_finemap_parser(subp):
     finemap.add_argument("--rho", default=None,
                      help="Specify the prior for the effect correlation for ancestries. Use semicolon to separete paires of ancestries. If two ancestries, one number is needed. If three ancestries, three numbers needed, and the order should be (1,2);(1,3);(2,3) and so forth.")
 
-    finemap.add_argument("--max_iter", default=200,
+    finemap.add_argument("--max_iter", default=500,
                      help="Maximum iterations for the optimization.")
 
-    finemap.add_argument("--min_tol", default=1e-3,
+    finemap.add_argument("--min_tol", default=1e-5,
                      help="Minimum tolerance for the convergence.")
 
     finemap.add_argument("--opt_mode", choices=["em", "noop"], default="em",
@@ -724,65 +529,29 @@ def build_finemap_parser(subp):
     finemap.add_argument("--purity", default=0.5, type=float,
                      help="Specify the purity threshold for credible sets to be output.")
 
+    # finemap.add_argument("--FUSION", default=False, type=bool,
+    #                  help="Indicator for whether output FUSION-format prediction weights.")
+
+    finemap.add_argument("--crossval", default=False, type=bool,
+                     help="Indicator to output cross validation results for FUSION pipline.")
+
+    finemap.add_argument("--crossval_num", default=5, type=int,
+                     help="The number of fold cross validation.")
+
+    finemap.add_argument("--seed", default=12345, type=int,
+                     help="The seed to randomly cut data sets for cross validation.")
+
     # misc options
-    finemap.add_argument("-q", "--quiet", default=False, action="store_true",
+    finemap.add_argument("--quiet", default=False, action="store_true",
                       help="Do not print anything to stdout.")
     finemap.add_argument("--verbose", default=False, action="store_true",
                       help="Verbose logging. Includes debug info.")
-    finemap.add_argument("-o", "--output", default="sushie_finemap",
+    finemap.add_argument("--output", default="sushie_finemap",
                       help="Prefix for output data.")
 
     return finemap
 
 
-def build_weights_parser(subp):
-    # add weight-building parser
-    wgtp = subp.add_parser("build", description="Compute weights for downstream TWAS and fine-mapping.")
-
-    # main arguments
-    wgtp.add_argument("genotype",
-                      help="Path to genotype data")
-    wgtp.add_argument("pheno",
-                      help="Path to phenotype data")
-    wgtp.add_argument("info",
-                      help="Path to gene-info data")
-
-    # inference options
-    wgtp.add_argument("--covar",
-                      help="Path to covariates data for individuals.")
-    wgtp.add_argument("--method", choices=sushie.METHODS, default="GBLUP", type=lambda s: s.upper(),
-                      help="Method to perform model inference with.")
-    wgtp.add_argument("--include-ses", action="store_true", default=True,
-                      help="Include standard error estimates")
-    wgtp.add_argument("--p-threshold", default=0.01, type=float,
-                     help="Minimum heritability p-value required to infer prediction weights.")
-
-    # technology / experiment options
-    wgtp.add_argument("--name", default="",
-                      help="Name for expression reference panel (e.g., GTEx)")
-    wgtp.add_argument("--tissue", default="",
-                      help="Tissue type assayed for expression (e.g., liver)")
-    wgtp.add_argument("--assay", choices=["", "rnaseq", "array"], default="", type=lambda s: s.lower(),
-                      help="Technology used to measure expression levels (e.g., rnaseq)")
-
-    # misc options
-    wgtp.add_argument("-q", "--quiet", default=False, action="store_true",
-                      help="Do not print anything to stdout.")
-    wgtp.add_argument("--verbose", default=False, action="store_true",
-                      help="Verbose logging. Includes debug info.")
-    wgtp.add_argument("-o", "--output", default="FOCUS",
-                      help="Prefix for output data.")
-
-    return wgtp
-
-def build_twas_parser(subp):
-    impt = subp.add_parser("import", description="Import weights trained using FUSION or PrediXcan.")
-
-    impt.add_argument("--min-r2pred", type=float, default=0.7,
-                 help="Minimum average LD-based imputation accuracy allowed for expression weight SNP Z-scores.")
-
-    impt.add_argument("--max-impute", type=float, default=0.5,
-                 help="Maximum fraction of SNPs allowed to be missing per gene, and will be imputed using LD.")
 
 def main(argsv):
     # setup main parser
@@ -793,9 +562,6 @@ def main(argsv):
     # add subparsers for focus commands
     finemap = build_finemap_parser(subp)
     finemap.set_defaults(func=run_finemap)
-
-    # twas = build_twas_parser(subp)
-    # twas.set_defaults(func=run_twas)
 
     # parse arguments
     args = argp.parse_args(argsv)
@@ -841,7 +607,7 @@ def main(argsv):
     disk_handler.setFormatter(fmt)
     log.addHandler(disk_handler)
 
-    # launch finemap, build, import, and twas
+    # launch finemap
     args.func(args)
 
     return 0

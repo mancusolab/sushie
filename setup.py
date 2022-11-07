@@ -9,21 +9,22 @@ st.setup(
     version="0.1.0",
     author="Zeyun Lu, Nicholas Mancuso",
     author_email="zeyunlu@usc.edu, nicholas.mancuso@med.usc.com",
-    description="Sum of Single Shared effects among multiple ancestries",
+    description="Sum of Single Shared effects among multiple features",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/mancusolab/sushie",
     packages=st.find_packages(),
-    package_data={"sushie": ['data/ld_blocks/*.bed']},
+    package_data={"sushie": ['data/*']},
     install_requires=[
         # this is the minimum to perform fine-mapping given a prebuilt db.
         # functions that require addtl modules will warn/raise error
         # this is to minimize dependencies for the most-used scenario
         "numpy",
         "scipy",
+        "jax",
         "pandas>=0.23.0",
         "pandas-plink",
-        # limix
+        "limix",
       ],
     scripts=[
         "bin/sushie",

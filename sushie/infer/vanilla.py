@@ -114,11 +114,8 @@ def run_sushie(
         effect_covar=jnp.array([effect_covar] * L)
     )
 
-    # construct the optimization routine here to avoid branching inside inference
     opt_v_func = _construct_optimize_v(opt_mode)
 
-    # we can jax.jit this internal function that has minimal branching
-    # to improve runtime on non-branching architectures (e.g, GPU/TPU)
     sushie_res = _inner_sushie(
         X,
         y,
@@ -166,15 +163,17 @@ def _inner_sushie(
     # use lists for debugging, later on we'll drop to just scalar terms
     elbo = [-jnp.inf]
     prior_covar_b = priors.effect_covar
-    r = [0] * n_pop
+    residu = [0] * n_pop
+
     for o_iter in range(max_iter):
+
         for idx in range(n_pop):
-            r[idx] = y[idx] - X[idx] @ jnp.sum(bv, axis=0)[:,idx]
+            residu[idx] = y[idx] - X[idx] @ jnp.sum(bv, axis=0)[:,idx]
 
         r_l = [0] * n_pop
         for l_iter in range(L):
             for idx in range(n_pop):
-                r_l[idx] = r[idx] + X[idx] @ bv[l_iter][:,idx]
+                r_l[idx] = residu[idx] + X[idx] @ bv[l_iter][:,idx]
 
             res = single_shared_effect_regression(X, r_l, prior_covar_b[l_iter], priors, opt_v_func)
             alpha = alpha.at[:, l_iter].set(res.alpha)
@@ -186,7 +185,7 @@ def _inner_sushie(
             kl_b = res.alpha.T @ core.kl_multinormal(res.post_mean, res.post_covar, 0.0, res.prior_covar_b)
             KL = KL.at[l_iter].set(kl_alpha + kl_b)
             for idx in range(n_pop):
-                r[idx] = r_l[idx] - X[idx] @ bv[l_iter][:,idx]
+                residu[idx] = r_l[idx] - X[idx] @ bv[l_iter][:,idx]
 
         erss_list = []
         exp_ll = 0
@@ -213,9 +212,10 @@ def _inner_sushie(
             log.warning(f"Reach maximum iteration threshold {max_iter} after {o_iter+1}, stop optimization.")
 
     if (all(i <= j or jnp.isclose(i, j, atol=1e-8) for i, j in zip(elbo, elbo[1:]))):
-        log.info("Optimization concludes and ELBO is increasing, which is great!")
+        log.info(f"Optimization concludes and ELBO non-decreases. Final ELBO score: {elbo_score}.")
     else:
-        raise ValueError("ELBO is not increasing. Something is wrong.")
+        raise ValueError(f"ELBO does not non-decrease. Final ELBO score: {elbo_score}. Double check your genotype, phenotype, and covariate data. Contact developer if this error message remians. ")
+
     pip = core.get_pip(alpha)
     cs = core.get_cs_sushie(alpha, X, threshold = threshold, purity_threshold = purity)
 
@@ -241,6 +241,7 @@ def single_shared_effect_regression(
     betahat = []
     s2e = []
     shat2 = []
+
     for idx in range(n_pop):
         XtX.append(jnp.sum(X[idx] ** 2, axis=0).reshape(p1, 1))
         Xty.append(X[idx].T @ y[idx].reshape((len(y[idx]), 1)))

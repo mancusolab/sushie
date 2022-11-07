@@ -43,7 +43,7 @@ def get_cs_sushie(alpha: jnp.ndarray,
 
     P, L = alpha.shape
     tr_alpha = pd.DataFrame(alpha).reset_index()
-    cs = pd.DataFrame(columns=["Lidx", "Pidx", "pip", "cpip"])
+    cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "pip", "cpip"])
     n_pop = len(X)
     nX = []
     Xcorr = []
@@ -56,18 +56,17 @@ def get_cs_sushie(alpha: jnp.ndarray,
         # select original index and alpha
         tmp_pd = tr_alpha[["index", idx]].sort_values(idx, ascending=False)
         tmp_pd["csum"]  = tmp_pd[[idx]].cumsum()
-        tmp_cs = pd.DataFrame(columns=["Lidx", "Pidx", "pip", "cpip"])
+        tmp_cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "pip", "cpip"])
 
         # for each SNP, add to credible set until the threshold is met
         for jdx in range(P):
-            tmp_dict={"Lidx": idx, "Pidx": tmp_pd.iloc[jdx, 0], "pip": tmp_pd.iloc[jdx, 1], "cpip": tmp_pd.iloc[jdx, 2]}
+            tmp_dict={"CSIndex": idx + 1, "SNPIndex": tmp_pd.iloc[jdx, 0], "pip": tmp_pd.iloc[jdx, 1], "cpip": tmp_pd.iloc[jdx, 2]}
             tmp_cs=pd.concat([tmp_cs, pd.DataFrame([tmp_dict])], ignore_index=True)
             cpip = tmp_pd.iloc[jdx, 2]
             if cpip > threshold:
                 break
-
         # check the impurity
-        pidx = (tmp_cs.Pidx.values).astype("int64")
+        pidx = (tmp_cs.SNPIndex.values).astype("int64")
         include_cs = True
         for jdx in range(n_pop):
             if jnp.min(Xcorr[jdx][pidx].T[pidx]) < purity_threshold:
