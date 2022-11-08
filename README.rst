@@ -50,9 +50,13 @@ Installing
 ==========
 The easiest way to install is with pip:
 
+.. code:: bash
+
     pip install sushie
 
 Alternatively you can download the latest repo and then use setuptools:
+
+.. code:: bash
 
     git clone https://github.com/mancusolab/sushie.git
     cd sushie
