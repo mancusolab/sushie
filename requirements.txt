@@ -1,0 +1,5 @@
+jax
+jaxlib
+limix==3.0.3
+pandas>=1.1.3
+pandas-plink

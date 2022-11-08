@@ -1,0 +1,7 @@
+pre-commit
+pymdown-extensions
+pytest-accept
+pytest-cov
+setuptools
+sphinx>=5
+sphinx_immaterial
