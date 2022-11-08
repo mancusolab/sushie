@@ -12,12 +12,15 @@ class Priors(typing.NamedTuple):
     effect_covar: jnp.ndarray
 
 
-class SushieResult(typing.NamedTuple):
+class SushieParams(typing.NamedTuple):
     alpha: jnp.ndarray
     b: jnp.ndarray
     bsq: jnp.ndarray
-    prior_covar_b: jnp.ndarray
-    resid_covar: jnp.ndarray
+
+
+class SushieResult(typing.NamedTuple):
+    params: SushieParams
+    priors: Priors
     pip: jnp.ndarray
     cs: pd.DataFrame
 

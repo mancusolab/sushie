@@ -6,12 +6,10 @@ import jax.scipy.stats as stats
 from jax import nn
 
 import sushie
-
-from . import core
+from sushie import core
 
 
 def _construct_optimize_v(mode: str = "em") -> typing.Callable:
-
     if mode == "em":
         opt_fun = _optimize_v_em
     elif mode == "noop":
@@ -28,7 +26,6 @@ def _optimize_v_em(
     prior_var_b: core.ArrayOrFloat,
     prior_weights: jnp.ndarray,
 ) -> core.ArrayOrFloat:
-
     p1, n_pop = betahat.shape
     # quick way to calcualte the inverse instead of using linalg.inv
     inv_shat2 = jnp.eye(n_pop) * (
@@ -64,13 +61,12 @@ def _optimize_v_noop(
     prior_var_b: core.ArrayOrFloat,
     prior_weights: jnp.ndarray,
 ) -> core.ArrayOrFloat:
-
     return prior_var_b
 
 
 def run_sushie(
-    X: jnp.ndarray,
-    y: jnp.ndarray,
+    Xs: typing.List[jnp.ndarray],
+    ys: typing.List[jnp.ndarray],
     L: int,
     pi: jnp.ndarray = None,
     resid_var: jnp.ndarray = None,
@@ -87,17 +83,22 @@ def run_sushie(
     """
     # log = logging.getLogger(sushie.LOG)
 
-    n_pop = len(X)
-    n1, p1 = X[0].shape
+    # todo: error checking on input
+    # check len is same, p is same
+    # L > 0, max_iter > 0, etc...
 
+    n_pop = len(Xs)
+    n1, p1 = Xs[0].shape
+
+    # todo: make center/standardization an option
     for idx in range(n_pop):
-        X[idx] = (X[idx] - jnp.mean(X[idx], axis=0)) / jnp.std(X[idx], axis=0)
-        y[idx] = jnp.squeeze(y[idx])
+        Xs[idx] = (Xs[idx] - jnp.mean(Xs[idx], axis=0)) / jnp.std(Xs[idx], axis=0)
+        ys[idx] = jnp.squeeze(ys[idx])
 
     if resid_var is None:
         resid_var = []
         for idx in range(n_pop):
-            resid_var.append(jnp.var(y[idx], ddof=1))
+            resid_var.append(jnp.var(ys[idx], ddof=1))
 
     if effect_var is None:
         effect_var = [1e-3] * n_pop
@@ -118,15 +119,15 @@ def run_sushie(
     priors = core.Priors(
         pi=jnp.ones(p1) / float(p1) if pi is None else pi,
         resid_var=jnp.array(resid_var),
-        # L x 2 x 2
+        # L x k x k
         effect_covar=jnp.array([effect_covar] * L),
     )
 
     opt_v_func = _construct_optimize_v(opt_mode)
 
     sushie_res = _inner_sushie(
-        X,
-        y,
+        Xs,
+        ys,
         L,
         priors,
         opt_v_func,
@@ -140,8 +141,8 @@ def run_sushie(
 
 
 def _inner_sushie(
-    X: jnp.ndarray,
-    y: jnp.ndarray,
+    Xs: typing.List[jnp.ndarray],
+    ys: typing.List[jnp.ndarray],
     L: int,
     priors: core.Priors,
     opt_v_func: typing.Callable,
@@ -152,77 +153,38 @@ def _inner_sushie(
 ):
     log = logging.getLogger(sushie.LOG)
 
-    n_pop = len(X)
-    n1, p1 = X[0].shape
+    n_pop = len(Xs)
+    n1, p1 = Xs[0].shape
 
     n = []
     for idx in range(n_pop):
-        n.append(X[idx].shape[0])
+        n.append(Xs[idx].shape[0])
 
-    # bv is L x p x 2 matrix
-    bv = jnp.zeros((L, p1, n_pop))
-
-    # bsq is L x p x 2 x 2
-    # since bv is 2x1, bsq is 2x2
-    bsq = jnp.zeros((L, p1, n_pop, n_pop))
-
-    alpha = jnp.zeros((p1, L))
-    KL = jnp.zeros(L)
+    params = core.SushieParams(
+        alpha=jnp.zeros((p1, L)),
+        b=jnp.zeros((L, p1, n_pop)),
+        bsq=jnp.zeros((L, p1, n_pop, n_pop)),
+    )
 
     # use lists for debugging, later on we'll drop to just scalar terms
     elbo = [-jnp.inf]
-    prior_covar_b = priors.effect_covar
-    residu = [0] * n_pop
-
     for o_iter in range(max_iter):
 
-        for idx in range(n_pop):
-            residu[idx] = y[idx] - X[idx] @ jnp.sum(bv, axis=0)[:, idx]
-
-        r_l = [0] * n_pop
-        for l_iter in range(L):
-            for idx in range(n_pop):
-                r_l[idx] = residu[idx] + X[idx] @ bv[l_iter][:, idx]
-
-            res = single_shared_effect_regression(
-                X, r_l, prior_covar_b[l_iter], priors, opt_v_func
-            )
-            alpha = alpha.at[:, l_iter].set(res.alpha)
-            bv = bv.at[l_iter].set(res.post_mean * res.alpha.reshape(len(res.alpha), 1))
-            bsq = bsq.at[l_iter].set(
-                res.post_mean_sq * res.alpha.reshape(len(res.alpha), 1, 1)
-            )
-            prior_covar_b = prior_covar_b.at[l_iter].set(res.prior_covar_b)
-            # third term for residual elbo (e.q. B.15)
-            kl_alpha = core.kl_categorical(res.alpha, priors.pi)
-            kl_b = res.alpha.T @ core.kl_multinormal(
-                res.post_mean, res.post_covar, 0.0, res.prior_covar_b
-            )
-            KL = KL.at[l_iter].set(kl_alpha + kl_b)
-            for idx in range(n_pop):
-                residu[idx] = r_l[idx] - X[idx] @ bv[l_iter][:, idx]
-
-        erss_list = []
-        exp_ll = 0.0
-        for idx in range(n_pop):
-            tmpb = jnp.transpose(bv)[idx]
-            # bsq is Lxpx2x2, where 2 is n_pop
-            tmpbsq = jnp.transpose(jnp.einsum("nmij,ij->nmi", bsq, jnp.eye(n_pop)))[idx]
-            tmperss = core.erss(X[idx], y[idx], tmpb, tmpbsq) / n[idx]
-            erss_list.append(tmperss)
-            exp_ll += core.eloglike(X[idx], y[idx], tmpb, tmpbsq, tmperss)
-
-        priors = priors._replace(resid_var=jnp.array(erss_list))
-
-        kl_divs = jnp.sum(KL)
-        elbo_score = exp_ll - kl_divs
+        # internal loop
+        params, elbo_score, priors = _update_effects(
+            Xs,
+            ys,
+            params,
+            priors,
+            opt_v_func,
+        )
         elbo.append(elbo_score)
 
         # print(f"eloglike  = {exp_ll} | kldiv = {kl_divs} | elbo: {elbo_score} |")
         if jnp.abs(elbo[o_iter + 1] - elbo[o_iter]) < min_tol:
             log.warning(
                 (
-                    f"Reach minimum tolerance threshold {min_tol} after {o_iter+1}",
+                    f"Reach minimum tolerance threshold {min_tol} after {o_iter + 1}",
                     " iterations, stop optimization.",
                 ),
             )
@@ -230,7 +192,7 @@ def _inner_sushie(
 
         if o_iter == max_iter - 1:
             log.warning(
-                f"Reach maximum iteration threshold {max_iter} after {o_iter+1}."
+                f"Reach maximum iteration threshold {max_iter} after {o_iter + 1}."
             )
 
     if all(i <= j or jnp.isclose(i, j, atol=1e-8) for i, j in zip(elbo, elbo[1:])):
@@ -244,20 +206,77 @@ def _inner_sushie(
             )
         )
 
-    pip = core.get_pip(alpha)
-    cs = core.get_cs_sushie(alpha, X, threshold=threshold, purity_threshold=purity)
+    pip = core.get_pip(params.alpha)
+    cs = core.get_cs_sushie(
+        params.alpha, Xs, threshold=threshold, purity_threshold=purity
+    )
 
     sushie_res = core.SushieResult(
-        alpha=alpha,
-        b=bv,
-        bsq=bsq,
-        prior_covar_b=prior_covar_b,
-        resid_covar=priors.resid_var,
+        params=params,
+        priors=priors,
         pip=pip,
         cs=cs,
     )
 
     return sushie_res
+
+
+def _update_effects(Xs, ys, params, priors, opt_v_func):
+    # todo: documentation
+    # try out JIT
+
+    l_dim, p, n_pop = params.b.shape
+    ns = [X.shape[0] for X in Xs]
+
+    KL = jnp.zeros((l_dim,))
+    residu = [0.0] * n_pop
+    for idx in range(n_pop):
+        residu[idx] = ys[idx] - Xs[idx] @ jnp.sum(params.b[:, idx], axis=0)
+
+    r_l = [0.0] * n_pop
+    for l_iter in range(l_dim):
+        for idx in range(n_pop):
+            r_l[idx] = residu[idx] + Xs[idx] @ params.b[l_iter, :, idx]
+
+        res = single_shared_effect_regression(
+            Xs, r_l, priors.prior_covar_b[l_iter], priors, opt_v_func
+        )
+        params = params._replace(
+            alpha=params.alpha.at[:, l_iter].set(res.alpha),
+            b=params.b.at[l_iter].set(res.post_mean * res.alpha.reshape(p, 1)),
+            bsq=params.bsq.at[l_iter].set(
+                res.post_mean_sq * res.alpha.reshape(p, 1, 1)
+            ),
+        )
+        priors = priors._replace(
+            prior_covar_b=priors.prior_covar_b.at[l_iter].set(res.prior_covar_b)
+        )
+
+        # third term for residual elbo (e.q. B.15)
+        kl_alpha = core.kl_categorical(res.alpha, priors.pi)
+        kl_b = res.alpha.T @ core.kl_multinormal(
+            res.post_mean, res.post_covar, 0.0, res.prior_covar_b
+        )
+        KL = KL.at[l_iter].set(kl_alpha + kl_b)
+        for idx in range(n_pop):
+            residu[idx] = r_l[idx] - Xs[idx] @ params.b[l_iter, :, idx]
+
+    erss_list = []
+    exp_ll = 0.0
+    tmpbsqs = jnp.transpose(jnp.einsum("nmij,ij->nmi", params.bsq, jnp.eye(n_pop)))
+    for idx in range(n_pop):
+        tmpb = jnp.transpose(params.b)[idx]
+        # bsq is Lxpxkxk, where k is n_pop
+        tmpbsq = tmpbsqs[idx]
+        tmperss = core.erss(Xs[idx], ys[idx], tmpb, tmpbsq) / ns[idx]
+        erss_list.append(tmperss)
+        exp_ll += core.eloglike(Xs[idx], ys[idx], tmpb, tmpbsq, tmperss)
+
+    priors = priors._replace(resid_var=jnp.array(erss_list))
+    kl_divs = jnp.sum(KL)
+    elbo_score = exp_ll - kl_divs
+
+    return params, elbo_score, priors
 
 
 def single_shared_effect_regression(
@@ -267,7 +286,6 @@ def single_shared_effect_regression(
     priors: core.Priors,
     optimize_v,
 ) -> core.SERResult:
-
     # note: for vanilla SuSiE XtX never changes.
     n_pop = len(X)
     n1, p1 = X[0].shape
