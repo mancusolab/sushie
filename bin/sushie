@@ -203,7 +203,7 @@ def process_raw(geno_paths, pheno_paths, covar_paths, L, resid):
                 log.warning(f"Ancestry{idx+1} has {wrong_idx.shape[0]} problematic alleles that couldn't be swapped. Will remove these SNPs.")
             # drop unused columns
             snps = snps.drop(columns = [f"a0_{idx+1}", f"a1_{idx+1}"])
-    # rename columns for better indexing in the future
+        # rename columns for better indexing in the future
     snps = snps.rename(columns={"a0_1":"a0", "a1_1":"a1"})
     snps.reset_index(inplace=True)
     snps = snps.rename(columns = {"index":"SNPIndex"})
@@ -342,7 +342,7 @@ def run_finemap(args):
             log.warning(f"Maximum iteration is low. Inference may not be accurate, try a larger value.")
 
         if args.min_tol > 0.1:
-            log.warning(f"Minimum intolerance is low. Inference may not be accurate, try a larger value.")
+            log.warning(f"Minimum intolerance is low. Inference may not be accurate, try a smaller value.")
 
         if args.cs_threshold > 0 and args.cs_threshold < 1:
             cs_threshold = args.cs_threshold
@@ -464,17 +464,10 @@ def run_finemap(args):
                 get_cvr2 = sm.OLS(np.array(cv_pheno[idx]), tmp_est_y).fit()
                 cv_res.append([get_cvr2.rsquared_adj, get_cvr2.pvalues[1]])
 
-            cv_r2 = pd.DataFrame(data=cv_res, index = [f"feature{idx+1}" for idx in range(n_pop)], columns = ["rsq", "pval"]).reset_index()
+            sample_size = [i.shape[0] for i in geno_data]
+            cv_r2 = pd.DataFrame(data=cv_res, index = [f"feature{idx+1}" for idx in range(n_pop)], columns = ["rsq", "pval"]).reset_index().assign(N = sample_size)
             cv_r2.to_csv(f"{args.output}.cv.r2.tsv", sep = "\t", index=None)
-        # for idx in range(n_pop):
-        #     import pdb; pdb.set_trace()
-        #     tmp_hsq = pd.DataFrame(data = {"hsq": [h2g[idx]]})
-        #     pyreadr.write_rdata(f"{args.output}.fusion.RData", tmp_hsq, df_name="dataset")
-        #     tmp_hsqpval = None
-        #     tmp_N = geno_data[idx].shape[0]
-        #     tmp_snps = snps[["chrom", "snp", f"cm_{idx+1}", f"pos_{idx+1}", "a0", "a1"]].rename(columns = {f"cm_{idx+1}": "cm", f"pos_{idx+1}": "pos"})
-        #     tmp_wgt_matrix = weights[["snp", f"feature{idx+1}_sushie"]].rename(columns = {f"feature{idx+1}_sushie": "sushie"}).set_index("snp")
-        #     tmp_cv_p = pd.DataFrame(data = {"sushie": cv_res[idx]}).rename(index = {0:"rsq", 1:"pval"})
+
 
     except Exception as err:
         log.error(err)
