@@ -1,18 +1,14 @@
-# Copyright Contributors to the SuSiE-Py project.
-# SPDX-License-Identifier: Apache-2.0
-
-import typing
 import logging
+import typing
 
-import jax
-import scipy.optimize as sopt
-
-from jax import lax, nn
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-import jax.scipy.special as spec
+from jax import nn
+
 import sushie
+
 from . import core
+
 
 def _construct_optimize_v(mode: str = "em") -> typing.Callable:
 
@@ -25,6 +21,7 @@ def _construct_optimize_v(mode: str = "em") -> typing.Callable:
 
     return opt_fun
 
+
 def _optimize_v_em(
     betahat: jnp.ndarray,
     shat2: core.ArrayOrFloat,
@@ -34,22 +31,32 @@ def _optimize_v_em(
 
     p1, n_pop = betahat.shape
     # quick way to calcualte the inverse instead of using linalg.inv
-    inv_shat2 = jnp.eye(n_pop) * (1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis])
+    inv_shat2 = jnp.eye(n_pop) * (
+        1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
+    )
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_var_b))
     rTZDinv = betahat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
     # if n_pop = 2
     # rTZDinv is px2, post_covar is px2x2
     # make rTZDinv px1x2 first and then use @, get px1x2 and then transpose get px2x1
-    post_mean = jnp.transpose(rTZDinv[:,jnp.newaxis] @ post_covar, axes = (0, 2, 1))
+    post_mean = jnp.transpose(rTZDinv[:, jnp.newaxis] @ post_covar, axes=(0, 2, 1))
     # reshape to get px2
     post_mean = post_mean.reshape(post_mean.shape[0:2])
     post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
-    alpha = nn.softmax(jnp.log(prior_weights) - stats.multivariate_normal.logpdf(jnp.zeros((p1, n_pop)), post_mean, post_covar))
+    alpha = nn.softmax(
+        jnp.log(prior_weights)
+        - stats.multivariate_normal.logpdf(
+            jnp.zeros((p1, n_pop)), post_mean, post_covar
+        )
+    )
     # post_mean_sq is px2x2, reshape alpha from px1 to 1xp
-    new_prior_var_b = jnp.einsum("ij,jmn->mn", alpha.reshape(1, len(alpha)), post_mean_sq)
+    new_prior_var_b = jnp.einsum(
+        "ij,jmn->mn", alpha.reshape(1, len(alpha)), post_mean_sq
+    )
 
     return new_prior_var_b
+
 
 def _optimize_v_noop(
     betahat: jnp.ndarray,
@@ -59,6 +66,7 @@ def _optimize_v_noop(
 ) -> core.ArrayOrFloat:
 
     return prior_var_b
+
 
 def run_sushie(
     X: jnp.ndarray,
@@ -77,7 +85,7 @@ def run_sushie(
     """
     Vanilla SuSiE model
     """
-    log = logging.getLogger(sushie.LOG)
+    # log = logging.getLogger(sushie.LOG)
 
     n_pop = len(X)
     n1, p1 = X[0].shape
@@ -111,7 +119,7 @@ def run_sushie(
         pi=jnp.ones(p1) / float(p1) if pi is None else pi,
         resid_var=jnp.array(resid_var),
         # L x 2 x 2
-        effect_covar=jnp.array([effect_covar] * L)
+        effect_covar=jnp.array([effect_covar] * L),
     )
 
     opt_v_func = _construct_optimize_v(opt_mode)
@@ -129,6 +137,7 @@ def run_sushie(
     )
 
     return sushie_res
+
 
 def _inner_sushie(
     X: jnp.ndarray,
@@ -168,27 +177,33 @@ def _inner_sushie(
     for o_iter in range(max_iter):
 
         for idx in range(n_pop):
-            residu[idx] = y[idx] - X[idx] @ jnp.sum(bv, axis=0)[:,idx]
+            residu[idx] = y[idx] - X[idx] @ jnp.sum(bv, axis=0)[:, idx]
 
         r_l = [0] * n_pop
         for l_iter in range(L):
             for idx in range(n_pop):
-                r_l[idx] = residu[idx] + X[idx] @ bv[l_iter][:,idx]
+                r_l[idx] = residu[idx] + X[idx] @ bv[l_iter][:, idx]
 
-            res = single_shared_effect_regression(X, r_l, prior_covar_b[l_iter], priors, opt_v_func)
+            res = single_shared_effect_regression(
+                X, r_l, prior_covar_b[l_iter], priors, opt_v_func
+            )
             alpha = alpha.at[:, l_iter].set(res.alpha)
             bv = bv.at[l_iter].set(res.post_mean * res.alpha.reshape(len(res.alpha), 1))
-            bsq = bsq.at[l_iter].set(res.post_mean_sq * res.alpha.reshape(len(res.alpha), 1, 1))
+            bsq = bsq.at[l_iter].set(
+                res.post_mean_sq * res.alpha.reshape(len(res.alpha), 1, 1)
+            )
             prior_covar_b = prior_covar_b.at[l_iter].set(res.prior_covar_b)
             # third term for residual elbo (e.q. B.15)
             kl_alpha = core.kl_categorical(res.alpha, priors.pi)
-            kl_b = res.alpha.T @ core.kl_multinormal(res.post_mean, res.post_covar, 0.0, res.prior_covar_b)
+            kl_b = res.alpha.T @ core.kl_multinormal(
+                res.post_mean, res.post_covar, 0.0, res.prior_covar_b
+            )
             KL = KL.at[l_iter].set(kl_alpha + kl_b)
             for idx in range(n_pop):
-                residu[idx] = r_l[idx] - X[idx] @ bv[l_iter][:,idx]
+                residu[idx] = r_l[idx] - X[idx] @ bv[l_iter][:, idx]
 
         erss_list = []
-        exp_ll = 0
+        exp_ll = 0.0
         for idx in range(n_pop):
             tmpb = jnp.transpose(bv)[idx]
             # bsq is Lxpx2x2, where 2 is n_pop
@@ -205,31 +220,52 @@ def _inner_sushie(
 
         # print(f"eloglike  = {exp_ll} | kldiv = {kl_divs} | elbo: {elbo_score} |")
         if jnp.abs(elbo[o_iter + 1] - elbo[o_iter]) < min_tol:
-            log.warning(f"Reach minimum tolerance threshold {min_tol} after {o_iter+1} iterations, stop optimization.")
+            log.warning(
+                (
+                    f"Reach minimum tolerance threshold {min_tol} after {o_iter+1}",
+                    " iterations, stop optimization.",
+                ),
+            )
             break
 
-        if o_iter == max_iter-1:
-            log.warning(f"Reach maximum iteration threshold {max_iter} after {o_iter+1}, stop optimization.")
+        if o_iter == max_iter - 1:
+            log.warning(
+                f"Reach maximum iteration threshold {max_iter} after {o_iter+1}."
+            )
 
-    if (all(i <= j or jnp.isclose(i, j, atol=1e-8) for i, j in zip(elbo, elbo[1:]))):
-        log.info(f"Optimization concludes and ELBO non-decreases. Final ELBO score: {elbo_score}.")
+    if all(i <= j or jnp.isclose(i, j, atol=1e-8) for i, j in zip(elbo, elbo[1:])):
+        log.info(f"Optimization finished. Final ELBO score: {elbo_score}.")
     else:
-        raise ValueError(f"ELBO does not non-decrease. Final ELBO score: {elbo_score}. Double check your genotype, phenotype, and covariate data. Contact developer if this error message remians. ")
+        raise ValueError(
+            (
+                f"ELBO does not non-decrease. Final ELBO score: {elbo_score}.",
+                " Double check your genotype, phenotype, and covariate data.",
+                " Contact developer if this error message remains.",
+            )
+        )
 
     pip = core.get_pip(alpha)
-    cs = core.get_cs_sushie(alpha, X, threshold = threshold, purity_threshold = purity)
+    cs = core.get_cs_sushie(alpha, X, threshold=threshold, purity_threshold=purity)
 
     sushie_res = core.SushieResult(
-        alpha=alpha, b=bv, bsq=bsq, prior_covar_b=prior_covar_b, resid_covar=priors.resid_var, pip=pip, cs = cs)
+        alpha=alpha,
+        b=bv,
+        bsq=bsq,
+        prior_covar_b=prior_covar_b,
+        resid_covar=priors.resid_var,
+        pip=pip,
+        cs=cs,
+    )
 
     return sushie_res
 
+
 def single_shared_effect_regression(
-    X: jnp.ndarray,
-    y: jnp.ndarray,
+    X: typing.List[jnp.ndarray],
+    y: typing.List[jnp.ndarray],
     prior_covar_b: jnp.ndarray,
     priors: core.Priors,
-    optimize_v
+    optimize_v,
 ) -> core.SERResult:
 
     # note: for vanilla SuSiE XtX never changes.
@@ -269,13 +305,18 @@ def single_shared_effect_regression(
 
     # rTZDinv is px2, post_covar is px2x2
     # make rTZDinv px1x2 first and then use @, get px1x2 and then transpose get px2x1
-    post_mean = jnp.transpose(rTZDinv[:,jnp.newaxis] @ post_covar, axes = (0, 2, 1))
+    post_mean = jnp.transpose(rTZDinv[:, jnp.newaxis] @ post_covar, axes=(0, 2, 1))
     # reshape to get px2
     post_mean = post_mean.reshape(post_mean.shape[0:2])
 
     post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
 
-    alpha = nn.softmax(jnp.log(priors.pi) - stats.multivariate_normal.logpdf(jnp.zeros((p1, n_pop)), post_mean, post_covar))
+    alpha = nn.softmax(
+        jnp.log(priors.pi)
+        - stats.multivariate_normal.logpdf(
+            jnp.zeros((p1, n_pop)), post_mean, post_covar
+        )
+    )
 
     res = core.SERResult(
         alpha=alpha,
@@ -286,4 +327,3 @@ def single_shared_effect_regression(
     )
 
     return res
-

@@ -1,18 +1,16 @@
-# Copyright Contributors to the SuShiE project.
-# SPDX-License-Identifier: Apache-2.0
-
 import typing
 
 import jax.numpy as jnp
 import pandas as pd
-from jax import random
 
 ArrayOrFloat = typing.Union[jnp.ndarray, float]
+
 
 class Priors(typing.NamedTuple):
     pi: jnp.ndarray
     resid_var: jnp.ndarray
     effect_covar: jnp.ndarray
+
 
 class SushieResult(typing.NamedTuple):
     alpha: jnp.ndarray
@@ -23,6 +21,7 @@ class SushieResult(typing.NamedTuple):
     pip: jnp.ndarray
     cs: pd.DataFrame
 
+
 class SERResult(typing.NamedTuple):
     alpha: jnp.ndarray
     post_mean: jnp.ndarray
@@ -30,16 +29,20 @@ class SERResult(typing.NamedTuple):
     post_covar: jnp.ndarray
     prior_covar_b: jnp.ndarray
 
+
 def get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
 
     pip = 1 - jnp.prod((1 - alpha), axis=1)
 
     return pip
 
-def get_cs_sushie(alpha: jnp.ndarray,
-           X: jnp.ndarray,
-           threshold = 0.9,
-           purity_threshold = 0.5,) -> pd.DataFrame:
+
+def get_cs_sushie(
+    alpha: jnp.ndarray,
+    X: jnp.ndarray,
+    threshold=0.9,
+    purity_threshold=0.5,
+) -> pd.DataFrame:
 
     P, L = alpha.shape
     tr_alpha = pd.DataFrame(alpha).reset_index()
@@ -55,13 +58,18 @@ def get_cs_sushie(alpha: jnp.ndarray,
     for idx in range(L):
         # select original index and alpha
         tmp_pd = tr_alpha[["index", idx]].sort_values(idx, ascending=False)
-        tmp_pd["csum"]  = tmp_pd[[idx]].cumsum()
+        tmp_pd["csum"] = tmp_pd[[idx]].cumsum()
         tmp_cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "pip", "cpip"])
 
         # for each SNP, add to credible set until the threshold is met
         for jdx in range(P):
-            tmp_dict={"CSIndex": idx + 1, "SNPIndex": tmp_pd.iloc[jdx, 0], "pip": tmp_pd.iloc[jdx, 1], "cpip": tmp_pd.iloc[jdx, 2]}
-            tmp_cs=pd.concat([tmp_cs, pd.DataFrame([tmp_dict])], ignore_index=True)
+            tmp_dict = {
+                "CSIndex": idx + 1,
+                "SNPIndex": tmp_pd.iloc[jdx, 0],
+                "pip": tmp_pd.iloc[jdx, 1],
+                "cpip": tmp_pd.iloc[jdx, 2],
+            }
+            tmp_cs = pd.concat([tmp_cs, pd.DataFrame([tmp_dict])], ignore_index=True)
             cpip = tmp_pd.iloc[jdx, 2]
             if cpip > threshold:
                 break
@@ -76,6 +84,7 @@ def get_cs_sushie(alpha: jnp.ndarray,
 
     return cs
 
+
 def kl_categorical(alpha, pi) -> float:
     """
     KL divergence between two categorical distributions
@@ -83,13 +92,16 @@ def kl_categorical(alpha, pi) -> float:
     """
     return jnp.nansum(alpha * (jnp.log(alpha) - jnp.log(pi)))
 
+
 def kl_multinormal(m1, s12, m0, s02) -> float:
     """
     KL divergence between multiN(m1, s12) and multiN(m0, s02)
     KL(multiN(m1, s12) || multiN(m0, s02))
     """
     # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
-    p1 = jnp.trace(jnp.einsum("ij,kjm->kim", jnp.linalg.inv(s02), s12), axis1 = 1, axis2 = 2) - len(s02)
+    p1 = jnp.trace(
+        jnp.einsum("ij,kjm->kim", jnp.linalg.inv(s02), s12), axis1=1, axis2=2
+    ) - len(s02)
     p2 = jnp.einsum("ij,jm,im->i", (m0 - m1), jnp.linalg.inv(s02), (m0 - m1))
     # a more stable way
     # p3 = jnp.log(jnp.linalg.det(s02) / jnp.linalg.det(s12))
@@ -104,7 +116,9 @@ def kl_multinormal(m1, s12, m0, s02) -> float:
 
 
 # SuSiE Supplementarymaterial (B.9)
-def erss(X: jnp.ndarray, y: jnp.ndarray, b: jnp.ndarray, bsq: jnp.ndarray) -> ArrayOrFloat:
+def erss(
+    X: jnp.ndarray, y: jnp.ndarray, b: jnp.ndarray, bsq: jnp.ndarray
+) -> ArrayOrFloat:
     mu_li = X @ b
     mu2_li = (X ** 2) @ bsq
 
@@ -115,10 +129,15 @@ def erss(X: jnp.ndarray, y: jnp.ndarray, b: jnp.ndarray, bsq: jnp.ndarray) -> Ar
 
 
 # SuSiE Supplementarymaterial (B.5)
-def eloglike(X: jnp.ndarray, y: jnp.ndarray, b: jnp.ndarray, bsq: jnp.ndarray, resid_var: ArrayOrFloat) -> ArrayOrFloat:
+def eloglike(
+    X: jnp.ndarray,
+    y: jnp.ndarray,
+    b: jnp.ndarray,
+    bsq: jnp.ndarray,
+    resid_var: ArrayOrFloat,
+) -> ArrayOrFloat:
     n, p = X.shape
     norm_term = -(0.5 * n) * jnp.log(2 * jnp.pi * resid_var)
     quad_term = -(0.5 / resid_var) * erss(X, y, b, bsq)
 
     return norm_term + quad_term
-
