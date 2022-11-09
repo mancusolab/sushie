@@ -22,8 +22,8 @@ Respectful behavior includes:
 * Not engaging in unwanted physical contact.
 
 
-## Resolve peacefully
-
+Resolve peacefully
+------------------
 We do not believe that all conflict is necessarily bad; healthy debate and
 disagreement often yields positive results. However, it is never okay to be
 disrespectful.
@@ -35,8 +35,8 @@ If you are unable to resolve the matter for any reason, or if the behavior is
 threatening or harassing, report it. We are dedicated to providing an
 environment where participants feel welcome and safe.
 
-## Reporting problems
-
+Reporting problems
+------------------
 Some MancusoLab open source projects may adopt a project-specific code of conduct.
 In those cases, a MancusoLab trainee (or Nick) will be identified as the Project Steward,
 who will receive and handle reports of code of conduct violations. In the event
