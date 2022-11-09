@@ -32,16 +32,18 @@
 .. _Documentation: https://mancusolab.github.io/sushie/
 .. |Documentation| replace:: **Documentation**
 
+ 
 ======
 SuShiE
 ======
 Software to compute multi-ancestry functional data prediction weights using SuShiE
 
-|Documentation|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_
+.. code:: diff 
 
-```diff
-- We detest usage of our software or scientific outcome to promote racial discrimination.
-```
+    - We detest usage of our software or scientific outcome to promote racial discrimination.
+ 
+ 
+|Documentation|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_
 
 .. _Installation:
 .. |Installation| replace:: **Installation**
