@@ -43,7 +43,7 @@ Software to compute multi-ancestry functional data prediction weights using SuSh
     - We detest usage of our software or scientific outcome to promote racial discrimination.
  
  
-|Documentation|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_
+|Documentation|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_ | |Support|_
 
 .. _Installation:
 .. |Installation| replace:: **Installation**
@@ -105,19 +105,13 @@ References
 ==========
 .. [1] Wang, G., Sarkar, A., Carbonetto, P. and Stephens, M. (2020), A simple new approach to variable selection in regression, with application to genetic fine mapping. J. R. Stat. Soc. B, 82: 1273-1300. https://doi.org/10.1111/rssb.12388
 
-Software and support
-====================
-If you have any questions or comments please contact nicholas.mancuso@med.usc.edu and zeyunlu@usc.edu
+.. _Support:
+.. |Support| replace:: **Support**
 
-For performing various inferences using summary data from large-scale GWASs please find the following useful software:
-
-1. Association between predicted expression and complex trait/disease [FUSION](https://github.com/gusevlab/fusion_twas) and [PrediXcan](https://github.com/hakyimlab/PrediXcan)
-2. Estimating local heritability or genetic correlation [HESS](https://github.com/huwenboshi/hess)
-3. Estimating genome-wide heritability or genetic correlation [UNITY](https://github.com/bogdanlab/UNITY)
-4. Fine-mapping using summary-data [PAINTOR](https://github.com/gkichaev/PAINTOR_V3.0)
-5. Imputing summary statistics using LD [FIZI](https://github.com/bogdanlab/fizi)
-6. TWAS simulator (https://github.com/mancusolab/twas_sim)
-7. Multi-ancestry TWAS fine-mapping [MA-FOCUS](https://github.com/mancusolab/ma-focus)
+Support
+=======
+Please report any bugs or feature requests in the `Issue Tracker <https://github.com/mancusolab/sushie/issues>`_. If you have any 
+questions or comments please contact zeyunlu@usc.edu and/or nmancuso@usc.edu. 
 
 ---------------------
 
