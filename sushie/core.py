@@ -1,4 +1,5 @@
 import typing
+
 import jax.numpy as jnp
 import pandas as pd
 
@@ -42,10 +43,10 @@ def get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
 
 
 def get_cs(
-        alpha: jnp.ndarray,
-        Xs: typing.List[jnp.ndarray],
-        threshold: float = 0.9,
-        purity: float = 0.5,
+    alpha: jnp.ndarray,
+    Xs: typing.List[jnp.ndarray],
+    threshold: float = 0.9,
+    purity: float = 0.5,
 ) -> pd.DataFrame:
     _, n_l = alpha.shape
     t_alpha = pd.DataFrame(alpha).reset_index()
@@ -55,7 +56,11 @@ def get_cs(
 
     for idx in range(n_l):
         # select original index and alpha
-        tmp_pd = t_alpha[["index", idx]].sort_values(idx, ascending=False).reset_index(drop=True)
+        tmp_pd = (
+            t_alpha[["index", idx]]
+            .sort_values(idx, ascending=False)
+            .reset_index(drop=True)
+        )
         tmp_pd["csum"] = tmp_pd[[idx]].cumsum()
         n_row = tmp_pd[tmp_pd.csum < threshold].shape[0]
 
@@ -64,8 +69,11 @@ def get_cs(
             select_idx = jnp.arange(n_row)
         else:
             select_idx = jnp.arange(n_row + 1)
-        tmp_pd = tmp_pd.iloc[select_idx, :].assign(CSIndex=idx + 1).rename(
-            columns={"csum": "cpip", "index": "SNPIndex", idx: "pip"})
+        tmp_pd = (
+            tmp_pd.iloc[select_idx, :]
+            .assign(CSIndex=idx + 1)
+            .rename(columns={"csum": "cpip", "index": "SNPIndex", idx: "pip"})
+        )
 
         # check the impurity
         snp_idx = tmp_pd.SNPIndex.values.astype("int64")
@@ -80,8 +88,8 @@ def get_cs(
 
 
 def kl_categorical(
-        alpha: jnp.ndarray,
-        pi: jnp.ndarray,
+    alpha: jnp.ndarray,
+    pi: jnp.ndarray,
 ) -> float:
     """
     KL divergence between two categorical distributions
@@ -91,19 +99,22 @@ def kl_categorical(
 
 
 def kl_mvn(
-        m1: jnp.ndarray,
-        s12: jnp.ndarray,
-        m0: float,
-        s02: ArrayOrFloat,
+    m1: jnp.ndarray,
+    s12: jnp.ndarray,
+    m0: float,
+    s02: jnp.ndarray,
 ) -> float:
     """
     KL divergence between multiN(m1, s12) and multiN(m0, s02)
     KL(multiN(m1, s12) || multiN(m0, s02))
     """
     # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
-    p1 = jnp.trace(
-        jnp.einsum("ij,kjm->kim", jnp.linalg.inv(s02), s12), axis1=1, axis2=2
-    ) - len(s02)
+    k, k = s02.shape
+
+    p1 = (
+        jnp.trace(jnp.einsum("ij,kjm->kim", jnp.linalg.inv(s02), s12), axis1=1, axis2=2)
+        - k
+    )
     p2 = jnp.einsum("ij,jm,im->i", (m0 - m1), jnp.linalg.inv(s02), (m0 - m1))
     # a more stable way
     # p3 = jnp.log(jnp.linalg.det(s02) / jnp.linalg.det(s12))
@@ -112,7 +123,9 @@ def kl_mvn(
     if s0 != 1:
         raise ValueError("Prior effect covariance matrix is not valid.")
     elif jnp.any(s1 != 1):
-        raise ValueError("One of the posterior effect covariance matrices is not valid.")
+        raise ValueError(
+            "One of the posterior effect covariance matrices is not valid."
+        )
 
     p3 = sld0 - sld1
 
@@ -121,10 +134,7 @@ def kl_mvn(
 
 # SuSiE Supplementary material (B.9)
 def erss(
-        X: jnp.ndarray,
-        y: jnp.ndarray,
-        beta: jnp.ndarray,
-        beta_sq: jnp.ndarray
+    X: jnp.ndarray, y: jnp.ndarray, beta: jnp.ndarray, beta_sq: jnp.ndarray
 ) -> ArrayOrFloat:
     mu_li = X @ beta
     mu2_li = (X ** 2) @ beta_sq
@@ -137,12 +147,13 @@ def erss(
 
 # SuSiE Supplementary material (B.5)
 
+
 def eloglike(
-        X: jnp.ndarray,
-        y: jnp.ndarray,
-        beta: jnp.ndarray,
-        beta_sq: jnp.ndarray,
-        sigma_sq: ArrayOrFloat,
+    X: jnp.ndarray,
+    y: jnp.ndarray,
+    beta: jnp.ndarray,
+    beta_sq: jnp.ndarray,
+    sigma_sq: ArrayOrFloat,
 ) -> ArrayOrFloat:
     n, p = X.shape
     norm_term = -(0.5 * n) * jnp.log(2 * jnp.pi * sigma_sq)

@@ -10,6 +10,7 @@ import os
 import sys
 import typing
 import warnings
+from importlib import metadata
 
 import limix.her as her
 import pandas as pd
@@ -17,15 +18,13 @@ from jax import random
 from pandas_plink import read_plink
 from scipy import stats
 
-from sushie import infer, core
+from . import LOG, core, infer
 
 warnings.filterwarnings("ignore")
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     import jax.numpy as jnp
 
-VERSION = "0.1.0"
-LOG = "MAIN"
 
 def get_command_string(args):
     """
@@ -56,11 +55,7 @@ def get_command_string(args):
     return base + "".join(rest_strs) + os.linesep
 
 
-def drop_na_inf(
-        df: pd.DataFrame,
-        nam: str,
-        idx: int
-) -> pd.DataFrame:
+def drop_na_inf(df: pd.DataFrame, nam: str, idx: int) -> pd.DataFrame:
     log = logging.getLogger(LOG)
     old_row = df.shape[0]
     df.replace([jnp.inf, -jnp.inf], jnp.nan)
@@ -98,11 +93,11 @@ def regress_resid(X, y):
 
 
 def allele_check(
-        base0: pd.Series,
-        base1: pd.Series,
-        compare0: pd.Series,
-        compare1: pd.Series,
-        idx: int,
+    base0: pd.Series,
+    base1: pd.Series,
+    compare0: pd.Series,
+    compare1: pd.Series,
+    idx: int,
 ) -> typing.Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
     Check whether SNPs alleles match across ancestries.
@@ -121,11 +116,7 @@ def allele_check(
     flipped = jnp.logical_and(base0 == compare1, base1 == compare0)
     correct_idx = jnp.where(correct)[0]
     flipped_idx = jnp.where(flipped)[0]
-    wrong_idx = jnp.where(
-        jnp.logical_not(
-            jnp.logical_or(correct, flipped)
-        )
-    )[0]
+    wrong_idx = jnp.where(jnp.logical_not(jnp.logical_or(correct, flipped)))[0]
 
     if len(flipped_idx) != 0:
         log.warning(
@@ -140,11 +131,7 @@ def allele_check(
     return correct_idx, flipped_idx, wrong_idx
 
 
-def estimate_her(
-        X: jnp.ndarray,
-        y: jnp.ndarray,
-        C: jnp.ndarray = None
-) -> float:
+def estimate_her(X: jnp.ndarray, y: jnp.ndarray, C: jnp.ndarray = None) -> float:
     n, p = X.shape
     A = jnp.dot(X, X.T) / p
     h2g = her.estimate(y, "normal", A, C, verbose=False)
@@ -152,7 +139,9 @@ def estimate_her(
     return h2g
 
 
-def parameter_check(args) -> typing.Tuple[core.ListOrNone, core.ListOrNone, core.ListOrNone]:
+def parameter_check(
+    args,
+) -> typing.Tuple[core.ListOrNone, core.ListOrNone, core.ListOrNone]:
     log = logging.getLogger(LOG)
 
     if len(args.geno) == len(args.pheno):
@@ -165,9 +154,7 @@ def parameter_check(args) -> typing.Tuple[core.ListOrNone, core.ListOrNone, core
 
     if args.covar is not None:
         if len(args.covar) != n_pop:
-            raise ValueError(
-                "The number of covariate data does not match geno data."
-            )
+            raise ValueError("The number of covariate data does not match geno data.")
 
     if args.resid_var is not None:
         if len(args.resid_var) != n_pop:
@@ -234,7 +221,9 @@ def parameter_check(args) -> typing.Tuple[core.ListOrNone, core.ListOrNone, core
 
     if args.opt_mode == "noop":
         if resid_var is None or effect_covar is None or rho is None:
-            raise ValueError("'noop' is specified. --resid_var, --effect_covar, and --rho cannot be None.")
+            raise ValueError(
+                "'noop' is specified. --resid_var, --effect_covar, and --rho cannot be None."
+            )
 
         log.warning(
             (
@@ -260,19 +249,21 @@ def parameter_check(args) -> typing.Tuple[core.ListOrNone, core.ListOrNone, core
             )
 
         if args.seed <= 0:
-            raise ValueError("The seed specified for CV is invalid. Please choose a positive integer.")
+            raise ValueError(
+                "The seed specified for CV is invalid. Please choose a positive integer."
+            )
 
     return resid_var, effect_covar, rho
 
 
 def process_raw(
-        geno_paths: typing.List[str],
-        pheno_paths: typing.List[str],
-        covar_paths: typing.List[str] = None,
-        norm_X: bool = True,
-        norm_y: bool = False,
-        h2g: bool = False,
-        regress: bool = True,
+    geno_paths: typing.List[str],
+    pheno_paths: typing.List[str],
+    covar_paths: typing.List[str] = None,
+    norm_X: bool = True,
+    norm_y: bool = False,
+    h2g: bool = False,
+    regress: bool = True,
 ) -> core.CleanData:
     log = logging.getLogger(LOG)
 
@@ -376,7 +367,7 @@ def process_raw(
                 snps["a1_1"].values,
                 snps[f"a0_{idx + 1}"].values,
                 snps[f"a1_{idx + 1}"].values,
-                idx
+                idx,
             )
 
             # save the index for future swapping
@@ -388,7 +379,9 @@ def process_raw(
             # drop unused columns
             snps = snps.drop(columns=[f"a0_{idx + 1}", f"a1_{idx + 1}"])
         # rename columns for better indexing in the future
-    snps = snps.reset_index().rename(columns={"index": "SNPIndex", "a0_1": "a0", "a1_1": "a1"})
+    snps = snps.reset_index().rename(
+        columns={"index": "SNPIndex", "a0_1": "a0", "a1_1": "a1"}
+    )
 
     # find common individuals across geno, pheno, and covar within an ancestry
     common_fam = []
@@ -651,7 +644,9 @@ def _output_h2g(args, result, clean_data):
         shared_h2g = jnp.zeros(n_pop)
         for idx in range(n_pop):
             tmp_shared_h2g = estimate_her(
-                clean_data.geno[idx][:, SNPIndex], clean_data.pheno[idx], clean_data.covar[idx]
+                clean_data.geno[idx][:, SNPIndex],
+                clean_data.pheno[idx],
+                clean_data.covar[idx],
             )
             shared_h2g = shared_h2g.at[idx].set(tmp_shared_h2g)
         shared_pd = pd.DataFrame(
@@ -779,8 +774,8 @@ def build_finemap_parser(subp):
         type=int,
         help=(
             "Integer number of shared effects pre-specified.",
-            " Default is 10. Larger number may cause slow inference."
-        )
+            " Default is 10. Larger number may cause slow inference.",
+        ),
     )
 
     finemap.add_argument(
@@ -790,7 +785,7 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to standardize genotype data by centering around mean and scaling by standard deviation.",
             " Default is True. False may causal different inference.",
-        )
+        ),
     )
 
     finemap.add_argument(
@@ -800,7 +795,7 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to standardize phenotype data by centering around mean and scaling by standard deviation.",
             " Default is False. True may causal different inference.",
-        )
+        ),
     )
 
     finemap.add_argument(
@@ -810,8 +805,8 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to regress the covariates on each SNP. Default is True.",
             " True can slow the inference, but can be more accurate.",
-        )
-    )
+        ),
+    ),
 
     finemap.add_argument(
         "--pi",
@@ -864,8 +859,8 @@ def build_finemap_parser(subp):
         type=int,
         help=(
             "Maximum iterations for the optimization. Default is 500.",
-            " Larger number can slow the inference while smaller can cause inaccurate estimate."
-        )
+            " Larger number can slow the inference while smaller can cause inaccurate estimate.",
+        ),
     )
 
     finemap.add_argument(
@@ -874,8 +869,8 @@ def build_finemap_parser(subp):
         type=float,
         help=(
             "Minimum tolerance for the convergence. Default is 1e-5.",
-            " Smaller number can slow the inference while larger can cause inaccurate estimate."
-        )
+            " Smaller number can slow the inference while larger can cause inaccurate estimate.",
+        ),
     )
 
     finemap.add_argument(
@@ -899,8 +894,8 @@ def build_finemap_parser(subp):
         type=float,
         help=(
             "Specify the PIP threshold for SNPs to be included in the credible sets. Default is 0.9.",
-            " It has to be a float number between 0 and 1."
-        )
+            " It has to be a float number between 0 and 1.",
+        ),
     )
 
     finemap.add_argument(
@@ -909,8 +904,8 @@ def build_finemap_parser(subp):
         type=float,
         help=(
             "Specify the purity threshold for credible sets to be output. Default is 0.5.",
-            " It has to be a float number between 0 and 1."
-        )
+            " It has to be a float number between 0 and 1.",
+        ),
     )
 
     finemap.add_argument(
@@ -920,8 +915,8 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to perform heritability analysis using limix and output *.h2g.tsv file.",
             " Default is False. True will cause longer running time.",
-            " *.h2g.tsv file contains two estimated h2g using all genotypes and using only SNPs in the credible sets."
-        )
+            " *.h2g.tsv file contains two estimated h2g using all genotypes and using only SNPs in the credible sets.",
+        ),
     )
 
     finemap.add_argument(
@@ -931,7 +926,7 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to output *.weights.tsv file for prediction weights of all SNPs.",
             " Default is False. True will cause longer running time.",
-        )
+        ),
     )
 
     finemap.add_argument(
@@ -941,8 +936,8 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to output *.corr.tsv file.",
             " Default is False. True will cause longer running time.",
-            " *.cv.tsv file contains estimated variance and covariance across ancestries."
-        )
+            " *.cv.tsv file contains estimated variance and covariance across ancestries.",
+        ),
     )
 
     finemap.add_argument(
@@ -952,8 +947,8 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to perform cross validation (CV) and output CV results for future FUSION pipline.",
             " Default is False. True will cause longer running time.",
-            " CV results are *.cv.tsv file that includes the CV adjusted r-squared and corresponding p-value."
-        )
+            " CV results are *.cv.tsv file that includes the CV adjusted r-squared and corresponding p-value.",
+        ),
     )
 
     finemap.add_argument(
@@ -963,7 +958,7 @@ def build_finemap_parser(subp):
         help=(
             "The number of fold cross validation. Default is 5.",
             " It has to be a positive integer number. Larger number may cause longer running time.",
-        )
+        ),
     )
 
     finemap.add_argument(
@@ -973,7 +968,7 @@ def build_finemap_parser(subp):
         help=(
             "The seed to randomly cut data sets in cross validation. Default is 12345.",
             " It has to be positive integer number",
-        )
+        ),
     )
 
     finemap.add_argument(
@@ -981,7 +976,7 @@ def build_finemap_parser(subp):
         default="Trait",
         help=(
             "Trait, tissue, gene name of the phenotype for better indexing in downstream analysis. Default is 'Trait'.",
-        )
+        ),
     )
 
     # misc options
@@ -1003,7 +998,7 @@ def build_finemap_parser(subp):
         help=(
             "Prefix for output data. Default is 'sushie_finemap'.",
             " The software by default will output one file: *.cs.tsv that contains the credible sets.",
-        )
+        ),
     )
 
     return finemap
@@ -1033,10 +1028,10 @@ def _main(argsv):
 
     cmd_str = get_command_string(argsv)
 
+    version = metadata.version("sushie")
+
     masthead = "===================================" + os.linesep
-    masthead += (
-            "             SuShiE v{}             ".format(VERSION) + os.linesep
-    )
+    masthead += "             SuShiE v{}             ".format(version) + os.linesep
     masthead += "===================================" + os.linesep
 
     # setup logging
@@ -1072,6 +1067,7 @@ def _main(argsv):
     args.func(args)
 
     return 0
+
 
 def run_cli():
     return _main(sys.argv[1:])
