@@ -1,32 +1,35 @@
 import logging
-import typing
 import math
+import typing
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-from jax import nn, jit
+from jax import jit, nn
 
-import sushie
-from sushie import core
+from . import LOG, core
+
+VarUpdate = typing.Callable[
+    [jnp.ndarray, core.ArrayOrFloat, core.ArrayOrFloat, jnp.ndarray], core.ArrayOrFloat
+]
 
 
 def run_sushie(
-        Xs: typing.List[jnp.ndarray],
-        ys: typing.List[jnp.ndarray],
-        L: int,
-        norm_X: bool = True,
-        norm_y: bool = False,
-        pi: jnp.ndarray = None,
-        resid_var: jnp.ndarray = None,
-        effect_covar: jnp.ndarray = None,
-        rho: jnp.ndarray = None,
-        max_iter: int = 500,
-        min_tol: float = 1e-5,
-        opt_mode: str = "em",
-        threshold: float = 0.9,
-        purity: float = 0.5,
+    Xs: typing.List[jnp.ndarray],
+    ys: typing.List[jnp.ndarray],
+    L: int,
+    norm_X: bool = True,
+    norm_y: bool = False,
+    pi: jnp.ndarray = None,
+    resid_var: jnp.ndarray = None,
+    effect_covar: jnp.ndarray = None,
+    rho: jnp.ndarray = None,
+    max_iter: int = 500,
+    min_tol: float = 1e-5,
+    opt_mode: str = "em",
+    threshold: float = 0.9,
+    purity: float = 0.5,
 ) -> core.SushieResult:
-    log = logging.getLogger(sushie.LOG)
+    log = logging.getLogger(LOG)
 
     # check if number of the ancestry are the same
     if len(Xs) == len(ys):
@@ -127,7 +130,9 @@ def run_sushie(
 
     if opt_mode == "noop":
         if resid_var is None or effect_covar is None or rho is None:
-            raise ValueError("'noop' is specified. rho, resid_var, and effect_covar cannot be None.")
+            raise ValueError(
+                "'noop' is specified. rho, resid_var, and effect_covar cannot be None."
+            )
 
         log.warning(
             (
@@ -176,17 +181,17 @@ def run_sushie(
 
 
 def _inner_sushie(
-        Xs: typing.List[jnp.ndarray],
-        ys: typing.List[jnp.ndarray],
-        L: int,
-        priors: core.Prior,
-        opt_v_func: typing.Callable,
-        max_iter: int,
-        min_tol: float,
-        threshold: float,
-        purity: float,
+    Xs: typing.List[jnp.ndarray],
+    ys: typing.List[jnp.ndarray],
+    L: int,
+    priors: core.Prior,
+    opt_v_func: VarUpdate,
+    max_iter: int,
+    min_tol: float,
+    threshold: float,
+    purity: float,
 ) -> core.SushieResult:
-    log = logging.getLogger(sushie.LOG)
+    log = logging.getLogger(LOG)
 
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
@@ -237,9 +242,7 @@ def _inner_sushie(
         )
 
     pip = core.get_pip(posteriors.alpha)
-    cs = core.get_cs(
-        posteriors.alpha, Xs, threshold=threshold, purity=purity
-    )
+    cs = core.get_cs(posteriors.alpha, Xs, threshold=threshold, purity=purity)
 
     sushie_res = core.SushieResult(
         priors=priors,
@@ -253,11 +256,11 @@ def _inner_sushie(
 
 @jit
 def _update_effects(
-        Xs: typing.List[jnp.ndarray],
-        ys: typing.List[jnp.ndarray],
-        priors: core.Prior,
-        posteriors: core.Posterior,
-        opt_v_func: object,
+    Xs: typing.List[jnp.ndarray],
+    ys: typing.List[jnp.ndarray],
+    priors: core.Prior,
+    posteriors: core.Posterior,
+    opt_v_func: VarUpdate,
 ) -> typing.Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
@@ -272,24 +275,27 @@ def _update_effects(
     for l_iter in range(l_dim):
         residual_l = []
         for idx in range(n_pop):
-            residual_l.append(residual[idx] + Xs[idx] @ posteriors.post_mean[l_iter, :, idx])
+            residual_l.append(
+                residual[idx] + Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
+            )
 
         res_posterior, res_prior_covar = single_shared_effect_regression(
             Xs, residual_l, priors.effect_covar[l_iter], priors, opt_v_func
         )
-        posteriors: core.Posterior = posteriors._replace(
+        posteriors = posteriors._replace(
             alpha=posteriors.alpha.at[l_iter].set(res_posterior.alpha),
             post_mean=posteriors.post_mean.at[l_iter].set(
                 res_posterior.post_mean * res_posterior.alpha[:, jnp.newaxis]
             ),
             post_mean_sq=posteriors.post_mean_sq.at[l_iter].set(
-                res_posterior.post_mean_sq * res_posterior.alpha[:, jnp.newaxis, jnp.newaxis]
+                res_posterior.post_mean_sq
+                * res_posterior.alpha[:, jnp.newaxis, jnp.newaxis]
             ),
             post_covar=posteriors.post_covar.at[l_iter].set(
                 jnp.einsum("j,jmn->mn", res_posterior.alpha, res_posterior.post_mean_sq)
-            )
+            ),
         )
-        priors: core.Prior = priors._replace(
+        priors = priors._replace(
             effect_covar=priors.effect_covar.at[l_iter].set(res_prior_covar)
         )
 
@@ -300,12 +306,16 @@ def _update_effects(
         )
         kl = kl.at[l_iter].set(kl_alpha + kl_b)
         for idx in range(n_pop):
-            residual[idx] = residual_l[idx] - Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
+            residual[idx] = (
+                residual_l[idx] - Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
+            )
 
     erss_list = []
     exp_ll = 0.0
     tr_b_s = jnp.transpose(posteriors.post_mean)
-    tr_bsq_s = jnp.transpose(jnp.einsum("nmij,ij->nmi", posteriors.post_mean_sq, jnp.eye(n_pop)))
+    tr_bsq_s = jnp.transpose(
+        jnp.einsum("nmij,ij->nmi", posteriors.post_mean_sq, jnp.eye(n_pop))
+    )
     for idx in range(n_pop):
         tr_b = tr_b_s[idx]
         tr_bsq = tr_bsq_s[idx]
@@ -322,11 +332,11 @@ def _update_effects(
 
 @jit
 def single_shared_effect_regression(
-        Xs: typing.List[jnp.ndarray],
-        ys: typing.List[jnp.ndarray],
-        prior_covar_b: jnp.ndarray,
-        priors: core.Prior,
-        optimize_v,
+    Xs: typing.List[jnp.ndarray],
+    ys: typing.List[jnp.ndarray],
+    prior_covar_b: jnp.ndarray,
+    priors: core.Prior,
+    optimize_v: VarUpdate,
 ) -> typing.Tuple[core.Posterior, jnp.ndarray]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
@@ -345,24 +355,28 @@ def single_shared_effect_regression(
     tr_shat2 = jnp.transpose(shat2)
 
     shat2 = jnp.eye(n_pop) * (tr_shat2[:, jnp.newaxis])
-    update_covar_b: core.ArrayOrFloat = optimize_v(beta_hat, shat2, prior_covar_b, priors.pi)
+    update_covar_b: core.ArrayOrFloat = optimize_v(
+        beta_hat, shat2, prior_covar_b, priors.pi
+    )
 
-    posterior_res: core.Posterior = _compute_posterior(beta_hat, shat2, update_covar_b, priors.pi)
+    posterior_res: core.Posterior = _compute_posterior(
+        beta_hat, shat2, update_covar_b, priors.pi
+    )
 
     return posterior_res, update_covar_b
 
 
 @jit
 def _compute_posterior(
-        beta_hat: jnp.ndarray,
-        shat2: core.ArrayOrFloat,
-        prior_covar_b: core.ArrayOrFloat,
-        prior_weights: jnp.ndarray,
+    beta_hat: jnp.ndarray,
+    shat2: core.ArrayOrFloat,
+    prior_covar_b: core.ArrayOrFloat,
+    prior_weights: jnp.ndarray,
 ) -> core.Posterior:
     n_snps, n_pop = beta_hat.shape
     # quick way to calculate the inverse instead of using linalg.inv
     inv_shat2 = jnp.eye(n_pop) * (
-            1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
+        1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
     )
 
     # post_var = jnp.reciprocal(1 / shat2 + 1 / prior_var_b)  # A.1
@@ -393,30 +407,28 @@ def _compute_posterior(
 
 
 def _optimize_v_em(
-        beta_hat: jnp.ndarray,
-        shat2: core.ArrayOrFloat,
-        prior_covar_b: core.ArrayOrFloat,
-        prior_weights: jnp.ndarray,
+    beta_hat: jnp.ndarray,
+    shat2: core.ArrayOrFloat,
+    prior_covar_b: core.ArrayOrFloat,
+    prior_weights: jnp.ndarray,
 ) -> core.ArrayOrFloat:
     res = _compute_posterior(beta_hat, shat2, prior_covar_b, prior_weights)
 
-    new_prior_var_b = jnp.einsum(
-        "j,jmn->mn", res.alpha, res.post_mean_sq
-    )
+    new_prior_var_b = jnp.einsum("j,jmn->mn", res.alpha, res.post_mean_sq)
 
     return new_prior_var_b
 
 
 def _optimize_v_noop(
-        beta_hat: jnp.ndarray,
-        shat2: core.ArrayOrFloat,
-        prior_covar_b: core.ArrayOrFloat,
-        prior_weights: jnp.ndarray,
+    beta_hat: jnp.ndarray,
+    shat2: core.ArrayOrFloat,
+    prior_covar_b: core.ArrayOrFloat,
+    prior_weights: jnp.ndarray,
 ) -> core.ArrayOrFloat:
     return prior_covar_b
 
 
-def _construct_optimize_v(mode: str = "em") -> typing.Callable:
+def _construct_optimize_v(mode: str = "em") -> VarUpdate:
     if mode == "em":
         opt_fun = _optimize_v_em
     elif mode == "noop":
