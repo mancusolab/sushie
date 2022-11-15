@@ -1009,7 +1009,7 @@ def build_finemap_parser(subp):
     return finemap
 
 
-def main(argsv):
+def _main(argsv):
     # setup main parser
     argp = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -1073,6 +1073,9 @@ def main(argsv):
 
     return 0
 
+def run_cli():
+    return _main(sys.argv[1:])
+
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(_main(sys.argv[1:]))
