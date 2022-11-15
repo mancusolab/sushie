@@ -102,7 +102,7 @@ autodoc_class_signature = "separated"
 
 python_apigen_modules = {
     "sushie": "api/",
-    "sushie.infer": "api/infer/",
+    #"sushie.infer": "api/infer/",
 }
 
 python_apigen_default_groups = [

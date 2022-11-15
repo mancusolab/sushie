@@ -108,6 +108,7 @@ def kl_mvn(
     KL divergence between multiN(m1, s12) and multiN(m0, s02)
     KL(multiN(m1, s12) || multiN(m0, s02))
     """
+
     # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
     k, k = s02.shape
 

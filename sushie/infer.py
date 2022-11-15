@@ -6,8 +6,11 @@ import jax.numpy as jnp
 import jax.scipy.stats as stats
 from jax import jit, nn
 
-import sushie
-from sushie import core
+from . import LOG, core
+
+VarUpdate = typing.Callable[
+    [jnp.ndarray, core.ArrayOrFloat, core.ArrayOrFloat, jnp.ndarray], core.ArrayOrFloat
+]
 
 
 def run_sushie(
@@ -26,7 +29,7 @@ def run_sushie(
     threshold: float = 0.9,
     purity: float = 0.5,
 ) -> core.SushieResult:
-    log = logging.getLogger(sushie.LOG)
+    log = logging.getLogger(LOG)
 
     # check if number of the ancestry are the same
     if len(Xs) == len(ys):
@@ -182,13 +185,13 @@ def _inner_sushie(
     ys: typing.List[jnp.ndarray],
     L: int,
     priors: core.Prior,
-    opt_v_func: typing.Callable,
+    opt_v_func: VarUpdate,
     max_iter: int,
     min_tol: float,
     threshold: float,
     purity: float,
 ) -> core.SushieResult:
-    log = logging.getLogger(sushie.LOG)
+    log = logging.getLogger(LOG)
 
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
@@ -257,7 +260,7 @@ def _update_effects(
     ys: typing.List[jnp.ndarray],
     priors: core.Prior,
     posteriors: core.Posterior,
-    opt_v_func: object,
+    opt_v_func: VarUpdate,
 ) -> typing.Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
@@ -333,7 +336,7 @@ def single_shared_effect_regression(
     ys: typing.List[jnp.ndarray],
     prior_covar_b: jnp.ndarray,
     priors: core.Prior,
-    optimize_v,
+    optimize_v: VarUpdate,
 ) -> typing.Tuple[core.Posterior, jnp.ndarray]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
@@ -425,7 +428,7 @@ def _optimize_v_noop(
     return prior_covar_b
 
 
-def _construct_optimize_v(mode: str = "em") -> typing.Callable:
+def _construct_optimize_v(mode: str = "em") -> VarUpdate:
     if mode == "em":
         opt_fun = _optimize_v_em
     elif mode == "noop":

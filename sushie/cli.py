@@ -806,7 +806,7 @@ def build_finemap_parser(subp):
             "Indicator to regress the covariates on each SNP. Default is True.",
             " True can slow the inference, but can be more accurate.",
         ),
-    ),
+    )
 
     finemap.add_argument(
         "--pi",
