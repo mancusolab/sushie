@@ -1,7 +1,7 @@
 import logging
 
-from sushie.infer import run_sushie
-
+from sushie import cli, core, infer
+from sushie.cli import main
 
 # next 4 lines taken from
 #    https://github.com/pyro-ppl/numpyro/blob/master/numpyro/__init__.py
@@ -14,8 +14,10 @@ def _filter_absl_cpu_warning(record):
 logging.getLogger("absl").addFilter(_filter_absl_cpu_warning)
 
 
+
 __all__ = [
-    "run_sushie",
+    "cli", "core", "infer",
+
 ]
 
-LOG = "MAIN"
+
