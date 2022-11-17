@@ -161,14 +161,13 @@ def run_sushie(
     )
 
     # opt_v_func = _construct_optimize_v(opt_mode)
-
+    opt_v_func = None
     sushie_res = _inner_sushie(
         Xs,
         ys,
         L,
         priors,
-        # opt_v_func,
-        None,
+        opt_v_func,
         max_iter,
         min_tol,
         threshold,
@@ -184,7 +183,7 @@ def _inner_sushie(
     L: int,
     priors: core.Prior,
     # opt_v_func: core.AbstractOptFunc,
-    opt_v_func,
+    opt_v_func: core.ArrayOrNone,
     max_iter: int,
     min_tol: float,
     threshold: float,
@@ -255,7 +254,7 @@ def _update_effects(
     priors: core.Prior,
     posteriors: core.Posterior,
     # opt_v_func: core.AbstractOptFunc,
-    opt_v_func,
+    opt_v_func: core.ArrayOrNone,
 ) -> typing.Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
