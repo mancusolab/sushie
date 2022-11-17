@@ -1,7 +1,8 @@
 import typing
 
-import jax.numpy as jnp
 import pandas as pd
+
+import jax.numpy as jnp
 
 # from abc import ABC, abstractmethod
 

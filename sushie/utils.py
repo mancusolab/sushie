@@ -1,11 +1,12 @@
 import logging
 import typing
 
-import jax.numpy as jnp
 import limix.her as her
 import pandas as pd
 from pandas_plink import read_plink
 from scipy import stats
+
+import jax.numpy as jnp
 
 from . import core
 
