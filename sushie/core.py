@@ -65,6 +65,7 @@ class Posterior(typing.NamedTuple):
     post_mean: jnp.ndarray
     post_mean_sq: jnp.ndarray
     post_covar: jnp.ndarray
+    kl: jnp.ndarray
 
 
 class SushieResult(typing.NamedTuple):
@@ -72,19 +73,6 @@ class SushieResult(typing.NamedTuple):
     posteriors: Posterior
     pip: jnp.ndarray
     cs: pd.DataFrame
-
-
-class _IterationResult(typing.NamedTuple):
-    Xs: typing.List[jnp.ndarray]
-    ys: typing.List[jnp.ndarray]
-    priors: Prior
-    posteriors: Posterior
-    cur_iter: int
-    max_iter: int
-    min_tol: float
-    # opt_v_func: VarUpdate
-    opt_v_func: ArrayOrNone
-    elbo: typing.List[float]
 
 
 class _LResult(typing.NamedTuple):
@@ -95,4 +83,3 @@ class _LResult(typing.NamedTuple):
     posteriors: Posterior
     # opt_v_func: VarUpdate
     opt_v_func: ArrayOrNone
-    kl: jnp.ndarray

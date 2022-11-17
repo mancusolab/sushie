@@ -262,10 +262,9 @@ def _process_raw(
         tmp_fam = tmp_fam[["fid", "iid", "i"]].rename(
             columns={"i": f"famIDX_{idx + 1}"}
         )
-        tmp_pheno = tmp_pheno.reset_index()
         # keep track of pheno index for future matching the bed file if bed
         # files are shuffled due to merging
-        tmp_pheno = tmp_pheno.rename(
+        tmp_pheno = tmp_pheno.reset_index().rename(
             columns={"index": f"phenoIDX_{idx + 1}", 0: "fid", 1: "iid"}
         )
 
@@ -288,10 +287,9 @@ def _process_raw(
                 covar_paths[idx], sep="\t", header=None, dtype={0: object}
             )
             tmp_covar = _drop_na_inf(tmp_covar, "covar", idx)
-            tmp_covar = tmp_covar.reset_index()
             # keep track of covar index for future matching the bed file if
             # bed files are shuffled due to merging
-            tmp_covar = tmp_covar.rename(
+            tmp_covar = tmp_covar.reset_index().rename(
                 columns={"index": f"covarIDX_{idx + 1}", 0: "fid", 1: "iid"}
             )
             covar.append(tmp_covar)
@@ -308,8 +306,8 @@ def _process_raw(
         for idx in range(n_pop):
             snps_num_diff = bim[idx].shape[0] - snps.shape[0]
             log.warning(
-                f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and "
-                f"{snps.shape[0]} common SNPs. Will remove these independent SNPs.",
+                f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps.shape[0]}"
+                + " common SNPs. Will remove these independent SNPs.",
             )
     else:
         snps = bim[0]

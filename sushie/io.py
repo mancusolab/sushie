@@ -19,6 +19,12 @@ def _output_cs(args, result, clean_data):
     return None
 
 
+def _output_numpy(args, result):
+    jnp.save(f"{args.output}.all.results.npy", result)
+
+    return None
+
+
 def _output_corr(args, result):
     n_pop = len(result.priors.resid_var)
 

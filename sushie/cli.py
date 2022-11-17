@@ -199,12 +199,14 @@ def run_finemap(args):
         if args.corr:
             io._output_corr(args, result)
 
+        if args.numpy:
+            io._output_numpy(args, result)
+
         if args.cv:
             log.info(f"Starting {args.cv_num}-fold cross validation.")
             io._output_cv(args, clean_data, resid_var, effect_var, rho)
 
     except Exception as err:
-        # import pdb; pdb.set_trace()
         log.error(err)
 
     finally:
@@ -425,6 +427,18 @@ def build_finemap_parser(subp):
             "Indicator to output *.corr.tsv file.",
             " Default is False. True will cause longer running time.",
             " *.cv.tsv file contains estimated variance and covariance across ancestries.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--numpy",
+        default=False,
+        type=bool,
+        help=(
+            "Indicator to output *.npy file.",
+            " Default is False. True will cause longer running time.",
+            " *.npy file contains all the inference results including credible sets, pips, priors and posteriors",
+            " for your own wanted analysis.",
         ),
     )
 

@@ -198,9 +198,9 @@ def _inner_sushie(
         post_mean=jnp.zeros((L, n_snps, n_pop)),
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
         post_covar=jnp.zeros((L, n_snps, n_pop, n_pop)),
+        kl=jnp.zeros((L,)),
     )
 
-    # use lists for debugging, later on we'll drop to just scalar terms
     elbo = [-jnp.inf]
     for o_iter in range(max_iter):
         priors, posteriors, elbo_score = _update_effects(
@@ -212,7 +212,6 @@ def _inner_sushie(
         )
         elbo.append(elbo_score)
 
-        # print(f"eloglike  = {exp_ll} | kldiv = {kl_divs} | elbo: {elbo_score} |")
         if jnp.abs(elbo[o_iter + 1] - elbo[o_iter]) < min_tol:
             log.warning(
                 f"Reach minimum tolerance threshold {min_tol} after {o_iter + 1}"
@@ -246,7 +245,6 @@ def _inner_sushie(
     return sushie_res
 
 
-# @partial(jit, static_argnums=(4,))
 @jit
 def _update_effects(
     Xs: typing.List[jnp.ndarray],
@@ -258,7 +256,6 @@ def _update_effects(
 ) -> typing.Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
-    kl_init = jnp.zeros((l_dim,))
     residual = []
     XtXs = []
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
@@ -273,16 +270,17 @@ def _update_effects(
         priors=priors,
         posteriors=posteriors,
         opt_v_func=opt_v_func,
-        kl=kl_init,
     )
 
     l_result = lax.fori_loop(0, l_dim, _update_l, init_l_result)
 
+    _, _, _, update_priors, update_posteriors, _ = l_result
+
     erss_list = []
     exp_ll = 0.0
-    tr_b_s = l_result.posteriors.post_mean.T
+    tr_b_s = update_posteriors.post_mean.T
     tr_bsq_s = jnp.einsum(
-        "nmij,ij->nmi", l_result.posteriors.post_mean_sq, jnp.eye(n_pop)
+        "nmij,ij->nmi", update_posteriors.post_mean_sq, jnp.eye(n_pop)
     ).T
     for idx in range(n_pop):
         tr_b = tr_b_s[idx]
@@ -291,16 +289,15 @@ def _update_effects(
         erss_list.append(tmp_erss)
         exp_ll += utils._eloglike(Xs[idx], ys[idx], tr_b, tr_bsq, tmp_erss)
 
-    update_priors = l_result.priors._replace(resid_var=jnp.array(erss_list))
-    update_posteriors = l_result.posteriors
-    kl_divs = jnp.sum(l_result.kl)
+    update_priors = update_priors._replace(resid_var=jnp.array(erss_list))
+    kl_divs = jnp.sum(update_posteriors.kl)
     elbo_score = exp_ll - kl_divs
 
     return update_priors, update_posteriors, elbo_score
 
 
 def _update_l(l_iter: int, param: core._LResult) -> core._LResult:
-    Xs, residual, XtXs, priors, posteriors, opt_v_func, kl = param
+    Xs, residual, XtXs, priors, posteriors, opt_v_func = param
     n_pop = len(Xs)
     residual_l = []
 
@@ -309,41 +306,25 @@ def _update_l(l_iter: int, param: core._LResult) -> core._LResult:
             residual[idx] + Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
         )
 
-    res_posterior, res_prior_covar = _ssr(
-        Xs, residual_l, XtXs, priors.effect_covar[l_iter], priors, opt_v_func
+    res_priors, res_posteriors = _ssr(
+        Xs,
+        residual_l,
+        XtXs,
+        priors,
+        posteriors,
+        l_iter,
+        opt_v_func,
     )
 
-    posteriors = posteriors._replace(
-        alpha=posteriors.alpha.at[l_iter].set(res_posterior.alpha),
-        post_mean=posteriors.post_mean.at[l_iter].set(
-            res_posterior.post_mean * res_posterior.alpha[:, jnp.newaxis]
-        ),
-        post_mean_sq=posteriors.post_mean_sq.at[l_iter].set(
-            res_posterior.post_mean_sq
-            * res_posterior.alpha[:, jnp.newaxis, jnp.newaxis]
-        ),
-        post_covar=posteriors.post_covar.at[l_iter].set(
-            jnp.einsum("j,jmn->mn", res_posterior.alpha, res_posterior.post_mean_sq)
-        ),
-    )
-    priors = priors._replace(
-        effect_covar=priors.effect_covar.at[l_iter].set(res_prior_covar)
-    )
-
-    # third term for residual elbo (e.q. B.15)
-    kl_alpha = utils._kl_categorical(res_posterior.alpha, priors.pi)
-    kl_b = res_posterior.alpha.T @ utils._kl_mvn(
-        res_posterior.post_mean, res_posterior.post_covar, 0.0, res_prior_covar
-    )
-    kl = kl.at[l_iter].set(kl_alpha + kl_b)
     for idx in range(n_pop):
-        residual[idx] = residual_l[idx] - Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
+        residual[idx] = (
+            residual_l[idx] - Xs[idx] @ res_posteriors.post_mean[l_iter, :, idx]
+        )
 
     update_param = param._replace(
         ys=residual,
-        priors=priors,
-        posteriors=posteriors,
-        kl=kl,
+        priors=res_priors,
+        posteriors=res_posteriors,
     )
 
     return update_param
@@ -353,11 +334,12 @@ def _ssr(
     Xs: typing.List[jnp.ndarray],
     ys: typing.List[jnp.ndarray],
     XtXs: typing.List[jnp.ndarray],
-    prior_covar_b: jnp.ndarray,
     priors: core.Prior,
+    posteriors: core.Posterior,
+    l_iter: int,
     # optimize_v: core.AbstractOptFunc,
     optimize_v: core.ArrayOrNone,
-) -> typing.Tuple[core.Posterior, jnp.ndarray]:
+) -> typing.Tuple[core.Prior, core.Posterior]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
 
@@ -370,24 +352,28 @@ def _ssr(
         shat2 = shat2.at[:, idx].set(priors.resid_var[idx] / XtXs[idx])
 
     shat2 = jnp.eye(n_pop) * (shat2[:, jnp.newaxis])
+
     # update_covar_b: core.ArrayOrFloat = optimize_v(beta_hat, shat2, prior_covar_b, priors.pi)
-    update_covar_b: core.ArrayOrFloat = _optimize_v_em(
-        beta_hat, shat2, prior_covar_b, priors.pi
+    # opt_priors = _optimize_v_em(
+    #     beta_hat, shat2, priors, posteriors, l_iter
+    # )
+
+    update_priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+
+    _, update_posteriors = _compute_posterior(
+        beta_hat, shat2, update_priors, posteriors, l_iter
     )
 
-    posterior_res: core.Posterior = _compute_posterior(
-        beta_hat, shat2, update_covar_b, priors.pi
-    )
-
-    return posterior_res, update_covar_b
+    return update_priors, update_posteriors
 
 
 def _compute_posterior(
     beta_hat: jnp.ndarray,
     shat2: core.ArrayOrFloat,
-    prior_covar_b: core.ArrayOrFloat,
-    prior_weights: jnp.ndarray,
-) -> core.Posterior:
+    priors: core.Prior,
+    posteriors: core.Posterior,
+    l_iter: int,
+) -> typing.Tuple[core.Prior, core.Posterior]:
     n_snps, n_pop = beta_hat.shape
     # quick way to calculate the inverse instead of using linalg.inv
     inv_shat2 = jnp.eye(n_pop) * (
@@ -395,7 +381,7 @@ def _compute_posterior(
     )
 
     # post_var = jnp.reciprocal(1 / shat2 + 1 / prior_var_b)  # A.1
-    post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar_b))
+    post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(priors.effect_covar[l_iter]))
     # post_mean = (post_var / shat2) * beta_hat  # A.2
     # we want to use shat2 to calculate rTZDinv
     # shat2 is pxkxk, use jnp.diagonal to make it pxk
@@ -405,33 +391,45 @@ def _compute_posterior(
     post_mean = jnp.einsum("ijk,ik->ij", post_covar, rTZDinv)
     post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
     alpha = nn.softmax(
-        jnp.log(prior_weights)
+        jnp.log(priors.pi)
         - stats.multivariate_normal.logpdf(
             jnp.zeros((n_snps, n_pop)), post_mean, post_covar
         )
     )
+    weighted_post_mean = post_mean * alpha[:, jnp.newaxis]
+    weighted_post_mean_sq = post_mean_sq * alpha[:, jnp.newaxis, jnp.newaxis]
+    # this is also the prior in our E step
+    weighted_post_covar = jnp.einsum("j,jmn->mn", alpha, post_mean_sq)
 
-    res = core.Posterior(
-        alpha=alpha,
-        post_mean=post_mean,
-        post_mean_sq=post_mean_sq,
-        post_covar=post_covar,
+    # third term for residual elbo (e.q. B.15)
+    kl_alpha = utils._kl_categorical(alpha, priors.pi)
+    kl_b = alpha.T @ utils._kl_mvn(post_mean, post_covar, 0.0, weighted_post_covar)
+
+    update_posteriors = posteriors._replace(
+        alpha=posteriors.alpha.at[l_iter].set(alpha),
+        post_mean=posteriors.post_mean.at[l_iter].set(weighted_post_mean),
+        post_mean_sq=posteriors.post_mean_sq.at[l_iter].set(weighted_post_mean_sq),
+        post_covar=posteriors.post_covar.at[l_iter].set(weighted_post_covar),
+        kl=posteriors.kl.at[l_iter].set(kl_alpha + kl_b),
     )
 
-    return res
+    update_priors = priors._replace(
+        effect_covar=priors.effect_covar.at[l_iter].set(weighted_post_covar)
+    )
+
+    return update_priors, update_posteriors
 
 
 def _optimize_v_em(
     beta_hat: jnp.ndarray,
     shat2: core.ArrayOrFloat,
-    prior_covar_b: core.ArrayOrFloat,
-    prior_weights: jnp.ndarray,
-) -> core.ArrayOrFloat:
-    res = _compute_posterior(beta_hat, shat2, prior_covar_b, prior_weights)
+    priors: core.Prior,
+    posteriors: core.Posterior,
+    l_iter: int,
+) -> core.Prior:
+    update_prior, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
 
-    new_prior_var_b = jnp.einsum("j,jmn->mn", res.alpha, res.post_mean_sq)
-
-    return new_prior_var_b
+    return update_prior
 
 
 #
