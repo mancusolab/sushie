@@ -2,9 +2,9 @@ import logging
 import math
 import typing
 
+from jax import jit, lax, nn
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-from jax import jit, lax, nn
 
 from . import core, utils
 

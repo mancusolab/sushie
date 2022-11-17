@@ -1,8 +1,9 @@
 import copy
 
-import jax.numpy as jnp
 import pandas as pd
+
 from jax import random
+import jax.numpy as jnp
 
 from . import infer, utils
 
