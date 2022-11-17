@@ -3,13 +3,13 @@
 from __future__ import division
 
 import argparse
-from importlib import metadata
 import logging
 import math
 import os
 import sys
 import typing
 import warnings
+from importlib import metadata
 
 from . import core, infer, io, utils
 
