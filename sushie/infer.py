@@ -1,16 +1,16 @@
 import logging
 import math
 import typing
+from functools import partial
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
 from jax import jit, nn
 
-from . import LOG, core
+from . import compute, core
 
-VarUpdate = typing.Callable[
-    [jnp.ndarray, core.ArrayOrFloat, core.ArrayOrFloat, jnp.ndarray], core.ArrayOrFloat
-]
+# from .log import LOG
+LOG = "sushie"
 
 
 def run_sushie(
@@ -21,7 +21,7 @@ def run_sushie(
     norm_y: bool = False,
     pi: jnp.ndarray = None,
     resid_var: jnp.ndarray = None,
-    effect_covar: jnp.ndarray = None,
+    effect_var: jnp.ndarray = None,
     rho: jnp.ndarray = None,
     max_iter: int = 500,
     min_tol: float = 1e-5,
@@ -30,11 +30,9 @@ def run_sushie(
     purity: float = 0.5,
 ) -> core.SushieResult:
     log = logging.getLogger(LOG)
-
     # check if number of the ancestry are the same
     if len(Xs) == len(ys):
         n_pop = len(Xs)
-        log.info(f"Detecting {n_pop} features for SuShiE fine-mapping.")
     else:
         raise ValueError(
             "The number of geno and pheno data does not match. Check your input."
@@ -61,10 +59,8 @@ def run_sushie(
 
     if n_snps < L:
         raise ValueError(
-            (
-                "The number of common SNPs across ancestries is less than inferred L.",
-                "Please choose a smaller L or expand the genomic window.",
-            )
+            "The number of common SNPs across ancestries is less than inferred L."
+            + "Please choose a smaller L or expand the genomic window."
         )
 
     if min_tol > 0.1:
@@ -99,27 +95,25 @@ def run_sushie(
                 "The input of residual prior is invalid (<0). Check your input."
             )
 
-    if effect_covar is None:
-        effect_covar = [1e-3] * n_pop
+    if effect_var is None:
+        effect_var = [1e-3] * n_pop
     else:
-        if len(effect_covar) != n_pop:
+        if len(effect_var) != n_pop:
             raise ValueError(
                 "Number of specified effect prior does not match ancestry number."
             )
-        effect_covar = [float(i) for i in effect_covar]
-        if jnp.any(jnp.array(effect_covar) <= 0):
+        effect_var = [float(i) for i in effect_var]
+        if jnp.any(jnp.array(effect_var) <= 0):
             raise ValueError("The input of effect size prior is invalid (<0).")
 
+    exp_num_rho = math.comb(n_pop, 2)
     if rho is None:
-        rho = [0.1] * n_pop
+        rho = [0.1] * exp_num_rho
     else:
-        exp_num_rho = math.comb(n_pop, 2)
         if len(rho) != exp_num_rho:
             raise ValueError(
-                (
-                    f"Number of specified rho ({len(rho)}) does not match expected",
-                    f"number {exp_num_rho}.",
-                )
+                f"Number of specified rho ({len(rho)}) does not match expected"
+                + f"number {exp_num_rho}.",
             )
         rho = [float(i) for i in rho]
         # double-check the if it's invalid rho
@@ -129,16 +123,14 @@ def run_sushie(
             )
 
     if opt_mode == "noop":
-        if resid_var is None or effect_covar is None or rho is None:
+        if resid_var is None or effect_var is None or rho is None:
             raise ValueError(
-                "'noop' is specified. rho, resid_var, and effect_covar cannot be None."
+                "'noop' is specified. rho, resid_var, and effect_var cannot be None."
             )
 
         log.warning(
-            (
-                "No updates on the effect size prior because of 'noop' setting for"
-                " opt_mode. Inference may be inaccurate.",
-            )
+            "No updates on the effect size prior because of 'noop' setting for"
+            + " opt_mode. Inference may be inaccurate.",
         )
 
     if pi is not None and (pi >= 1 or pi <= 0):
@@ -146,12 +138,12 @@ def run_sushie(
             "Pi prior is not a probability (0-1). Specify a valid pi prior."
         )
 
-    effect_covar = jnp.diag(jnp.array(effect_covar))
+    effect_covar = jnp.diag(jnp.array(effect_var))
     ct = 0
     for row in range(1, n_pop):
         for col in range(n_pop):
             if col < row:
-                _cov = jnp.sqrt(effect_covar[row] * effect_covar[col])
+                _cov = jnp.sqrt(effect_var[row] * effect_var[col])
                 effect_covar = effect_covar.at[row, col].set(rho[ct] * _cov)
                 effect_covar = effect_covar.at[col, row].set(rho[ct] * _cov)
                 ct += 1
@@ -185,19 +177,18 @@ def _inner_sushie(
     ys: typing.List[jnp.ndarray],
     L: int,
     priors: core.Prior,
-    opt_v_func: VarUpdate,
+    opt_v_func: core.VarUpdate,
     max_iter: int,
     min_tol: float,
     threshold: float,
     purity: float,
 ) -> core.SushieResult:
     log = logging.getLogger(LOG)
-
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
 
     posteriors = core.Posterior(
-        alpha=jnp.zeros((n_snps, L)),
+        alpha=jnp.zeros((L, n_snps)),
         post_mean=jnp.zeros((L, n_snps, n_pop)),
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
         post_covar=jnp.zeros((L, n_snps, n_pop, n_pop)),
@@ -218,10 +209,8 @@ def _inner_sushie(
         # print(f"eloglike  = {exp_ll} | kldiv = {kl_divs} | elbo: {elbo_score} |")
         if jnp.abs(elbo[o_iter + 1] - elbo[o_iter]) < min_tol:
             log.warning(
-                (
-                    f"Reach minimum tolerance threshold {min_tol} after {o_iter + 1}",
-                    " iterations, stop optimization.",
-                ),
+                f"Reach minimum tolerance threshold {min_tol} after {o_iter + 1}"
+                + " iterations, stop optimization.",
             )
             break
 
@@ -234,15 +223,13 @@ def _inner_sushie(
         log.info(f"Optimization finished. Final ELBO score: {elbo[-1]}.")
     else:
         raise ValueError(
-            (
-                f"ELBO does not non-decrease. Final ELBO score: {elbo[-1]}.",
-                " Double check your genotype, phenotype, and covariate data.",
-                " Contact developer if this error message remains.",
-            )
+            f"ELBO does not non-decrease. Final ELBO score: {elbo[-1]}."
+            + " Double check your genotype, phenotype, and covariate data."
+            + " Contact developer if this error message remains.",
         )
 
-    pip = core.get_pip(posteriors.alpha)
-    cs = core.get_cs(posteriors.alpha, Xs, threshold=threshold, purity=purity)
+    pip = compute.get_pip(posteriors.alpha)
+    cs = compute.get_cs(posteriors.alpha, Xs, threshold=threshold, purity=purity)
 
     sushie_res = core.SushieResult(
         priors=priors,
@@ -254,23 +241,23 @@ def _inner_sushie(
     return sushie_res
 
 
-@jit
+@partial(jit, static_argnums=(4,))
 def _update_effects(
     Xs: typing.List[jnp.ndarray],
     ys: typing.List[jnp.ndarray],
     priors: core.Prior,
     posteriors: core.Posterior,
-    opt_v_func: VarUpdate,
+    opt_v_func: core.VarUpdate,
 ) -> typing.Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
-
     kl = jnp.zeros((l_dim,))
     residual = []
-    # bv is Lxpxk, sum across all Ls
+    XtXs = []
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
     for idx in range(n_pop):
         residual.append(ys[idx] - Xs[idx] @ post_mean_lsum[:, idx])
+        XtXs.append(jnp.sum(Xs[idx] ** 2, axis=0))
 
     for l_iter in range(l_dim):
         residual_l = []
@@ -280,8 +267,9 @@ def _update_effects(
             )
 
         res_posterior, res_prior_covar = single_shared_effect_regression(
-            Xs, residual_l, priors.effect_covar[l_iter], priors, opt_v_func
+            Xs, residual_l, XtXs, priors.effect_covar[l_iter], priors, opt_v_func
         )
+
         posteriors = posteriors._replace(
             alpha=posteriors.alpha.at[l_iter].set(res_posterior.alpha),
             post_mean=posteriors.post_mean.at[l_iter].set(
@@ -300,8 +288,8 @@ def _update_effects(
         )
 
         # third term for residual elbo (e.q. B.15)
-        kl_alpha = core.kl_categorical(res_posterior.alpha, priors.pi)
-        kl_b = res_posterior.alpha.T @ core.kl_mvn(
+        kl_alpha = compute.kl_categorical(res_posterior.alpha, priors.pi)
+        kl_b = res_posterior.alpha.T @ compute.kl_mvn(
             res_posterior.post_mean, res_posterior.post_covar, 0.0, res_prior_covar
         )
         kl = kl.at[l_iter].set(kl_alpha + kl_b)
@@ -312,16 +300,14 @@ def _update_effects(
 
     erss_list = []
     exp_ll = 0.0
-    tr_b_s = jnp.transpose(posteriors.post_mean)
-    tr_bsq_s = jnp.transpose(
-        jnp.einsum("nmij,ij->nmi", posteriors.post_mean_sq, jnp.eye(n_pop))
-    )
+    tr_b_s = posteriors.post_mean.T
+    tr_bsq_s = jnp.einsum("nmij,ij->nmi", posteriors.post_mean_sq, jnp.eye(n_pop)).T
     for idx in range(n_pop):
         tr_b = tr_b_s[idx]
         tr_bsq = tr_bsq_s[idx]
-        tmp_erss = core.erss(Xs[idx], ys[idx], tr_b, tr_bsq) / ns[idx]
+        tmp_erss = compute.erss(Xs[idx], ys[idx], tr_b, tr_bsq) / ns[idx]
         erss_list.append(tmp_erss)
-        exp_ll += core.eloglike(Xs[idx], ys[idx], tr_b, tr_bsq, tmp_erss)
+        exp_ll += compute.eloglike(Xs[idx], ys[idx], tr_b, tr_bsq, tmp_erss)
 
     priors: core.Prior = priors._replace(resid_var=jnp.array(erss_list))
     kl_divs = jnp.sum(kl)
@@ -330,31 +316,26 @@ def _update_effects(
     return priors, posteriors, elbo_score
 
 
-@jit
 def single_shared_effect_regression(
     Xs: typing.List[jnp.ndarray],
     ys: typing.List[jnp.ndarray],
+    XtXs: typing.List[jnp.ndarray],
     prior_covar_b: jnp.ndarray,
     priors: core.Prior,
-    optimize_v: VarUpdate,
+    optimize_v: core.VarUpdate,
 ) -> typing.Tuple[core.Posterior, jnp.ndarray]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
 
-    # we eventually want beta hat to be pxk
-    tr_beta_hat = jnp.zeros((n_pop, n_snps))
-    shat2 = jnp.zeros((n_pop, n_snps))
+    beta_hat = jnp.zeros((n_snps, n_pop))
+    shat2 = jnp.zeros((n_snps, n_pop))
 
     for idx in range(n_pop):
-        XtX = jnp.sum(Xs[idx] ** 2, axis=0)[:, jnp.newaxis]
-        Xty = Xs[idx].T @ ys[idx][:, jnp.newaxis]
-        tr_beta_hat = tr_beta_hat.at[idx].set(Xty / XtX)
-        shat2 = shat2.at[idx].set(priors.resid_var[idx] / XtX)
+        Xty = Xs[idx].T @ ys[idx]
+        beta_hat = beta_hat.at[:, idx].set(Xty / XtXs[idx])
+        shat2 = shat2.at[:, idx].set(priors.resid_var[idx] / XtXs[idx])
 
-    beta_hat = jnp.transpose(tr_beta_hat)
-    tr_shat2 = jnp.transpose(shat2)
-
-    shat2 = jnp.eye(n_pop) * (tr_shat2[:, jnp.newaxis])
+    shat2 = jnp.eye(n_pop) * (shat2[:, jnp.newaxis])
     update_covar_b: core.ArrayOrFloat = optimize_v(
         beta_hat, shat2, prior_covar_b, priors.pi
     )
@@ -366,7 +347,6 @@ def single_shared_effect_regression(
     return posterior_res, update_covar_b
 
 
-@jit
 def _compute_posterior(
     beta_hat: jnp.ndarray,
     shat2: core.ArrayOrFloat,
@@ -428,7 +408,7 @@ def _optimize_v_noop(
     return prior_covar_b
 
 
-def _construct_optimize_v(mode: str = "em") -> VarUpdate:
+def _construct_optimize_v(mode: str = "em") -> core.VarUpdate:
     if mode == "em":
         opt_fun = _optimize_v_em
     elif mode == "noop":

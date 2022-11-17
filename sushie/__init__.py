@@ -2,8 +2,6 @@ import logging
 
 from . import cli, core, infer
 
-LOG = "sushie"
-
 
 # next 4 lines taken from
 #    https://github.com/pyro-ppl/numpyro/blob/master/numpyro/__init__.py
