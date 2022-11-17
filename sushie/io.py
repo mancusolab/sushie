@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import pandas as pd
 from jax import random
 
-from . import compute, infer
+from . import infer, utils
 
 
 def _output_cs(args, result, clean_data):
@@ -74,7 +74,7 @@ def _output_h2g(args, result, clean_data):
     if len(SNPIndex) != 0:
         shared_h2g = jnp.zeros(n_pop)
         for idx in range(n_pop):
-            tmp_shared_h2g = compute.estimate_her(
+            tmp_shared_h2g = utils._estimate_her(
                 clean_data.geno[idx][:, SNPIndex],
                 clean_data.pheno[idx],
                 clean_data.covar[idx],
@@ -147,7 +147,7 @@ def _output_cv(args, clean_data, resid_var, effect_var, rho):
 
     cv_res = []
     for idx in range(n_pop):
-        _, adj_r2, pval = compute.ols(est_y[idx][:, jnp.newaxis], cv_pheno[idx])
+        _, adj_r2, pval = utils._ols(est_y[idx][:, jnp.newaxis], cv_pheno[idx])
         cv_res.append([adj_r2, pval[1]])
 
     sample_size = [i.shape[0] for i in clean_data.geno]

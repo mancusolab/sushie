@@ -11,7 +11,7 @@ import typing
 import warnings
 from importlib import metadata
 
-from . import compute, core, infer, io
+from . import core, infer, io, utils
 
 # from .log import LOG
 
@@ -22,7 +22,7 @@ with warnings.catch_warnings():
     import jax.numpy as jnp
 
 
-def get_command_string(args):
+def _get_command_string(args):
     """
     Format sushie call and options into a string for logging/printing
     :return: string containing formatted arguments to sushie
@@ -51,7 +51,7 @@ def get_command_string(args):
     return base + "".join(rest_strs) + os.linesep
 
 
-def parameter_check(
+def _parameter_check(
     args,
 ) -> typing.Tuple[core.ListOrNone, core.ListOrNone, core.ListOrNone]:
     log = logging.getLogger(LOG)
@@ -164,9 +164,9 @@ def run_finemap(args):
     log = logging.getLogger(LOG)
 
     try:
-        resid_var, effect_var, rho = parameter_check(args)
+        resid_var, effect_var, rho = _parameter_check(args)
 
-        clean_data = compute.process_raw(
+        clean_data = utils._process_raw(
             args.geno, args.pheno, args.covar, args.norm_X, args.norm_y, args.regress
         )
 
@@ -204,7 +204,9 @@ def run_finemap(args):
             io._output_cv(args, clean_data, resid_var, effect_var, rho)
 
     except Exception as err:
+        # import pdb; pdb.set_trace()
         log.error(err)
+
     finally:
         log.info(
             "Finished SuShiE fine-mapping. Thanks for using our software."
@@ -512,7 +514,7 @@ def _main(argsv):
         argp.print_help()
         return 2  # command-line error
 
-    cmd_str = get_command_string(argsv)
+    cmd_str = _get_command_string(argsv)
 
     version = metadata.version("sushie")
 

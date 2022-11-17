@@ -13,13 +13,13 @@ from . import core
 LOG = "sushie"
 
 
-def get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
+def _get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
     pip = 1 - jnp.prod((1 - alpha), axis=0)
 
     return pip
 
 
-def get_cs(
+def _get_cs(
     alpha: jnp.ndarray,
     Xs: typing.List[jnp.ndarray],
     threshold: float = 0.9,
@@ -62,7 +62,7 @@ def get_cs(
     return cs
 
 
-def kl_categorical(
+def _kl_categorical(
     alpha: jnp.ndarray,
     pi: jnp.ndarray,
 ) -> float:
@@ -73,7 +73,7 @@ def kl_categorical(
     return jnp.nansum(alpha * (jnp.log(alpha) - jnp.log(pi)))
 
 
-def kl_mvn(
+def _kl_mvn(
     m1: jnp.ndarray,
     s12: jnp.ndarray,
     m0: float,
@@ -103,7 +103,7 @@ def kl_mvn(
 
 
 # SuSiE Supplementary material (B.9)
-def erss(
+def _erss(
     X: jnp.ndarray, y: jnp.ndarray, beta: jnp.ndarray, beta_sq: jnp.ndarray
 ) -> core.ArrayOrFloat:
     mu_li = X @ beta
@@ -118,7 +118,7 @@ def erss(
 # SuSiE Supplementary material (B.5)
 
 
-def eloglike(
+def _eloglike(
     X: jnp.ndarray,
     y: jnp.ndarray,
     beta: jnp.ndarray,
@@ -127,12 +127,12 @@ def eloglike(
 ) -> core.ArrayOrFloat:
     n, p = X.shape
     norm_term = -(0.5 * n) * jnp.log(2 * jnp.pi * sigma_sq)
-    quad_term = -(0.5 / sigma_sq) * erss(X, y, beta, beta_sq)
+    quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)
 
     return norm_term + quad_term
 
 
-def drop_na_inf(df: pd.DataFrame, nam: str, idx: int) -> pd.DataFrame:
+def _drop_na_inf(df: pd.DataFrame, nam: str, idx: int) -> pd.DataFrame:
     log = logging.getLogger(LOG)
     old_row = df.shape[0]
     df.replace([jnp.inf, -jnp.inf], jnp.nan)
@@ -145,7 +145,7 @@ def drop_na_inf(df: pd.DataFrame, nam: str, idx: int) -> pd.DataFrame:
     return df
 
 
-def ols(X, y):
+def _ols(X, y):
     """
     Perform a marginal linear regression for each snp on the phenotype.
 
@@ -170,7 +170,7 @@ def ols(X, y):
     return residual, adj_r, p_val
 
 
-def allele_check(
+def _allele_check(
     base0: pd.Series,
     base1: pd.Series,
     compare0: pd.Series,
@@ -209,7 +209,7 @@ def allele_check(
     return correct_idx, flipped_idx, wrong_idx
 
 
-def estimate_her(X: jnp.ndarray, y: jnp.ndarray, C: jnp.ndarray = None) -> float:
+def _estimate_her(X: jnp.ndarray, y: jnp.ndarray, C: jnp.ndarray = None) -> float:
     n, p = X.shape
     A = jnp.dot(X, X.T) / p
     h2g = her.estimate(y, "normal", A, C, verbose=False)
@@ -217,7 +217,7 @@ def estimate_her(X: jnp.ndarray, y: jnp.ndarray, C: jnp.ndarray = None) -> float
     return h2g
 
 
-def process_raw(
+def _process_raw(
     geno_paths: typing.List[str],
     pheno_paths: typing.List[str],
     covar_paths: typing.List[str] = None,
@@ -245,9 +245,9 @@ def process_raw(
         )
 
         # drop all the nan inf values
-        tmp_bim = drop_na_inf(tmp_bim, "bim", idx)
-        tmp_fam = drop_na_inf(tmp_fam, "fam", idx)
-        tmp_pheno = drop_na_inf(tmp_pheno, "pheno", idx)
+        tmp_bim = _drop_na_inf(tmp_bim, "bim", idx)
+        tmp_fam = _drop_na_inf(tmp_fam, "fam", idx)
+        tmp_pheno = _drop_na_inf(tmp_pheno, "pheno", idx)
 
         # rename the columns with pop index for better processing in the future
         tmp_bim = tmp_bim.rename(
@@ -287,7 +287,7 @@ def process_raw(
             tmp_covar = pd.read_csv(
                 covar_paths[idx], sep="\t", header=None, dtype={0: object}
             )
-            tmp_covar = drop_na_inf(tmp_covar, "covar", idx)
+            tmp_covar = _drop_na_inf(tmp_covar, "covar", idx)
             tmp_covar = tmp_covar.reset_index()
             # keep track of covar index for future matching the bed file if
             # bed files are shuffled due to merging
@@ -318,7 +318,7 @@ def process_raw(
     flip_idx = []
     if n_pop > 1:
         for idx in range(1, n_pop):
-            correct_idx, tmp_flip_idx, wrong_idx = allele_check(
+            correct_idx, tmp_flip_idx, wrong_idx = _allele_check(
                 snps["a0_1"].values,
                 snps["a1_1"].values,
                 snps[f"a0_{idx + 1}"].values,
@@ -432,7 +432,7 @@ def process_raw(
     if h2g:
         est_h2g = jnp.zeros(n_pop)
         for idx in range(n_pop):
-            tmp_h2g = estimate_her(bed[idx], pheno[idx], covar[idx])
+            tmp_h2g = _estimate_her(bed[idx], pheno[idx], covar[idx])
             est_h2g = est_h2g.at[idx].set(tmp_h2g)
     else:
         est_h2g = None
@@ -440,7 +440,7 @@ def process_raw(
     # regress covar on y
     for idx in range(n_pop):
         if covar[idx] is not None:
-            pheno_resid, _, _ = ols(covar[idx], pheno[idx])
+            pheno_resid, _, _ = _ols(covar[idx], pheno[idx])
             pheno[idx] = pheno_resid
             # regress covar on each SNP, it might be slow, the default is True
             if regress:
@@ -448,7 +448,7 @@ def process_raw(
                     geno_resid,
                     _,
                     _,
-                ) = ols(covar[idx], bed[idx])
+                ) = _ols(covar[idx], bed[idx])
                 bed[idx] = geno_resid
     log.info(
         f"Successfully prepare genotype ({bed[0].shape[1]} SNPs) and phenotype data for {n_pop}"
