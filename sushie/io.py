@@ -1,3 +1,4 @@
+import argparse
 import copy
 
 import pandas as pd
@@ -5,10 +6,16 @@ import pandas as pd
 import jax.numpy as jnp
 from jax import random
 
-from . import infer, utils
+from . import core, infer, utils
 
 
-def _output_cs(args, result, clean_data):
+def output_cs(
+    args: argparse.Namespace, result: core.SushieResult, clean_data: core.CleanData
+) -> None:
+    """
+    Function to output credible sets in tsv files
+    Args:
+    """
     cs = (
         pd.merge(clean_data.snp, result.cs, how="inner", on=["SNPIndex"])
         .drop(columns=["SNPIndex"])
@@ -20,13 +27,19 @@ def _output_cs(args, result, clean_data):
     return None
 
 
-def _output_numpy(args, result):
+def output_numpy(args: argparse.Namespace, result: core.SushieResult) -> None:
+    """
+    Function to output all the results in npy files
+    """
     jnp.save(f"{args.output}.all.results.npy", result)
 
     return None
 
 
-def _output_corr(args, result):
+def output_corr(args: argparse.Namespace, result: core.SushieResult) -> None:
+    """
+    Function to output correlation results in tsv files
+    """
     n_pop = len(result.priors.resid_var)
 
     CSIndex = jnp.unique(result.cs.CSIndex.values.astype(int))
@@ -54,7 +67,12 @@ def _output_corr(args, result):
     return None
 
 
-def _output_weights(args, result, clean_data):
+def output_weights(
+    args: argparse.Namespace, result: core.SushieResult, clean_data: core.CleanData
+) -> None:
+    """
+    Function to output prediction weights in tsv files
+    """
     n_pop = len(clean_data.geno)
 
     snp_copy = copy.deepcopy(clean_data.snp).assign(trait=args.trait)
@@ -68,7 +86,12 @@ def _output_weights(args, result, clean_data):
     return None
 
 
-def _output_h2g(args, result, clean_data):
+def output_h2g(
+    args: argparse.Namespace, result: core.SushieResult, clean_data: core.CleanData
+) -> None:
+    """
+    Function to output heritability analysis  results in tsv files
+    """
     n_pop = len(clean_data.geno)
 
     est_her = pd.DataFrame(
@@ -84,7 +107,6 @@ def _output_h2g(args, result, clean_data):
             tmp_shared_h2g = utils._estimate_her(
                 clean_data.geno[idx][:, SNPIndex],
                 clean_data.pheno[idx],
-                clean_data.covar[idx],
             )
             shared_h2g = shared_h2g.at[idx].set(tmp_shared_h2g)
         shared_pd = pd.DataFrame(
@@ -98,7 +120,16 @@ def _output_h2g(args, result, clean_data):
     return None
 
 
-def _output_cv(args, clean_data, resid_var, effect_var, rho):
+def output_cv(
+    args: argparse.Namespace,
+    clean_data: core.CleanData,
+    resid_var: jnp.ndarray = None,
+    effect_var: jnp.ndarray = None,
+    rho: jnp.ndarray = None,
+) -> None:
+    """
+    Function to output cross validation results in tsv files
+    """
     rng_key = random.PRNGKey(args.seed)
     cv_geno = copy.deepcopy(clean_data.geno)
     cv_pheno = copy.deepcopy(clean_data.pheno)
@@ -154,7 +185,7 @@ def _output_cv(args, clean_data, resid_var, effect_var, rho):
 
     cv_res = []
     for idx in range(n_pop):
-        _, adj_r2, pval = utils._ols(est_y[idx][:, jnp.newaxis], cv_pheno[idx])
+        _, adj_r2, pval = utils.ols(est_y[idx][:, jnp.newaxis], cv_pheno[idx])
         cv_res.append([adj_r2, pval[1]])
 
     sample_size = [i.shape[0] for i in clean_data.geno]

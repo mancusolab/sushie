@@ -8,14 +8,19 @@ from jax import jit, lax, nn
 
 from . import core, utils
 
-# from abc import ABC, abstractmethod
-# from functools import partial
-
-# from jax.tree_util import register_pytree_node, register_pytree_node_class
-
-
-# from .log import LOG
 LOG = "sushie"
+
+
+class _LResult(typing.NamedTuple):
+    """ """
+
+    Xs: typing.List[jnp.ndarray]
+    ys: typing.List[jnp.ndarray]
+    XtXs: typing.List[jnp.ndarray]
+    priors: core.Prior
+    posteriors: core.Posterior
+    opt_v_func: core.AbstractOptFunc
+    # opt_v_func: core.ArrayOrNone
 
 
 def run_sushie(
@@ -34,6 +39,13 @@ def run_sushie(
     threshold: float = 0.9,
     purity: float = 0.5,
 ) -> core.SushieResult:
+    """
+    The main inference function for SuSiE PCA.
+    Attributes:
+        mu_z: mean parameter for factor Z
+
+    """
+
     log = logging.getLogger(LOG)
     # check if number of the ancestry are the same
     if len(Xs) == len(ys):
@@ -133,11 +145,6 @@ def run_sushie(
                 "'noop' is specified. rho, resid_var, and effect_var cannot be None."
             )
 
-        log.warning(
-            "No updates on the effect size prior because of 'noop' setting for"
-            + " opt_mode. Inference may be inaccurate.",
-        )
-
     if pi is not None and (pi >= 1 or pi <= 0):
         raise ValueError(
             "Pi prior is not a probability (0-1). Specify a valid pi prior."
@@ -160,39 +167,6 @@ def run_sushie(
         effect_covar=jnp.array([effect_covar] * L),
     )
 
-    # opt_v_func = _construct_optimize_v(opt_mode)
-    opt_v_func = None
-    sushie_res = _inner_sushie(
-        Xs,
-        ys,
-        L,
-        priors,
-        opt_v_func,
-        max_iter,
-        min_tol,
-        threshold,
-        purity,
-    )
-
-    return sushie_res
-
-
-def _inner_sushie(
-    Xs: typing.List[jnp.ndarray],
-    ys: typing.List[jnp.ndarray],
-    L: int,
-    priors: core.Prior,
-    # opt_v_func: core.AbstractOptFunc,
-    opt_v_func: core.ArrayOrNone,
-    max_iter: int,
-    min_tol: float,
-    threshold: float,
-    purity: float,
-) -> core.SushieResult:
-    log = logging.getLogger(LOG)
-    n_pop = len(Xs)
-    _, n_snps = Xs[0].shape
-
     posteriors = core.Posterior(
         alpha=jnp.zeros((L, n_snps)),
         post_mean=jnp.zeros((L, n_snps, n_pop)),
@@ -201,11 +175,20 @@ def _inner_sushie(
         kl=jnp.zeros((L,)),
     )
 
+    # hard code for now only use "em", instead of "noop"
+    opt_v_func = _construct_optimize_v(opt_mode)
+    # opt_v_func = None
+
+    XtXs = []
+    for idx in range(n_pop):
+        XtXs.append(jnp.sum(Xs[idx] ** 2, axis=0))
+
     elbo = [-jnp.inf]
     for o_iter in range(max_iter):
         priors, posteriors, elbo_score = _update_effects(
             Xs,
             ys,
+            XtXs,
             priors,
             posteriors,
             opt_v_func,
@@ -223,6 +206,7 @@ def _inner_sushie(
             log.warning(
                 f"Reach maximum iteration threshold {max_iter} after {o_iter + 1}."
             )
+
     if all(i <= j or jnp.isclose(i, j, atol=1e-8) for i, j in zip(elbo, elbo[1:])):
         log.info(f"Optimization finished. Final ELBO score: {elbo[-1]}.")
     else:
@@ -233,37 +217,30 @@ def _inner_sushie(
         )
 
     pip = utils._get_pip(posteriors.alpha)
-    cs = utils._get_cs(posteriors.alpha, Xs, threshold=threshold, purity=purity)
+    cs = utils._get_cs(posteriors.alpha, Xs, threshold, purity)
 
-    sushie_res = core.SushieResult(
-        priors=priors,
-        posteriors=posteriors,
-        pip=pip,
-        cs=cs,
-    )
-
-    return sushie_res
+    return core.SushieResult(priors, posteriors, pip, cs)
 
 
 @jit
 def _update_effects(
     Xs: typing.List[jnp.ndarray],
     ys: typing.List[jnp.ndarray],
+    XtXs: typing.List[jnp.ndarray],
     priors: core.Prior,
     posteriors: core.Posterior,
-    # opt_v_func: core.AbstractOptFunc,
-    opt_v_func: core.ArrayOrNone,
+    opt_v_func: core.AbstractOptFunc,
+    # opt_v_func: core.ArrayOrNone,
 ) -> typing.Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
     residual = []
-    XtXs = []
+
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
     for idx in range(n_pop):
         residual.append(ys[idx] - Xs[idx] @ post_mean_lsum[:, idx])
-        XtXs.append(jnp.sum(Xs[idx] ** 2, axis=0))
 
-    init_l_result = core._LResult(
+    init_l_result = _LResult(
         Xs=Xs,
         ys=residual,
         XtXs=XtXs,
@@ -274,14 +251,12 @@ def _update_effects(
 
     l_result = lax.fori_loop(0, l_dim, _update_l, init_l_result)
 
-    _, _, _, update_priors, update_posteriors, _ = l_result
+    _, _, _, priors, posteriors, _ = l_result
 
     erss_list = []
     exp_ll = 0.0
-    tr_b_s = update_posteriors.post_mean.T
-    tr_bsq_s = jnp.einsum(
-        "nmij,ij->nmi", update_posteriors.post_mean_sq, jnp.eye(n_pop)
-    ).T
+    tr_b_s = posteriors.post_mean.T
+    tr_bsq_s = jnp.einsum("nmij,ij->nmi", posteriors.post_mean_sq, jnp.eye(n_pop)).T
     for idx in range(n_pop):
         tr_b = tr_b_s[idx]
         tr_bsq = tr_bsq_s[idx]
@@ -289,14 +264,14 @@ def _update_effects(
         erss_list.append(tmp_erss)
         exp_ll += utils._eloglike(Xs[idx], ys[idx], tr_b, tr_bsq, tmp_erss)
 
-    update_priors = update_priors._replace(resid_var=jnp.array(erss_list))
-    kl_divs = jnp.sum(update_posteriors.kl)
+    priors = priors._replace(resid_var=jnp.array(erss_list))
+    kl_divs = jnp.sum(posteriors.kl)
     elbo_score = exp_ll - kl_divs
 
-    return update_priors, update_posteriors, elbo_score
+    return priors, posteriors, elbo_score
 
 
-def _update_l(l_iter: int, param: core._LResult) -> core._LResult:
+def _update_l(l_iter: int, param: _LResult) -> _LResult:
     Xs, residual, XtXs, priors, posteriors, opt_v_func = param
     n_pop = len(Xs)
     residual_l = []
@@ -306,7 +281,7 @@ def _update_l(l_iter: int, param: core._LResult) -> core._LResult:
             residual[idx] + Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
         )
 
-    res_priors, res_posteriors = _ssr(
+    priors, posteriors = _ssr(
         Xs,
         residual_l,
         XtXs,
@@ -317,14 +292,12 @@ def _update_l(l_iter: int, param: core._LResult) -> core._LResult:
     )
 
     for idx in range(n_pop):
-        residual[idx] = (
-            residual_l[idx] - Xs[idx] @ res_posteriors.post_mean[l_iter, :, idx]
-        )
+        residual[idx] = residual_l[idx] - Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
 
     update_param = param._replace(
         ys=residual,
-        priors=res_priors,
-        posteriors=res_posteriors,
+        priors=priors,
+        posteriors=posteriors,
     )
 
     return update_param
@@ -337,8 +310,7 @@ def _ssr(
     priors: core.Prior,
     posteriors: core.Posterior,
     l_iter: int,
-    # optimize_v: core.AbstractOptFunc,
-    optimize_v: core.ArrayOrNone,
+    optimize_v: core.AbstractOptFunc,
 ) -> typing.Tuple[core.Prior, core.Posterior]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
@@ -353,18 +325,11 @@ def _ssr(
 
     shat2 = jnp.eye(n_pop) * (shat2[:, jnp.newaxis])
 
-    # update_covar_b: core.ArrayOrFloat = optimize_v(beta_hat, shat2, prior_covar_b, priors.pi)
-    # opt_priors = _optimize_v_em(
-    #     beta_hat, shat2, priors, posteriors, l_iter
-    # )
+    priors = optimize_v(beta_hat, shat2, priors, posteriors, l_iter)
 
-    update_priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+    _, posteriors = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
 
-    _, update_posteriors = _compute_posterior(
-        beta_hat, shat2, update_priors, posteriors, l_iter
-    )
-
-    return update_priors, update_posteriors
+    return priors, posteriors
 
 
 def _compute_posterior(
@@ -380,6 +345,7 @@ def _compute_posterior(
         1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
     )
 
+    prior_covar = priors.effect_covar[l_iter]
     # post_var = jnp.reciprocal(1 / shat2 + 1 / prior_var_b)  # A.1
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(priors.effect_covar[l_iter]))
     # post_mean = (post_var / shat2) * beta_hat  # A.2
@@ -403,88 +369,54 @@ def _compute_posterior(
 
     # third term for residual elbo (e.q. B.15)
     kl_alpha = utils._kl_categorical(alpha, priors.pi)
-    kl_b = alpha.T @ utils._kl_mvn(post_mean, post_covar, 0.0, weighted_post_covar)
+    kl_betas = alpha.T @ utils._kl_mvn(post_mean, post_covar, 0.0, prior_covar)
 
-    update_posteriors = posteriors._replace(
+    priors = priors._replace(
+        effect_covar=priors.effect_covar.at[l_iter].set(weighted_post_covar)
+    )
+
+    posteriors = posteriors._replace(
         alpha=posteriors.alpha.at[l_iter].set(alpha),
         post_mean=posteriors.post_mean.at[l_iter].set(weighted_post_mean),
         post_mean_sq=posteriors.post_mean_sq.at[l_iter].set(weighted_post_mean_sq),
         post_covar=posteriors.post_covar.at[l_iter].set(weighted_post_covar),
-        kl=posteriors.kl.at[l_iter].set(kl_alpha + kl_b),
+        kl=posteriors.kl.at[l_iter].set(kl_alpha + kl_betas),
     )
 
-    update_priors = priors._replace(
-        effect_covar=priors.effect_covar.at[l_iter].set(weighted_post_covar)
-    )
-
-    return update_priors, update_posteriors
+    return priors, posteriors
 
 
-def _optimize_v_em(
-    beta_hat: jnp.ndarray,
-    shat2: core.ArrayOrFloat,
-    priors: core.Prior,
-    posteriors: core.Posterior,
-    l_iter: int,
-) -> core.Prior:
-    update_prior, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+class EMOptFunc(core.AbstractOptFunc):
+    def __call__(
+        self,
+        beta_hat: jnp.ndarray,
+        shat2: core.ArrayOrFloat,
+        priors: core.Prior,
+        posteriors: core.Posterior,
+        l_iter: int,
+    ) -> core.Prior:
+        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
 
-    return update_prior
+        return priors
 
 
-#
-# def _optimize_v_noop(
-#     beta_hat: jnp.ndarray,
-#     shat2: core.ArrayOrFloat,
-#     prior_covar_b: core.ArrayOrFloat,
-#     prior_weights: jnp.ndarray,
-# ) -> core.ArrayOrFloat:
-#     return prior_covar_b
-#
-#
-# def _construct_optimize_v(mode: str = "em") -> core.VarUpdate:
-#     if mode == "em":
-#         opt_fun = _optimize_v_em
-#     elif mode == "noop":
-#         opt_fun = _optimize_v_noop
-#     else:
-#         raise ValueError("invalid optimize mode")
-#
-#     return opt_fun
-#
-#
-# class EMOptFunc(core.AbstractOptFunc):
-#     def __call__(
-#         self,
-#         beta_hat: jnp.ndarray,
-#         shat2: core.ArrayOrFloat,
-#         prior_covar_b: core.ArrayOrFloat,
-#         prior_weights: jnp.ndarray,
-#     ) -> core.ArrayOrFloat:
-#         res = _compute_posterior(beta_hat, shat2, prior_covar_b, prior_weights)
-#
-#         new_prior_var_b = jnp.einsum("j,jmn->mn", res.alpha, res.post_mean_sq)
-#
-#         return new_prior_var_b
-#
-#
-# class NoopOptFunc(core.AbstractOptFunc):
-#     def __call__(
-#         self,
-#         beta_hat: jnp.ndarray,
-#         shat2: core.ArrayOrFloat,
-#         prior_covar_b: core.ArrayOrFloat,
-#         prior_weights: jnp.ndarray,
-#     ) -> core.ArrayOrFloat:
-#         return prior_covar_b
-#
-#
-# def _construct_optimize_v(mode: str = "em") -> core.AbstractOptFunc:
-#     if mode == "em":
-#         opt_fun = EMOptFunc()
-#     elif mode == "noop":
-#         opt_fun = NoopOptFunc()
-#     else:
-#         raise ValueError("invalid optimize mode")
-#
-#     return opt_fun
+class NoopOptFunc(core.AbstractOptFunc):
+    def __call__(
+        self,
+        beta_hat: jnp.ndarray,
+        shat2: core.ArrayOrFloat,
+        priors: core.Prior,
+        posteriors: core.Posterior,
+        l_iter: int,
+    ) -> core.Prior:
+        return priors
+
+
+def _construct_optimize_v(mode: str = "em") -> core.AbstractOptFunc:
+
+    if mode == "em":
+        return EMOptFunc()
+    elif mode == "noop":
+        return NoopOptFunc()
+    else:
+        raise ValueError("invalid optimize mode")

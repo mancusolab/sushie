@@ -11,6 +11,9 @@ import typing
 import warnings
 from importlib import metadata
 
+import pandas as pd
+from pandas_plink import read_plink
+
 from . import core, infer, io, utils
 
 # from .log import LOG
@@ -137,8 +140,14 @@ def _parameter_check(
 
         log.warning(
             "No updates on the effect size prior because of 'noop' setting for"
-            + " opt_mode. Inference may be inaccurate.",
+            + " opt_mode. Inference may be slow.",
         )
+
+        if jnp.any(jnp.array(rho) == 0):
+            log.warning(
+                "'noop' setting for opt_mode and '0' setting for rho, the effect correlation."
+                + " Inference may be inaccurate as it does not account for ancestral correlation.",
+            )
 
     if args.cv:
         if args.cv_num <= 1:
@@ -158,6 +167,254 @@ def _parameter_check(
             )
 
     return resid_var, effect_var, rho
+
+
+def _process_raw(
+    geno_paths: typing.List[str],
+    pheno_paths: typing.List[str],
+    covar_paths: typing.List[str] = None,
+    norm_X: bool = True,
+    norm_y: bool = False,
+    h2g: bool = False,
+    regress: bool = True,
+) -> core.CleanData:
+    """
+    Perform an ordinary linear regression.
+
+    :param X: jnp.ndarray n x p matrix for independent variables with no intercept vector.
+    :param y: jnp.ndarray n x m matrix for dependent variables. If m > 1, then perform m ordinary regression parallel.
+
+    :return: typing.Tuple[jnp.ndarray, core.ArrayOrFloat, core.ArrayOrFloat] returns residuals, adjusted r squared,
+            and p values for betas.
+    """
+    log = logging.getLogger(LOG)
+
+    n_pop = len(geno_paths)
+
+    bim = []
+    fam = []
+    bed = []
+    pheno = []
+
+    # read in geno and pheno
+    for idx in range(n_pop):
+        log.info(f"Ancestry {idx + 1}: Reading in genotype data and phenotype data.")
+        tmp_bim, tmp_fam, tmp_bed = read_plink(geno_paths[idx], verbose=False)
+        # read pheno data
+        tmp_pheno = pd.read_csv(
+            pheno_paths[idx], sep="\t", header=None, dtype={0: object}
+        )
+
+        # drop all the nan inf values
+        tmp_bim = utils._drop_na_inf(tmp_bim, "bim", idx)
+        tmp_fam = utils._drop_na_inf(tmp_fam, "fam", idx)
+        tmp_pheno = utils._drop_na_inf(tmp_pheno, "pheno", idx)
+
+        # rename the columns with pop index for better processing in the future
+        tmp_bim = tmp_bim.rename(
+            columns={
+                "i": f"bimIDX_{idx + 1}",
+                "a0": f"a0_{idx + 1}",
+                "a1": f"a1_{idx + 1}",
+                "cm": f"cm_{idx + 1}",
+                "pos": f"pos_{idx + 1}",
+            }
+        )
+        tmp_fam = tmp_fam[["fid", "iid", "i"]].rename(
+            columns={"i": f"famIDX_{idx + 1}"}
+        )
+        # keep track of pheno index for future matching the bed file if bed
+        # files are shuffled due to merging
+        tmp_pheno = tmp_pheno.reset_index().rename(
+            columns={"index": f"phenoIDX_{idx + 1}", 0: "fid", 1: "iid"}
+        )
+
+        if len(tmp_bim) == 0:
+            raise ValueError(
+                f"Ancestry {idx + 1}: No genotype data found for ancestry at {geno_paths[idx]}."
+            )
+
+        tmp_bed_value = tmp_bed.compute()
+        bim.append(tmp_bim)
+        fam.append(tmp_fam)
+        bed.append(tmp_bed_value)
+        pheno.append(tmp_pheno)
+
+    # read in covar
+    if covar_paths is not None:
+        covar = []
+        for idx in range(n_pop):
+            tmp_covar = pd.read_csv(
+                covar_paths[idx], sep="\t", header=None, dtype={0: object}
+            )
+            tmp_covar = utils._drop_na_inf(tmp_covar, "covar", idx)
+            # keep track of covar index for future matching the bed file if
+            # bed files are shuffled due to merging
+            tmp_covar = tmp_covar.reset_index().rename(
+                columns={"index": f"covarIDX_{idx + 1}", 0: "fid", 1: "iid"}
+            )
+            covar.append(tmp_covar)
+    else:
+        covar = [None] * n_pop
+        log.warning("No covariates detected for this analysis.")
+
+    # find common snps across ancestries
+    if n_pop > 1:
+        snps = pd.merge(bim[0], bim[1], how="inner", on=["chrom", "snp"])
+        for idx in range(n_pop - 2):
+            snps = pd.merge(snps, bim[idx + 2], how="inner", on=["chrom", "snp"])
+        # report how many snps we removed due to independent SNPs
+        for idx in range(n_pop):
+            snps_num_diff = bim[idx].shape[0] - snps.shape[0]
+            log.warning(
+                f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps.shape[0]}"
+                + " common SNPs. Will remove these independent SNPs.",
+            )
+    else:
+        snps = bim[0]
+
+    # find flipped reference alleles across ancestries
+    flip_idx = []
+    if n_pop > 1:
+        for idx in range(1, n_pop):
+            correct_idx, tmp_flip_idx, wrong_idx = utils.allele_check(
+                snps["a0_1"].values,
+                snps["a1_1"].values,
+                snps[f"a0_{idx + 1}"].values,
+                snps[f"a1_{idx + 1}"].values,
+                idx,
+            )
+
+            # save the index for future swapping
+            flip_idx.append(tmp_flip_idx)
+
+            if len(wrong_idx) != 0:
+                snps = snps.drop(index=wrong_idx)
+
+            # drop unused columns
+            snps = snps.drop(columns=[f"a0_{idx + 1}", f"a1_{idx + 1}"])
+        # rename columns for better indexing in the future
+    snps = snps.reset_index().rename(
+        columns={"index": "SNPIndex", "a0_1": "a0", "a1_1": "a1"}
+    )
+
+    # find common individuals across geno, pheno, and covar within an ancestry
+    common_fam = []
+    for idx in range(n_pop):
+        # match fam id and pheno id
+        tmp_common_fam = pd.merge(
+            fam[idx],
+            pheno[idx][[f"phenoIDX_{idx + 1}", "fid", "iid"]],
+            how="inner",
+            on=["fid", "iid"],
+        )
+        if covar[idx] is not None:
+            # match fam id and covar id
+            tmp_common_fam = pd.merge(
+                tmp_common_fam,
+                covar[idx][[f"covarIDX_{idx + 1}", "fid", "iid"]],
+                how="inner",
+                on=["fid", "iid"],
+            )
+        common_fam.append(tmp_common_fam)
+        n_common = tmp_common_fam.shape[0]
+        if n_common == 0:
+            raise ValueError(
+                f"Ancestry {idx + 1}: No common individuals between phenotype and "
+                + "genotype found. Please double check source data.",
+            )
+        else:
+            log.info(
+                f"Ancestry {idx + 1}: Found {n_common} common individuals"
+                + " between phenotype and genotype.",
+            )
+            # sanity check how many we lose
+            fam_drop_ind = fam[idx].shape[0] - n_common
+            pheno_drop_ind = pheno[idx].shape[0] - n_common
+            covar_drop_ind = 0
+            if covar[idx] is not None:
+                covar_drop_ind = covar[idx].shape[0] - n_common
+
+            if (fam_drop_ind != 0 or pheno_drop_ind != 0) or covar_drop_ind != 0:
+                log.warning(
+                    f"Ancestry {idx + 1}: Delete {fam_drop_ind} from fam file. "
+                )
+                log.warning(
+                    f"Ancestry {idx + 1}: Delete {pheno_drop_ind} from phenotype file."
+                )
+                log.warning(
+                    f"Ancestry {idx + 1}: Delete {covar_drop_ind} from covar file."
+                )
+
+    # filter on geno, pheno, and covar
+    for idx in range(n_pop):
+        # get individual and snp id
+
+        common_ind_id = common_fam[idx][f"famIDX_{idx + 1}"].values
+        common_snp_id = snps[f"bimIDX_{idx + 1}"].values
+
+        # filter on individuals who have both geno, pheno, and covar (if applicable)
+        # filter on shared snps across ancestries
+        tmp_bed = bed[idx][:, common_ind_id][common_snp_id, :]
+
+        # flip genotypes for bed files starting second ancestry
+        if idx > 0:
+            # flip_idx count starts at the second ancestry
+            tmp_bed[flip_idx[idx - 1]] = 2 - tmp_bed[flip_idx[idx - 1]]
+        tmp_bed = tmp_bed.T
+
+        if norm_X:
+            tmp_bed -= jnp.mean(tmp_bed, axis=0)
+            tmp_bed /= jnp.std(tmp_bed, axis=0)
+
+        bed[idx] = tmp_bed
+
+        snps = snps.drop(columns=[f"bimIDX_{idx + 1}"])
+
+        # swap pheno and covar rows order to match fam/bed file, and then select the
+        # values for future fine-mapping
+        common_pheno_id = common_fam[idx][f"phenoIDX_{idx + 1}"].values
+        tmp_pheno = pheno[idx].iloc[common_pheno_id, 3].values
+
+        if norm_y:
+            tmp_pheno -= jnp.mean(tmp_pheno)
+            tmp_pheno /= jnp.std(tmp_pheno)
+
+        pheno[idx] = tmp_pheno
+
+        if covar[idx] is not None:
+            common_covar_id = common_fam[idx][f"covarIDX_{idx + 1}"].values
+            n_covar = covar[idx].shape[1]
+            covar[idx] = covar[idx].iloc[common_covar_id, 3:n_covar].values
+
+    # estimate heritability
+    if h2g:
+        est_h2g = jnp.zeros(n_pop)
+        for idx in range(n_pop):
+            tmp_h2g = utils._estimate_her(bed[idx], pheno[idx], covar[idx])
+            est_h2g = est_h2g.at[idx].set(tmp_h2g)
+    else:
+        est_h2g = None
+
+    # regress covar on y
+    for idx in range(n_pop):
+        if covar[idx] is not None:
+            pheno_resid, _, _ = utils.ols(covar[idx], pheno[idx])
+            pheno[idx] = pheno_resid
+            # regress covar on each SNP, it might be slow, the default is True
+            if regress:
+                (
+                    geno_resid,
+                    _,
+                    _,
+                ) = utils.ols(covar[idx], bed[idx])
+                bed[idx] = geno_resid
+    log.info(
+        f"Successfully prepare genotype ({bed[0].shape[1]} SNPs) and phenotype data for {n_pop}"
+        + " ancestries, and start fine-mapping using SuShiE.",
+    )
+
+    return core.CleanData(bed, pheno, snps, est_h2g)
 
 
 def run_finemap(args):
@@ -188,23 +445,23 @@ def run_finemap(args):
         )
 
         # output credible set
-        io._output_cs(args, result, clean_data)
+        io.output_cs(args, result, clean_data)
 
         if args.h2g:
-            io._output_h2g(args, result, clean_data)
+            io.output_h2g(args, result, clean_data)
 
         if args.weights:
-            io._output_weights(args, result, clean_data)
+            io.output_weights(args, result, clean_data)
 
         if args.corr:
-            io._output_corr(args, result)
+            io.output_corr(args, result)
 
         if args.numpy:
-            io._output_numpy(args, result)
+            io.output_numpy(args, result)
 
         if args.cv:
             log.info(f"Starting {args.cv_num}-fold cross validation.")
-            io._output_cv(args, clean_data, resid_var, effect_var, rho)
+            io.output_cv(args, clean_data, resid_var, effect_var, rho)
 
     except Exception as err:
         log.error(err)
@@ -233,9 +490,24 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
+        "--geno",
+        nargs="+",
+        type=str,
+        help="Genotype data in plink format. Use space to separate ancestries if more than two.",
+    )
+
+    finemap.add_argument(
+        "--geno",
+        nargs="+",
+        type=str,
+        help="Genotype data in plink format. Use space to separate ancestries if more than two.",
+    )
+
+    finemap.add_argument(
         "--pheno",
         nargs="+",
         type=str,
+        required=True,
         help=(
             "Phenotype data. It has to be a tsv file that contains at least three",
             " columns where the first two columns are FID and IID as in plink fam file.",
@@ -373,7 +645,7 @@ def build_finemap_parser(subp):
             " Other option is 'noop'.",
             " 'em' is similar to Expectation–maximization algorithm that computes the prior covariance conditioned",
             " on other parameters."
-            " 'noop' does not update prior effect covariance matrix at each iteration. The inference may be inaccurate",
+            " 'noop' does not update prior effect covariance matrix at each iteration. The inference may be slow",
             " If 'noop' is specified, it requires input for --resid_var, --effect_var, and --rho.",
         ),
     )

@@ -72,7 +72,7 @@ source_suffix = [".rst", ".md"]
 master_doc = "index"
 
 # General information about the project.
-project = "SuSiE-PCA"
+project = "SuShiE"
 copyright = "2022, MancusoLab"
 
 # The version info for the project you're documenting, acts as replacement for
@@ -182,7 +182,7 @@ html_theme = "sphinx_immaterial"
 html_static_path = ["_static"]
 # html_css_files = ["extra_css.css"]
 html_last_updated_fmt = ""
-html_title = "SuSiE-PCA"
+html_title = "SuShiE"
 html_favicon = "_static/images/favicon.ico"
 html_logo = "_static/images/dna.png"
 
@@ -258,7 +258,7 @@ html_theme_options = {
 }
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "SuSiE-PCA-doc"
+htmlhelp_basename = "SuShiE-doc"
 
 # -- General options
 # If this is True, todo emits a warning for each TODO entries. The default is False.

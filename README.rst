@@ -36,7 +36,7 @@
 ======
 SuShiE
 ======
-Software to compute multi-ancestry functional data prediction weights using SuShiE
+Software to fine-map causal SNPs and compute prediction weights of complex traits across multiple ancestries
 
 .. code:: diff
 
