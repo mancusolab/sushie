@@ -490,14 +490,14 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--geno",
+        "--vcf",
         nargs="+",
         type=str,
         help="Genotype data in plink format. Use space to separate ancestries if more than two.",
     )
 
     finemap.add_argument(
-        "--geno",
+        "--bgen",
         nargs="+",
         type=str,
         help="Genotype data in plink format. Use space to separate ancestries if more than two.",
