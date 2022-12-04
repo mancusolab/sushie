@@ -6,6 +6,8 @@ __pycache__/
 
 /pyfocus
 
+*.metadata2.mmm
+
 *.sh
 *.tsv
 *.db

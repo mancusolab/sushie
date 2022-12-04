@@ -1,37 +1,36 @@
-import typing
 from abc import ABC, abstractmethod
+from typing import List, NamedTuple, Optional, Union
 
 import pandas as pd
 
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node, register_pytree_node_class
 
-ArrayOrFloat = typing.Union[jnp.ndarray, float]
-ListOrNone = typing.Union[typing.List[float], None]
-ArrayOrNone = typing.Union[jnp.ndarray, None]
+# prior argument effect_covar, resid_covar, rho, etc.
+ListFloatOrNone = Optional[List[float]]
+# covar process data, etc.
+ArrayOrNoneList = List[Union[jnp.ndarray, None]]
+# effect_covar susie, sushie etc.
+ArrayOrFloat = Union[jnp.ndarray, float]
+# covar paths
+ListStrOrNone = Union[List[str], None]
+# covar raw data
+PDOrNone = Union[pd.DataFrame, None]
 
 
-class CleanData(typing.NamedTuple):
-    """
-    Define the class for all the data we need to infer and output for SuShiE
-    Attributes:
-        geno: genotype data
-        pheno: phenotype data
-        snp: SNP information table including chrom, rsid, position, and reference allele etc.
-        h2g: estimated heritability using limix
-    """
-
-    geno: typing.List[jnp.ndarray]
-    pheno: typing.List[jnp.ndarray]
-    snp: pd.DataFrame
-    h2g: ArrayOrNone
+class RawData(NamedTuple):
+    bim: pd.DataFrame
+    fam: pd.DataFrame
+    bed: jnp.ndarray
+    pheno: pd.DataFrame
+    covar: PDOrNone
 
 
-class Prior(typing.NamedTuple):
+class Prior(NamedTuple):
     """
     Define the class for the prior parameter of SuShiE model
     Attributes:
-        pi: the prior probability for a SNP to be causal
+        pi: the prior probability for one SNP to be causal
         resid_var: the prior residual variance for all SNPs
         effect_covar: the prior effect sizes covariance matrix for all SNPs
     """
@@ -41,7 +40,7 @@ class Prior(typing.NamedTuple):
     effect_covar: jnp.ndarray
 
 
-class Posterior(typing.NamedTuple):
+class Posterior(NamedTuple):
     """
     Define the class for the posterior parameter of SuShiE model
     Attributes:
@@ -59,7 +58,7 @@ class Posterior(typing.NamedTuple):
     kl: jnp.ndarray
 
 
-class SushieResult(typing.NamedTuple):
+class SushieResult(NamedTuple):
     """
     Define the class for the SuShiE inference results
     Attributes:

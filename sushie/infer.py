@@ -1,6 +1,8 @@
 import logging
 import math
-import typing
+from typing import List, NamedTuple, Tuple
+
+import pandas as pd
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
@@ -11,31 +13,31 @@ from . import core, utils
 LOG = "sushie"
 
 
-class _LResult(typing.NamedTuple):
+class _LResult(NamedTuple):
     """ """
 
-    Xs: typing.List[jnp.ndarray]
-    ys: typing.List[jnp.ndarray]
-    XtXs: typing.List[jnp.ndarray]
+    Xs: List[jnp.ndarray]
+    ys: List[jnp.ndarray]
+    XtXs: List[jnp.ndarray]
     priors: core.Prior
     posteriors: core.Posterior
     opt_v_func: core.AbstractOptFunc
-    # opt_v_func: core.ArrayOrNone
 
 
 def run_sushie(
-    Xs: typing.List[jnp.ndarray],
-    ys: typing.List[jnp.ndarray],
-    L: int,
-    norm_X: bool = True,
-    norm_y: bool = False,
+    Xs: List[jnp.ndarray],
+    ys: List[jnp.ndarray],
+    covars: core.ArrayOrNoneList,
+    L: int = 5,
+    no_scale: bool = False,
+    no_regress: bool = False,
+    no_update: bool = False,
     pi: jnp.ndarray = None,
-    resid_var: jnp.ndarray = None,
-    effect_var: jnp.ndarray = None,
-    rho: jnp.ndarray = None,
+    resid_var: core.ListFloatOrNone = None,
+    effect_var: core.ListFloatOrNone = None,
+    rho: core.ListFloatOrNone = None,
     max_iter: int = 500,
     min_tol: float = 1e-5,
-    opt_mode: str = "em",
     threshold: float = 0.9,
     purity: float = 0.5,
 ) -> core.SushieResult:
@@ -72,14 +74,6 @@ def run_sushie(
     if L <= 0:
         raise ValueError("Inferred L is invalid, choose a positive L.")
 
-    _, n_snps = Xs[0].shape
-
-    if n_snps < L:
-        raise ValueError(
-            "The number of common SNPs across ancestries is less than inferred L."
-            + "Please choose a smaller L or expand the genomic window."
-        )
-
     if min_tol > 0.1:
         log.warning("Minimum intolerance is low. Inference may not be accurate.")
 
@@ -89,11 +83,41 @@ def run_sushie(
     if not 0 < purity < 1:
         raise ValueError("Purity is not between 0 and 1. Specify a valid one.")
 
+    if pi is not None and (pi >= 1 or pi <= 0):
+        raise ValueError(
+            "Pi prior is not a probability (0-1). Specify a valid pi prior."
+        )
+
+    _, n_snps = Xs[0].shape
+
+    if n_snps < L:
+        raise ValueError(
+            "The number of common SNPs across ancestries is less than inferred L."
+            + "Please choose a smaller L or expand the genomic window."
+        )
+
+    if no_update:
+        log.info(
+            "No updates on the effect size prior. Inference may be slow and different."
+        )
+
     for idx in range(n_pop):
-        if norm_X:
-            Xs[idx] = (Xs[idx] - jnp.mean(Xs[idx], axis=0)) / jnp.std(Xs[idx], axis=0)
-        if norm_y:
-            ys[idx] = (ys[idx] - jnp.mean(ys[idx])) / jnp.std(ys[idx])
+        Xs[idx] -= jnp.mean(Xs[idx], axis=0)
+        ys[idx] -= jnp.mean(ys[idx])
+
+        if not no_scale:
+            Xs[idx] /= jnp.std(Xs[idx], axis=0)
+            ys[idx] /= jnp.std(ys[idx])
+
+        if covars[idx] is not None:
+            ys[idx], _, _ = utils.ols(covars[idx], ys[idx])
+            # regress covar on each SNP
+            if not no_regress:
+                (
+                    Xs[idx],
+                    _,
+                    _,
+                ) = utils.ols(covars[idx], Xs[idx])
 
         ys[idx] = jnp.squeeze(ys[idx])
 
@@ -127,6 +151,8 @@ def run_sushie(
     if rho is None:
         rho = [0.1] * exp_num_rho
     else:
+        if n_pop == 1:
+            log.info("Running single-ancestry SuSiE/SuShiE. No need to specify rho.")
         if len(rho) != exp_num_rho:
             raise ValueError(
                 f"Number of specified rho ({len(rho)}) does not match expected"
@@ -138,17 +164,6 @@ def run_sushie(
             raise ValueError(
                 "The input of rho is invalid (>=1 or <=-1). Check your input."
             )
-
-    if opt_mode == "noop":
-        if resid_var is None or effect_var is None or rho is None:
-            raise ValueError(
-                "'noop' is specified. rho, resid_var, and effect_var cannot be None."
-            )
-
-    if pi is not None and (pi >= 1 or pi <= 0):
-        raise ValueError(
-            "Pi prior is not a probability (0-1). Specify a valid pi prior."
-        )
 
     effect_covar = jnp.diag(jnp.array(effect_var))
     ct = 0
@@ -171,21 +186,21 @@ def run_sushie(
         alpha=jnp.zeros((L, n_snps)),
         post_mean=jnp.zeros((L, n_snps, n_pop)),
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
-        post_covar=jnp.zeros((L, n_snps, n_pop, n_pop)),
+        post_covar=jnp.zeros((L, n_pop, n_pop)),
         kl=jnp.zeros((L,)),
     )
 
-    # hard code for now only use "em", instead of "noop"
-    opt_v_func = _construct_optimize_v(opt_mode)
-    # opt_v_func = None
+    opt_v_func = _construct_optimize_v(no_update)
 
     XtXs = []
     for idx in range(n_pop):
         XtXs.append(jnp.sum(Xs[idx] ** 2, axis=0))
 
-    elbo = [-jnp.inf]
+    elbo_last = -jnp.inf
+    elbo_cur = -jnp.inf
+    elbo_increase = True
     for o_iter in range(max_iter):
-        priors, posteriors, elbo_score = _update_effects(
+        priors, posteriors, elbo_cur = _update_effects(
             Xs,
             ys,
             XtXs,
@@ -193,45 +208,44 @@ def run_sushie(
             posteriors,
             opt_v_func,
         )
-        elbo.append(elbo_score)
+        if elbo_cur < elbo_last and (not jnp.isclose(elbo_cur, elbo_last, atol=1e-8)):
+            elbo_increase = False
 
-        if jnp.abs(elbo[o_iter + 1] - elbo[o_iter]) < min_tol:
-            log.warning(
+        if jnp.abs(elbo_cur - elbo_last) < min_tol:
+            log.info(
                 f"Reach minimum tolerance threshold {min_tol} after {o_iter + 1}"
                 + " iterations, stop optimization.",
             )
             break
 
         if o_iter + 1 == max_iter:
-            log.warning(
-                f"Reach maximum iteration threshold {max_iter} after {o_iter + 1}."
-            )
+            log.info(f"Reach maximum iteration threshold {max_iter}.")
+        elbo_last = elbo_cur
 
-    if all(i <= j or jnp.isclose(i, j, atol=1e-8) for i, j in zip(elbo, elbo[1:])):
-        log.info(f"Optimization finished. Final ELBO score: {elbo[-1]}.")
+    if elbo_increase:
+        log.info(f"Optimization finished. Final ELBO score: {elbo_cur}.")
     else:
-        raise ValueError(
-            f"ELBO does not non-decrease. Final ELBO score: {elbo[-1]}."
+        log.warning(
+            f"ELBO does not non-decrease. Final ELBO score: {elbo_cur}."
             + " Double check your genotype, phenotype, and covariate data."
             + " Contact developer if this error message remains.",
         )
 
-    pip = utils._get_pip(posteriors.alpha)
-    cs = utils._get_cs(posteriors.alpha, Xs, threshold, purity)
+    pip = _get_pip(posteriors.alpha)
+    cs = _get_cs(posteriors.alpha, Xs, threshold, purity)
 
     return core.SushieResult(priors, posteriors, pip, cs)
 
 
 @jit
 def _update_effects(
-    Xs: typing.List[jnp.ndarray],
-    ys: typing.List[jnp.ndarray],
-    XtXs: typing.List[jnp.ndarray],
+    Xs: List[jnp.ndarray],
+    ys: List[jnp.ndarray],
+    XtXs: List[jnp.ndarray],
     priors: core.Prior,
     posteriors: core.Posterior,
     opt_v_func: core.AbstractOptFunc,
-    # opt_v_func: core.ArrayOrNone,
-) -> typing.Tuple[core.Prior, core.Posterior, float]:
+) -> Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
     residual = []
@@ -304,14 +318,14 @@ def _update_l(l_iter: int, param: _LResult) -> _LResult:
 
 
 def _ssr(
-    Xs: typing.List[jnp.ndarray],
-    ys: typing.List[jnp.ndarray],
-    XtXs: typing.List[jnp.ndarray],
+    Xs: List[jnp.ndarray],
+    ys: List[jnp.ndarray],
+    XtXs: List[jnp.ndarray],
     priors: core.Prior,
     posteriors: core.Posterior,
     l_iter: int,
     optimize_v: core.AbstractOptFunc,
-) -> typing.Tuple[core.Prior, core.Posterior]:
+) -> Tuple[core.Prior, core.Posterior]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
 
@@ -338,7 +352,7 @@ def _compute_posterior(
     priors: core.Prior,
     posteriors: core.Posterior,
     l_iter: int,
-) -> typing.Tuple[core.Prior, core.Posterior]:
+) -> Tuple[core.Prior, core.Posterior]:
     n_snps, n_pop = beta_hat.shape
     # quick way to calculate the inverse instead of using linalg.inv
     inv_shat2 = jnp.eye(n_pop) * (
@@ -412,11 +426,73 @@ class NoopOptFunc(core.AbstractOptFunc):
         return priors
 
 
-def _construct_optimize_v(mode: str = "em") -> core.AbstractOptFunc:
-
-    if mode == "em":
+def _construct_optimize_v(no_update: bool = False) -> core.AbstractOptFunc:
+    if not no_update:
         return EMOptFunc()
-    elif mode == "noop":
-        return NoopOptFunc()
     else:
-        raise ValueError("invalid optimize mode")
+        return NoopOptFunc()
+
+
+def _get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
+    """
+    Perform an ordinary linear regression.
+
+    :param X: n x p matrix for independent variables with no intercept vector.
+    :param y: n x m matrix for dependent variables. If m > 1, then perform m ordinary regression parallel.
+
+    :return: returns residuals, adjusted r squared, and p values for betas.
+    """
+    pip = 1 - jnp.prod((1 - alpha), axis=0)
+
+    return pip
+
+
+def _get_cs(
+    alpha: jnp.ndarray,
+    Xs: List[jnp.ndarray],
+    threshold: float = 0.9,
+    purity: float = 0.5,
+) -> pd.DataFrame:
+    """
+    Perform an ordinary linear regression.
+
+    :param X: n x p matrix for independent variables with no intercept vector.
+    :param y: n x m matrix for dependent variables. If m > 1, then perform m ordinary regression parallel.
+
+    :return: returns residuals, adjusted r squared, and p values for betas.
+    """
+    n_l, _ = alpha.shape
+    t_alpha = pd.DataFrame(alpha.T).reset_index()
+    cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
+    # ld is always pxp, so it can be converted to jnp.array
+    ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
+
+    for idx in range(n_l):
+        # select original index and alpha
+        tmp_pd = (
+            t_alpha[["index", idx]]
+            .sort_values(idx, ascending=False)
+            .reset_index(drop=True)
+        )
+        tmp_pd["csum"] = tmp_pd[[idx]].cumsum()
+        n_row = tmp_pd[tmp_pd.csum < threshold].shape[0]
+
+        # if all rows less than threshold + 1 is what we want to select
+        if n_row == tmp_pd.shape[0]:
+            select_idx = jnp.arange(n_row)
+        else:
+            select_idx = jnp.arange(n_row + 1)
+        tmp_pd = (
+            tmp_pd.iloc[select_idx, :]
+            .assign(CSIndex=idx + 1)
+            .rename(columns={"csum": "c_alpha", "index": "SNPIndex", idx: "alpha"})
+        )
+
+        # check the impurity
+        snp_idx = tmp_pd.SNPIndex.values.astype("int64")
+
+        min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
+        if min_corr > purity:
+            cs = pd.concat([cs, tmp_pd], ignore_index=True)
+
+    return cs
