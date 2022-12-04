@@ -21,26 +21,26 @@ for (idx in 1:n_feature){
   cv.performance <- matrix(tmp_cvr2, 2,1)
   rownames(cv.performance) <- c("rsq", "pval")
   colnames(cv.performance) <- "sushie"
-  
+
   # hsq
   hsq <- c(as.numeric(heri[idx, 2]), NA)
-  
+
   # hsq.pv
   hsq.pv <- NA
-  
+
   # N.tot
   N.tot <- as.numeric(cvr2[idx, 4])
-  
+
   # snps
   snps <- weight[c("chrom", "snp", paste0("cm_", idx), paste0("pos_", idx), "a0", "a1")]
   colnames(snps) <- paste0("V", 1:6)
   snps <- data.frame(snps)
-  
+
   # wgt.matrix
   wgt.matrix <- matrix(weight[[paste0("feature", idx, "_sushie")]])
   rownames(wgt.matrix) <- weight$snp
   colnames(wgt.matrix) <- "sushie"
-  
+
   save(cv.performance, hsq, hsq.pv, N.tot, snps, wgt.matrix,
     file = paste0(pref, ".feature", idx, ".fusion.RData"))
 }
