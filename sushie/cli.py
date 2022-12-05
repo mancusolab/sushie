@@ -12,7 +12,7 @@ from typing import Callable, List, Tuple
 
 import pandas as pd
 
-from . import core, infer, io
+from . import core, infer, io, utils
 
 # from .log import LOG
 
@@ -238,11 +238,11 @@ def _allele_check(
     compareA0: pd.Series,
     compareA1: pd.Series,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    correct = jnp.logical_and(baseA0 == compareA0, baseA1 == compareA1)
-    flipped = jnp.logical_and(baseA0 == compareA1, baseA1 == compareA0)
-    correct_idx = jnp.where(correct)[0]
-    flipped_idx = jnp.where(flipped)[0]
-    wrong_idx = jnp.where(jnp.logical_not(jnp.logical_or(correct, flipped)))[0]
+    correct = ((baseA0 == compareA0) * 1) * ((baseA1 == compareA1) * 1)
+    flipped = ((baseA0 == compareA1) * 1) * ((baseA1 == compareA0) * 1)
+    correct_idx = jnp.where(correct == 1)[0]
+    flipped_idx = jnp.where(flipped == 1)[0]
+    wrong_idx = jnp.where((correct + flipped) == 0)[0]
 
     return correct_idx, flipped_idx, wrong_idx
 
@@ -382,7 +382,7 @@ def _process_raw(
         covar.append(tmp_covar)
 
     log.info(
-        f"Successfully prepare genotype ({geno[0].shape[1]} SNPs) and phenotype data for {n_pop}"
+        f"Successfully prepare covariate and phenotype data with {geno[0].shape[1]} SNPs for {n_pop}"
         + " ancestries, and start fine-mapping using SuShiE.",
     )
 
@@ -404,6 +404,7 @@ def run_meta(
 
     pips = jnp.zeros((snps.shape[0], 1))
     cs_table = []
+    # args.resid_var is either None or a list of float, so we have to do so
     for idx in range(n_pop):
         if args.resid_var is not None:
             resid_var = [float(args.resid_var[idx])]
@@ -442,8 +443,13 @@ def run_meta(
     final_cs = pd.DataFrame(columns=cs_table[0].columns.values)
 
     for idx in range(n_pop):
-        tmp_table: pd.DataFrame = cs_table[idx]
-        tmp_table["meta_pip"] = pips[tmp_table.SNPIndex.values.astype(int)]
+        tmp_table = cs_table[idx]
+
+        if tmp_table.shape[0] == 1 and jnp.isnan(tmp_table.snp.values[0]):
+            tmp_table["meta_pip"] = jnp.nan
+        else:
+            tmp_table["meta_pip"] = pips[tmp_table.SNPIndex.values.astype(int)]
+
         final_cs = pd.concat([final_cs, tmp_table], axis=0)
 
     if save_file:
@@ -466,23 +472,29 @@ def run_mega(
     effect_var = args.effect_var if n_pop == 1 else None
     rho = args.rho if n_pop == 1 else None
 
+    # it's possible that different ancestries have different number of covariates,
+    # so we need to regress out first
+    if covar[0] is not None:
+        for idx in range(n_pop):
+            pheno[idx], _, _ = utils.ols(covar[idx], pheno[idx])
+
+            if not args.no_regress:
+                (
+                    geno[idx],
+                    _,
+                    _,
+                ) = utils.ols(covar[idx], geno[idx])
+
     mega_geno = geno[0]
     mega_pheno = pheno[0]
-    mega_covar = None
-
-    if covar[0] is not None:
-        mega_covar = covar[0]
-
     for idx in range(1, n_pop):
         mega_geno = jnp.append(mega_geno, geno[idx], axis=0)
         mega_pheno = jnp.append(mega_pheno, pheno[idx], axis=0)
-        if covar[idx] is not None:
-            mega_covar = jnp.append(mega_covar, covar[idx], axis=0)
 
     mega_result = infer.run_sushie(
         [mega_geno],
         [mega_pheno],
-        [mega_covar],
+        [None],
         L=args.L,
         no_scale=args.no_scale,
         no_regress=args.no_regress,
@@ -544,12 +556,12 @@ def run_finemap(args):
         if args.corr:
             io.output_corr(result, args.output, args.trait)
 
-        if args.numpy:
-            io.output_numpy(result, args.output)
-
         if args.cv:
             log.info(f"Starting {args.cv_num}-fold cross validation.")
             io.output_cv(geno, pheno, covar, args)
+
+        if args.numpy:
+            io.output_numpy(result, args.output)
 
         if args.meta:
             log.info("Starting running meta SuSiE.")
@@ -837,18 +849,6 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--numpy",
-        default=False,
-        action="store_true",
-        help=(
-            "Indicator to output *.npy file.",
-            " Default is False. Specify --numpy will store True and increase running time.",
-            " *.npy file contains all the inference results including credible sets, pips, priors and posteriors",
-            " for your own wanted analysis.",
-        ),
-    )
-
-    finemap.add_argument(
         "--cv",
         default=False,
         action="store_true",
@@ -876,6 +876,18 @@ def build_finemap_parser(subp):
         help=(
             "The seed to randomly cut data sets in cross validation. Default is 12345.",
             " It has to be positive integer number",
+        ),
+    )
+
+    finemap.add_argument(
+        "--numpy",
+        default=False,
+        action="store_true",
+        help=(
+            "Indicator to output *.npy file.",
+            " Default is False. Specify --numpy will store True and increase running time.",
+            " *.npy file contains all the inference results including credible sets, pips, priors and posteriors",
+            " for your own wanted analysis.",
         ),
     )
 

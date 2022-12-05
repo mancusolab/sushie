@@ -171,6 +171,10 @@ def output_cs(
         )
     )
 
+    # add a placeholder better for post-hoc analysis
+    if cs.shape[0] == 0:
+        cs = cs.append({"trait": trait}, ignore_index=True)
+
     if save_file:
         cs.to_csv(f"{output}.cs.tsv", sep="\t", index=False)
 
@@ -217,6 +221,9 @@ def output_her(
 
         est_her["shared_h2g"] = shared_h2g
 
+    if est_her.shape[0] == 0:
+        est_her = est_her.append({"trait": trait}, ignore_index=True)
+
     if save_file:
         est_her.to_csv(f"{output}.h2g.tsv", sep="\t", index=False)
 
@@ -241,6 +248,9 @@ def output_weight(
         columns=[f"ancestry{idx + 1}_sushie" for idx in range(n_pop)],
     )
     weights = pd.concat([snp_copy, tmp_weights], axis=1)
+
+    if weights.shape[0] == 0:
+        weights = weights.append({"trait": trait}, ignore_index=True)
 
     if save_file:
         weights.to_csv(f"{output}.weights.tsv", sep="\t", index=False)
@@ -280,19 +290,13 @@ def output_corr(
             )
             corr = pd.concat([corr, tmp_pd_covar, tmp_pd_corr], axis=1)
 
+    if corr.shape[0] == 0:
+        corr = corr.append({"trait": trait}, ignore_index=True)
+
     if save_file:
         corr.to_csv(f"{output}.corr.tsv", sep="\t", index=False)
 
     return corr
-
-
-def output_numpy(result: core.SushieResult, output: str) -> None:
-    """
-    Function to output all the results in npy files
-    """
-    jnp.save(f"{output}.all.results.npy", result)
-
-    return None
 
 
 def output_cv(
@@ -386,7 +390,20 @@ def output_cv(
         .reset_index()
         .assign(N=sample_size)
     )
+
+    if cv_r2.shape[0] == 0:
+        cv_r2 = cv_r2.append({"trait": args.trait}, ignore_index=True)
+
     if save_file:
         cv_r2.to_csv(f"{args.output}.cv.tsv", sep="\t", index=False)
 
     return cv_r2
+
+
+def output_numpy(result: core.SushieResult, output: str) -> None:
+    """
+    Function to output all the results in npy files
+    """
+    jnp.save(f"{output}.all.results.npy", result)
+
+    return None
