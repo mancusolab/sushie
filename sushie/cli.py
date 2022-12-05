@@ -449,7 +449,7 @@ def run_meta(
     for idx in range(n_pop):
         tmp_table = cs_table[idx]
 
-        if tmp_table.shape[0] == 1 and jnp.isnan(tmp_table.snp.values[0]):
+        if tmp_table.shape[0] == 1 and tmp_table.snp.isna().values.any():
             tmp_table["meta_pip"] = jnp.nan
         else:
             tmp_table["meta_pip"] = pips[tmp_table.SNPIndex.values.astype(int)]
