@@ -382,7 +382,7 @@ def _process_raw(
         covar.append(tmp_covar)
 
     log.info(
-        f"Successfully prepare genotype ({geno[0].shape[1]} SNPs) and phenotype data for {n_pop}"
+        f"Successfully prepare covariate and phenotype data with {geno[0].shape[1]} SNPs for {n_pop}"
         + " ancestries, and start fine-mapping using SuShiE.",
     )
 
