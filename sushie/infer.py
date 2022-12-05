@@ -101,16 +101,11 @@ def run_sushie(
             "No updates on the effect size prior. Inference may be slow and different."
         )
 
-    for idx in range(n_pop):
-        Xs[idx] -= jnp.mean(Xs[idx], axis=0)
-        ys[idx] -= jnp.mean(ys[idx])
-
-        if not no_scale:
-            Xs[idx] /= jnp.std(Xs[idx], axis=0)
-            ys[idx] /= jnp.std(ys[idx])
-
-        if covars[idx] is not None:
+    # first regress out covariates if there are any, then scale the genotype and phenotype
+    if covars[0] is not None:
+        for idx in range(n_pop):
             ys[idx], _, _ = utils.ols(covars[idx], ys[idx])
+
             # regress covar on each SNP
             if not no_regress:
                 (
@@ -118,6 +113,15 @@ def run_sushie(
                     _,
                     _,
                 ) = utils.ols(covars[idx], Xs[idx])
+
+    # center data
+    for idx in range(n_pop):
+        Xs[idx] -= jnp.mean(Xs[idx], axis=0)
+        ys[idx] -= jnp.mean(ys[idx])
+        # scale data if specified
+        if not no_scale:
+            Xs[idx] /= jnp.std(Xs[idx], axis=0)
+            ys[idx] /= jnp.std(ys[idx])
 
         ys[idx] = jnp.squeeze(ys[idx])
 
