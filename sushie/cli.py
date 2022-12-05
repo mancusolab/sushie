@@ -238,8 +238,12 @@ def _allele_check(
     compareA0: pd.Series,
     compareA1: pd.Series,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    correct = jnp.array(((baseA0 == compareA0) * 1) * ((baseA1 == compareA1) * 1))
-    flipped = jnp.array(((baseA0 == compareA1) * 1) * ((baseA1 == compareA0) * 1))
+    correct = jnp.array(
+        ((baseA0 == compareA0) * 1) * ((baseA1 == compareA1) * 1), dtype=int
+    )
+    flipped = jnp.array(
+        ((baseA0 == compareA1) * 1) * ((baseA1 == compareA0) * 1), dtype=int
+    )
     correct_idx = jnp.where(correct == 1)[0]
     flipped_idx = jnp.where(flipped == 1)[0]
     wrong_idx = jnp.where((correct + flipped) == 0)[0]
