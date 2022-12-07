@@ -10,7 +10,7 @@ from jax.tree_util import register_pytree_node, register_pytree_node_class
 ListFloatOrNone = Optional[List[float]]
 # covar process data, etc.
 ArrayOrNoneList = List[Union[jnp.ndarray, None]]
-# effect_covar susie, sushie etc.
+# effect_covar sushie etc.
 ArrayOrFloat = Union[jnp.ndarray, float]
 # covar paths
 ListStrOrNone = Union[List[str], None]
@@ -19,6 +19,15 @@ PDOrNone = Union[pd.DataFrame, None]
 
 
 class RawData(NamedTuple):
+    """Define the raw data object for the future inference.
+    Attributes:
+        bim: SNP information data.
+        fam: individual information data.
+        bed: actual genotype data.
+        pheno: phenotype data.
+        covar: covariate needed to be adjusted in the inference.
+    """
+
     bim: pd.DataFrame
     fam: pd.DataFrame
     bed: jnp.ndarray
@@ -27,8 +36,7 @@ class RawData(NamedTuple):
 
 
 class Prior(NamedTuple):
-    """
-    Define the class for the prior parameter of SuShiE model
+    """Define the class for the prior parameter of SuShiE model
     Attributes:
         pi: the prior probability for one SNP to be causal
         resid_var: the prior residual variance for all SNPs
@@ -41,13 +49,12 @@ class Prior(NamedTuple):
 
 
 class Posterior(NamedTuple):
-    """
-    Define the class for the posterior parameter of SuShiE model
+    """Define the class for the posterior parameter of SuShiE model
     Attributes:
         alpha: the posterior probability for each SNP to be causal (L x p)
         post_mean: the posterior mean for each SNP (L x p x k)
-        post_mean_sq: the posterior mean square for each SNP (L x p x k x k, diagonal for kx k)
-        post_covar: the posterior effect covariance for each SNP (L x p x k x k)
+        post_mean_sq: the posterior mean square for each SNP (L x p x k x k, a diagonal matrix for k x k)
+        post_covar: the posterior effect covariance for each SNP (L x k x k)
         kl: the KL divergence for each L
     """
 
@@ -59,8 +66,7 @@ class Posterior(NamedTuple):
 
 
 class SushieResult(NamedTuple):
-    """
-    Define the class for the SuShiE inference results
+    """Define the class for the SuShiE inference results
     Attributes:
         priors: the final prior parameter for the inference
         posteriors: the final posterior parameter for the inference

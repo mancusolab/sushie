@@ -1,4 +1,3 @@
-import logging
 import math
 from typing import List, NamedTuple, Tuple
 
@@ -8,26 +7,13 @@ import jax.numpy as jnp
 import jax.scipy.stats as stats
 from jax import jit, lax, nn
 
-from . import core, utils
-
-LOG = "sushie"
-
-
-class _LResult(NamedTuple):
-    """ """
-
-    Xs: List[jnp.ndarray]
-    ys: List[jnp.ndarray]
-    XtXs: List[jnp.ndarray]
-    priors: core.Prior
-    posteriors: core.Posterior
-    opt_v_func: core.AbstractOptFunc
+from . import core, log, utils
 
 
 def run_sushie(
     Xs: List[jnp.ndarray],
     ys: List[jnp.ndarray],
-    covars: core.ArrayOrNoneList,
+    covar: core.ArrayOrNoneList,
     L: int = 5,
     no_scale: bool = False,
     no_regress: bool = False,
@@ -41,15 +27,27 @@ def run_sushie(
     threshold: float = 0.9,
     purity: float = 0.5,
 ) -> core.SushieResult:
-    """
-    The main inference function for SuSiE PCA.
+    """The main inference function for running SuShiE.
     Attributes:
-        mu_z: mean parameter for factor Z
+        Xs: genotype data for multiple ancestries.
+        ys: phenotype data for multiple ancestries.
+        covar: covariate data for multiple ancestries.
+        L: inferred number of eQTLs for the gene, default is five.
+        no_scale: do not scale the genotype and phenotype, default is to scale.
+        no_regress: do not regress covariates on genotypes, default is to regress.
+        no_update: do not update the effect size prior, default is to update using em.
+        pi: the probability prior for an SNP to be an eQTL, default is 1/p (None) where p is the number of SNPs.
+        resid_var: prior residual variance, default is 1e-3 (None).
+        effect_var: prior effect size variance, default is 1e-3 (None).
+        rho: prior effect size correlation, default is 0.1 (None).
+        max_iter: the maximum iteration for optimization, default is 500.
+        min_tol: the convergence tolerance, default is 1e-5.
+        threshold: the credible set threshold, default is 0.9.
+        purity: default is 0.5.
 
+    Returns:
+        SuShiE result object that contains prior, posterior, cs, and pip
     """
-
-    log = logging.getLogger(LOG)
-    # check if number of the ancestry are the same
     if len(Xs) == len(ys):
         n_pop = len(Xs)
     else:
@@ -75,7 +73,7 @@ def run_sushie(
         raise ValueError("Inferred L is invalid, choose a positive L.")
 
     if min_tol > 0.1:
-        log.warning("Minimum intolerance is low. Inference may not be accurate.")
+        log.logger.warning("Minimum intolerance is low. Inference may not be accurate.")
 
     if not 0 < threshold < 1:
         raise ValueError("CS threshold is not between 0 and 1. Specify a valid one.")
@@ -97,14 +95,14 @@ def run_sushie(
         )
 
     if no_update:
-        log.info(
+        log.logger.info(
             "No updates on the effect size prior. Inference may be slow and different."
         )
 
     # first regress out covariates if there are any, then scale the genotype and phenotype
-    if covars[0] is not None:
+    if covar[0] is not None:
         for idx in range(n_pop):
-            ys[idx], _, _ = utils.ols(covars[idx], ys[idx])
+            ys[idx], _, _, _ = utils.ols(covar[idx], ys[idx])
 
             # regress covar on each SNP
             if not no_regress:
@@ -112,7 +110,8 @@ def run_sushie(
                     Xs[idx],
                     _,
                     _,
-                ) = utils.ols(covars[idx], Xs[idx])
+                    _,
+                ) = utils.ols(covar[idx], Xs[idx])
 
     # center data
     for idx in range(n_pop):
@@ -156,7 +155,7 @@ def run_sushie(
         rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
-            log.info("Running single-ancestry SuSiE/SuShiE. No need to specify rho.")
+            log.logger.info("Running single-ancestry SuShiE. No need to specify rho.")
         if len(rho) != exp_num_rho:
             raise ValueError(
                 f"Number of specified rho ({len(rho)}) does not match expected"
@@ -194,7 +193,7 @@ def run_sushie(
         kl=jnp.zeros((L,)),
     )
 
-    opt_v_func = _construct_optimize_v(no_update)
+    opt_v_func = EMOptFunc() if not no_update else NoopOptFunc()
 
     XtXs = []
     for idx in range(n_pop):
@@ -216,20 +215,20 @@ def run_sushie(
             elbo_increase = False
 
         if jnp.abs(elbo_cur - elbo_last) < min_tol:
-            log.info(
+            log.logger.info(
                 f"Reach minimum tolerance threshold {min_tol} after {o_iter + 1}"
                 + " iterations, stop optimization.",
             )
             break
 
         if o_iter + 1 == max_iter:
-            log.info(f"Reach maximum iteration threshold {max_iter}.")
+            log.logger.info(f"Reach maximum iteration threshold {max_iter}.")
         elbo_last = elbo_cur
 
     if elbo_increase:
-        log.info(f"Optimization finished. Final ELBO score: {elbo_cur}.")
+        log.logger.info(f"Optimization finished. Final ELBO score: {elbo_cur}.")
     else:
-        log.warning(
+        log.logger.warning(
             f"ELBO does not non-decrease. Final ELBO score: {elbo_cur}."
             + " Double check your genotype, phenotype, and covariate data."
             + " Contact developer if this error message remains.",
@@ -239,6 +238,15 @@ def run_sushie(
     cs = _get_cs(posteriors.alpha, Xs, threshold, purity)
 
     return core.SushieResult(priors, posteriors, pip, cs)
+
+
+class _LResult(NamedTuple):
+    Xs: List[jnp.ndarray]
+    ys: List[jnp.ndarray]
+    XtXs: List[jnp.ndarray]
+    priors: core.Prior
+    posteriors: core.Posterior
+    opt_v_func: core.AbstractOptFunc
 
 
 @jit
@@ -278,9 +286,9 @@ def _update_effects(
     for idx in range(n_pop):
         tr_b = tr_b_s[idx]
         tr_bsq = tr_bsq_s[idx]
-        tmp_erss = utils._erss(Xs[idx], ys[idx], tr_b, tr_bsq) / ns[idx]
+        tmp_erss = _erss(Xs[idx], ys[idx], tr_b, tr_bsq) / ns[idx]
         erss_list.append(tmp_erss)
-        exp_ll += utils._eloglike(Xs[idx], ys[idx], tr_b, tr_bsq, tmp_erss)
+        exp_ll += _eloglike(Xs[idx], ys[idx], tr_b, tr_bsq, tmp_erss)
 
     priors = priors._replace(resid_var=jnp.array(erss_list))
     kl_divs = jnp.sum(posteriors.kl)
@@ -364,14 +372,9 @@ def _compute_posterior(
     )
 
     prior_covar = priors.effect_covar[l_iter]
-    # post_var = jnp.reciprocal(1 / shat2 + 1 / prior_var_b)  # A.1
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(priors.effect_covar[l_iter]))
-    # post_mean = (post_var / shat2) * beta_hat  # A.2
-    # we want to use shat2 to calculate rTZDinv
-    # shat2 is pxkxk, use jnp.diagonal to make it pxk
     rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
-    # rTZDinv is pxk, post_covar is pxkxk
     post_mean = jnp.einsum("ijk,ik->ij", post_covar, rTZDinv)
     post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
     alpha = nn.softmax(
@@ -385,9 +388,8 @@ def _compute_posterior(
     # this is also the prior in our E step
     weighted_post_covar = jnp.einsum("j,jmn->mn", alpha, post_mean_sq)
 
-    # third term for residual elbo (e.q. B.15)
-    kl_alpha = utils._kl_categorical(alpha, priors.pi)
-    kl_betas = alpha.T @ utils._kl_mvn(post_mean, post_covar, 0.0, prior_covar)
+    kl_alpha = _kl_categorical(alpha, priors.pi)
+    kl_betas = alpha.T @ _kl_mvn(post_mean, post_covar, 0.0, prior_covar)
 
     priors = priors._replace(
         effect_covar=priors.effect_covar.at[l_iter].set(weighted_post_covar)
@@ -430,22 +432,7 @@ class NoopOptFunc(core.AbstractOptFunc):
         return priors
 
 
-def _construct_optimize_v(no_update: bool = False) -> core.AbstractOptFunc:
-    if not no_update:
-        return EMOptFunc()
-    else:
-        return NoopOptFunc()
-
-
 def _get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
-    """
-    Perform an ordinary linear regression.
-
-    :param X: n x p matrix for independent variables with no intercept vector.
-    :param y: n x m matrix for dependent variables. If m > 1, then perform m ordinary regression parallel.
-
-    :return: returns residuals, adjusted r squared, and p values for betas.
-    """
     pip = 1 - jnp.prod((1 - alpha), axis=0)
 
     return pip
@@ -457,14 +444,6 @@ def _get_cs(
     threshold: float = 0.9,
     purity: float = 0.5,
 ) -> pd.DataFrame:
-    """
-    Perform an ordinary linear regression.
-
-    :param X: n x p matrix for independent variables with no intercept vector.
-    :param y: n x m matrix for dependent variables. If m > 1, then perform m ordinary regression parallel.
-
-    :return: returns residuals, adjusted r squared, and p values for betas.
-    """
     n_l, _ = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
@@ -500,3 +479,59 @@ def _get_cs(
             cs = pd.concat([cs, tmp_pd], ignore_index=True)
 
     return cs
+
+
+def _eloglike(
+    X: jnp.ndarray,
+    y: jnp.ndarray,
+    beta: jnp.ndarray,
+    beta_sq: jnp.ndarray,
+    sigma_sq: core.ArrayOrFloat,
+) -> core.ArrayOrFloat:
+    n, p = X.shape
+    norm_term = -(0.5 * n) * jnp.log(2 * jnp.pi * sigma_sq)
+    quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)
+
+    return norm_term + quad_term
+
+
+def _kl_categorical(
+    alpha: jnp.ndarray,
+    pi: jnp.ndarray,
+) -> float:
+    return jnp.nansum(alpha * (jnp.log(alpha) - jnp.log(pi)))
+
+
+def _kl_mvn(
+    m1: jnp.ndarray,
+    s12: jnp.ndarray,
+    m0: float,
+    s02: jnp.ndarray,
+) -> float:
+    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
+    k, k = s02.shape
+
+    p1 = (
+        jnp.trace(jnp.einsum("ij,kjm->kim", jnp.linalg.inv(s02), s12), axis1=1, axis2=2)
+        - k
+    )
+    p2 = jnp.einsum("ij,jm,im->i", (m0 - m1), jnp.linalg.inv(s02), (m0 - m1))
+
+    s0, sld0 = jnp.linalg.slogdet(s02)
+    s1, sld1 = jnp.linalg.slogdet(s12)
+
+    p3 = sld0 - sld1
+
+    return 0.5 * (p1 + p2 + p3)
+
+
+def _erss(
+    X: jnp.ndarray, y: jnp.ndarray, beta: jnp.ndarray, beta_sq: jnp.ndarray
+) -> core.ArrayOrFloat:
+    mu_li = X @ beta
+    mu2_li = (X ** 2) @ beta_sq
+
+    term_1 = jnp.sum((y - jnp.sum(mu_li, axis=1)) ** 2)
+    term_2 = jnp.sum(mu2_li - (mu_li ** 2))
+
+    return term_1 + term_2

@@ -1,6 +1,5 @@
 import argparse
 import copy
-import logging
 import warnings
 from typing import Callable, List, Tuple
 
@@ -15,22 +14,7 @@ with warnings.catch_warnings():
     from bgen_reader import open_bgen
     import jax.numpy as jnp
 
-from . import core, infer, utils
-
-LOG = "sushie"
-
-
-def _construct_read_geno(mode: str = "plink") -> Callable:
-    if mode == "plink":
-        opt_fun = read_triplet
-    elif mode == "vcf":
-        opt_fun = read_vcf
-    elif mode == "bgen":
-        opt_fun = read_bgen
-    else:
-        raise ValueError("Invalid read in mode")
-
-    return opt_fun
+from . import core, infer, log, utils
 
 
 def read_data(
@@ -39,13 +23,13 @@ def read_data(
     geno_paths: List[str],
     geno_func: Callable,
 ) -> List[core.RawData]:
-    log = logging.getLogger(LOG)
+    """Read in pheno, covar, and genotype data and convert it to raw data object."""
     n_pop = len(pheno_paths)
 
     rawData = []
 
     for idx in range(n_pop):
-        log.info(f"Ancestry {idx + 1}: Reading in genotype data.")
+        log.logger.info(f"Ancestry {idx + 1}: Reading in genotype data.")
 
         tmp_bim, tmp_fam, tmp_bed = geno_func(geno_paths[idx])
 
@@ -88,16 +72,17 @@ def read_data(
 
 
 def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
+    """Read in genotype data in plink format."""
     bim, fam, bed = read_plink(path, verbose=False)
     bim = bim[["chrom", "snp", "pos", "a0", "a1"]]
     fam = fam[["iid"]]
     # we want bed file to be nxp
     bed = bed.compute().T
-
     return bim, fam, bed
 
 
 def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
+    """Read in genotype data in vcf format."""
     vcf = VCF(path)
     fam = pd.DataFrame(vcf.samples).rename(columns={0: "iid"})
     bim = pd.DataFrame(columns=["chrom", "snp", "pos", "a0", "a1"])
@@ -131,6 +116,7 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 
 
 def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
+    """Read in genotype data in bgen format."""
     bgen = open_bgen(path, verbose=False)
     fam = pd.DataFrame(bgen.samples).rename(columns={0: "iid"})
     bim = pd.DataFrame(
@@ -157,10 +143,7 @@ def output_cs(
     trait: str,
     save_file: bool = True,
 ) -> pd.DataFrame:
-    """
-    Function to output credible sets in tsv files
-    Args:
-    """
+    """Output credible set in tsv file."""
     cs = result.cs
     cs["pip"] = result.pip[result.cs.SNPIndex.values.astype(int)]
     cs = (
@@ -190,36 +173,38 @@ def output_her(
     trait: str,
     save_file: bool = True,
 ) -> pd.DataFrame:
-    """
-    Function to output heritability analysis  results in tsv files
-    """
+    """Output heritability results in tsv file."""
     n_pop = len(result.priors.resid_var)
     est_h2g = jnp.zeros(n_pop)
+    p_value = jnp.zeros(n_pop)
     for idx in range(n_pop):
-        tmp_h2g = utils.estimate_her(geno[idx], pheno[idx], covar[idx])
+        tmp_h2g, tmp_p_value = utils.estimate_her(geno[idx], pheno[idx], covar[idx])
         est_h2g = est_h2g.at[idx].set(tmp_h2g)
-
+        p_value = p_value.at[idx].set(tmp_p_value)
     est_her = (
         pd.DataFrame(
-            data=est_h2g,
-            index=[f"ancestry{idx + 1}" for idx in range(n_pop)],
-            columns=["heritability"],
+            data={"h2g": est_h2g, "h2g_p": p_value},
+            index=[idx for idx in range(n_pop)],
         )
         .assign(trait=trait)
         .reset_index()
+        .rename(columns={"index": "ancestry"})
     )
 
     # only output h2g that has credible sets
     SNPIndex = result.cs.SNPIndex.values.astype(int)
     if len(SNPIndex) != 0:
         shared_h2g = jnp.zeros(n_pop)
+        p_value = jnp.zeros(n_pop)
         for idx in range(n_pop):
-            tmp_shared_h2g = utils.estimate_her(
+            tmp_shared_h2g, tmp_p_value = utils.estimate_her(
                 geno[idx][:, SNPIndex], pheno[idx], covar[idx]
             )
             shared_h2g = shared_h2g.at[idx].set(tmp_shared_h2g)
+            p_value = p_value.at[idx].set(tmp_p_value)
 
         est_her["shared_h2g"] = shared_h2g
+        est_her["shared_h2g_p"] = p_value
 
     if est_her.shape[0] == 0:
         est_her = est_her.append({"trait": trait}, ignore_index=True)
@@ -237,9 +222,7 @@ def output_weight(
     trait: str,
     save_file: bool = True,
 ) -> pd.DataFrame:
-    """
-    Function to output prediction weights in tsv files
-    """
+    """Output prediction weights in tsv file."""
     n_pop = len(result.priors.resid_var)
 
     snp_copy = copy.deepcopy(snps).assign(trait=trait)
@@ -264,9 +247,7 @@ def output_corr(
     trait: str,
     save_file: bool = True,
 ) -> pd.DataFrame:
-    """
-    Function to output correlation results in tsv files
-    """
+    """Output correlation results in tsv file."""
     n_pop = len(result.priors.resid_var)
 
     CSIndex = jnp.unique(result.cs.CSIndex.values.astype(int))
@@ -306,9 +287,7 @@ def output_cv(
     args: argparse.Namespace,
     save_file: bool = True,
 ) -> pd.DataFrame:
-    """
-    Function to output cross validation results in tsv files
-    """
+    """Output cross validation results in tsv file."""
     rng_key = random.PRNGKey(args.seed)
     cv_geno = copy.deepcopy(geno)
     cv_pheno = copy.deepcopy(pheno)
@@ -377,17 +356,18 @@ def output_cv(
 
     cv_res = []
     for idx in range(n_pop):
-        _, adj_r2, pval = utils.ols(est_y[idx][:, jnp.newaxis], cv_pheno[idx])
-        cv_res.append([adj_r2, pval[1]])
+        _, _, adj_r2, p_value = utils.ols(est_y[idx][:, jnp.newaxis], cv_pheno[idx])
+        cv_res.append([adj_r2, p_value[1]])
 
     sample_size = [i.shape[0] for i in geno]
     cv_r2 = (
         pd.DataFrame(
             data=cv_res,
-            index=[f"ancestry{idx + 1}" for idx in range(n_pop)],
+            index=[idx for idx in range(n_pop)],
             columns=["rsq", "p_value"],
         )
         .reset_index()
+        .rename(columns={"index": "ancestry"})
         .assign(N=sample_size)
     )
 
@@ -401,9 +381,137 @@ def output_cv(
 
 
 def output_numpy(result: core.SushieResult, output: str) -> None:
-    """
-    Function to output all the results in npy files
-    """
+    """Output all results in npy file."""
     jnp.save(f"{output}.all.results.npy", result)
 
     return None
+
+
+def run_meta(
+    geno: List[jnp.ndarray],
+    pheno: List[jnp.ndarray],
+    covar: core.ArrayOrNoneList,
+    snps: pd.DataFrame,
+    args: argparse.Namespace,
+    save_file: bool = True,
+) -> pd.DataFrame:
+    """Run single ancestry SuShiE and calculate the meta-analyzed PIP."""
+    n_pop = len(geno)
+
+    resid_var = None
+    effect_var = None
+
+    pips = jnp.zeros((snps.shape[0], 1))
+    cs_table = []
+    # args.resid_var is either None or a list of float, so we have to do so
+    for idx in range(n_pop):
+        if args.resid_var is not None:
+            resid_var = [float(args.resid_var[idx])]
+
+        if args.effect_var is not None:
+            effect_var = [float(args.effect_var[idx])]
+
+        tmp_result = infer.run_sushie(
+            [geno[idx]],
+            [pheno[idx]],
+            [covar[idx]],
+            L=args.L,
+            no_scale=args.no_scale,
+            no_regress=args.no_regress,
+            no_update=args.no_update,
+            pi=args.pi,
+            resid_var=resid_var,
+            effect_var=effect_var,
+            rho=None,
+            max_iter=args.max_iter,
+            min_tol=args.min_tol,
+            threshold=args.threshold,
+            purity=args.purity,
+        )
+
+        pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
+        tmp_cs_table = output_cs(
+            tmp_result, snps, args.output, args.trait, save_file=False
+        )
+        tmp_cs_table["ancestry"] = idx + 1
+        cs_table.append(tmp_cs_table)
+
+    pips = jnp.delete(pips, 0, 1)
+    pips = 1 - jnp.prod(1 - pips, axis=1)
+
+    final_cs = pd.DataFrame(columns=cs_table[0].columns.values)
+
+    for idx in range(n_pop):
+        tmp_table = cs_table[idx]
+
+        if tmp_table.shape[0] == 1 and tmp_table.snp.isna().values.any():
+            tmp_table["meta_pip"] = jnp.nan
+        else:
+            tmp_table["meta_pip"] = pips[tmp_table.SNPIndex.values.astype(int)]
+
+        final_cs = pd.concat([final_cs, tmp_table], axis=0)
+
+    if save_file:
+        final_cs.to_csv(f"{args.output}.meta.cs.tsv", sep="\t", index=False)
+
+    return final_cs
+
+
+def run_mega(
+    geno: List[jnp.ndarray],
+    pheno: List[jnp.ndarray],
+    covar: core.ArrayOrNoneList,
+    snps: pd.DataFrame,
+    args: argparse.Namespace,
+    save_file: bool = True,
+) -> pd.DataFrame:
+    """Run "mega" SuShiE that row binds the geno and pheno data across ancestry and perform single ancestry SuShiE."""
+    n_pop = len(geno)
+
+    resid_var = args.resid_var if n_pop == 1 else None
+    effect_var = args.effect_var if n_pop == 1 else None
+    rho = args.rho if n_pop == 1 else None
+
+    # it's possible that different ancestries have different number of covariates,
+    # so we need to regress out first
+    if covar[0] is not None:
+        for idx in range(n_pop):
+            pheno[idx], _, _, _ = utils.ols(covar[idx], pheno[idx])
+
+            if not args.no_regress:
+                (
+                    geno[idx],
+                    _,
+                    _,
+                    _,
+                ) = utils.ols(covar[idx], geno[idx])
+
+    mega_geno = geno[0]
+    mega_pheno = pheno[0]
+    for idx in range(1, n_pop):
+        mega_geno = jnp.append(mega_geno, geno[idx], axis=0)
+        mega_pheno = jnp.append(mega_pheno, pheno[idx], axis=0)
+
+    mega_result = infer.run_sushie(
+        [mega_geno],
+        [mega_pheno],
+        [None],
+        L=args.L,
+        no_scale=args.no_scale,
+        no_regress=args.no_regress,
+        no_update=args.no_update,
+        pi=args.pi,
+        resid_var=resid_var,
+        effect_var=effect_var,
+        rho=rho,
+        max_iter=args.max_iter,
+        min_tol=args.min_tol,
+        threshold=args.threshold,
+        purity=args.purity,
+    )
+
+    mega_table = output_cs(
+        mega_result, snps, f"{args.output}.mega", args.trait, save_file=save_file
+    )
+
+    return mega_table
