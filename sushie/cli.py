@@ -792,7 +792,6 @@ def _main(argsv):
         help="Subcommands: finemap to perform gene expression fine-mapping using SuShiE"
     )
 
-    # add subparsers for focus commands
     finemap = build_finemap_parser(subp)
     finemap.set_defaults(func=run_finemap)
 
