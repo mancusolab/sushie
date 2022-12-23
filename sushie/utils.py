@@ -27,19 +27,30 @@ def ols(
     n_samples, n_features = X.shape
     X_inter = jnp.append(jnp.ones((n_samples, 1)), X, axis=1)
     n_features += 1
+    y = jnp.reshape(y, (len(y), -1))
     XtX_inv = jnp.linalg.inv(X_inter.T @ X_inter)
     betas = XtX_inv @ X_inter.T @ y
     residual = y - X_inter @ betas
     rss = jnp.sum(residual ** 2, axis=0)
     sigma_sq = rss / (n_samples - n_features)
-    t_scores = betas / jnp.squeeze(
-        jnp.sqrt(jnp.diagonal(XtX_inv)[:, jnp.newaxis] * sigma_sq)
+    t_scores = betas / jnp.sqrt(
+        jnp.diagonal(XtX_inv)[:, jnp.newaxis] @ sigma_sq[jnp.newaxis, :]
     )
     r_sq = 1 - rss / jnp.sum((y - jnp.mean(y)) ** 2)
     adj_r = 1 - (1 - r_sq) * (n_samples - 1) / (n_samples - n_features)
-    p_val = jnp.array(2 * stats.t.sf(abs(t_scores), df=(n_samples - n_features)))
+    p_value = jnp.array(2 * stats.t.sf(abs(t_scores), df=(n_samples - n_features)))
 
-    return residual, sigma_sq, adj_r, p_val
+    return residual, sigma_sq, adj_r, p_value
+
+
+def regress_covar(
+    X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray, no_regress: bool
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    y, _, _, _ = ols(covar, y)
+    if not no_regress:
+        X, _, _, _ = ols(covar, X)
+
+    return X, y
 
 
 def estimate_her(

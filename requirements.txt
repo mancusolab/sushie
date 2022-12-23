@@ -1,8 +1,8 @@
 bgen_reader
-cyvcf2==0.30.18
+cyvcf2
 glimix_core
 jax
 jaxlib
-pandas>=1.5
+pandas>=1.5.0
 pandas-plink==2.2.9
 scipy

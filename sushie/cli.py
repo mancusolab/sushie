@@ -3,16 +3,19 @@
 from __future__ import division
 
 import argparse
+import copy
 import logging
 import os
 import sys
 import warnings
 from importlib import metadata
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
-from . import core, infer, io, log
+from jax import random
+
+from . import core, infer, io, log, utils
 
 warnings.filterwarnings("ignore")
 with warnings.catch_warnings():
@@ -243,9 +246,111 @@ def _allele_check(
     return correct_idx, flipped_idx, wrong_idx
 
 
+def _prepare_cv(
+    geno: List[jnp.ndarray], pheno: List[jnp.ndarray], cv_num: int, seed: int
+) -> List[core.CVData]:
+    rng_key = random.PRNGKey(seed)
+    n_pop = len(geno)
+
+    # shuffle the data first
+    for idx in range(n_pop):
+        rng_key, c_key = random.split(rng_key, 2)
+        tmp_n = geno[idx].shape[0]
+        shuffled_index = random.choice(c_key, tmp_n, (tmp_n,), replace=False)
+        geno[idx] = geno[idx][shuffled_index]
+        pheno[idx] = pheno[idx][shuffled_index]
+
+    cv_data = []
+    for cv in range(cv_num):
+        train_geno = []
+        train_pheno = []
+        valid_geno = []
+        valid_pheno = []
+
+        # make the training and test for each population separately
+        # because sample size may be different
+        for idx in range(n_pop):
+            tmp_n = geno[idx].shape[0]
+            increment = int(tmp_n / cv_num)
+            start = cv * increment
+            end = (cv + 1) * increment
+
+            # if it is the last fold, take all the rest of the data.
+            if cv == cv_num - 1:
+                end = max(tmp_n, (cv + 1) * increment)
+
+            train_geno.append(geno[idx][jnp.r_[:start, end:tmp_n]])
+            train_pheno.append(pheno[idx][jnp.r_[:start, end:tmp_n]])
+            valid_geno.append(geno[idx][start:end])
+            valid_pheno.append(pheno[idx][start:end])
+
+        tmp_cv_data = core.CVData(
+            train_geno=train_geno,
+            train_pheno=train_pheno,
+            valid_geno=valid_geno,
+            valid_pheno=valid_pheno,
+        )
+
+        cv_data.append(tmp_cv_data)
+
+    return cv_data
+
+
+def _run_cv(args, cv_data, effect_var, resid_var, rho):
+    n_pop = len(cv_data[0].train_geno)
+    # create a list to store future estimated y value
+    est_y = [jnp.array([])] * n_pop
+    ori_y = [jnp.array([])] * n_pop
+    for jdx in range(args.cv_num):
+        cv_result = infer.infer_sushie(
+            cv_data[jdx].train_geno,
+            cv_data[jdx].train_pheno,
+            [None] * n_pop,
+            L=args.L,
+            no_scale=args.no_scale,
+            no_regress=args.no_regress,
+            no_update=args.no_update,
+            pi=args.pi,
+            resid_var=resid_var,
+            effect_var=effect_var,
+            rho=rho,
+            max_iter=args.max_iter,
+            min_tol=args.min_tol,
+            threshold=args.threshold,
+            purity=args.purity,
+        )
+
+        total_weight = jnp.sum(cv_result.posteriors.post_mean, axis=0)
+        for idx in range(n_pop):
+            tmp_cv_weight = total_weight[:, idx]
+            est_y[idx] = jnp.append(
+                est_y[idx], cv_data[jdx].valid_geno[idx] @ tmp_cv_weight
+            )
+            ori_y[idx] = jnp.append(ori_y[idx], cv_data[jdx].valid_pheno[idx])
+    cv_res = []
+    for idx in range(n_pop):
+        _, _, adj_r2, p_value = utils.ols(
+            est_y[idx][:, jnp.newaxis], ori_y[idx][:, jnp.newaxis]
+        )
+        cv_res.append([adj_r2[0], p_value[1][0]])
+
+    return cv_res
+
+
 def _process_raw(
     rawData: List[core.RawData],
-) -> Tuple[List[jnp.ndarray], List[jnp.ndarray], core.ArrayOrNoneList, pd.DataFrame]:
+    no_regress: bool,
+    mega: bool,
+    cv: bool,
+    cv_num: int,
+    seed: int,
+) -> Tuple[
+    pd.DataFrame,
+    core.CleanData,
+    Optional[core.CleanData],
+    Optional[List[core.CVData]],
+    Optional[List[core.CVData]],
+]:
     n_pop = len(rawData)
 
     for idx in range(n_pop):
@@ -369,12 +474,148 @@ def _process_raw(
         pheno.append(tmp_pheno)
         covar.append(tmp_covar)
 
+    regular_data = core.CleanData(geno=geno, pheno=pheno, covar=covar)
+
     log.logger.info(
         f"Successfully prepare covariate and phenotype data with {geno[0].shape[1]} SNPs for {n_pop}"
         + " ancestries, and start fine-mapping using SuShiE.",
     )
 
-    return geno, pheno, covar, snps
+    mega_data = None
+    cv_data = None
+    cv_mega = None
+    # when doing mega or cross validation, we need to regress out covariates first
+    if mega or cv:
+        cv_geno = copy.deepcopy(geno)
+        cv_pheno = copy.deepcopy(pheno)
+        if covar[0] is not None:
+            for idx in range(n_pop):
+                cv_geno[idx], cv_pheno[idx] = utils.regress_covar(
+                    geno[idx], pheno[idx], covar[idx], no_regress
+                )
+
+        if cv:
+            cv_data = _prepare_cv(cv_geno, cv_pheno, cv_num, seed)
+
+        # prepare mega dataset
+        # it's possible that different ancestries have different number of covariates,
+        # so we need to regress out first
+        if mega:
+            mega_geno = cv_geno[0]
+            mega_pheno = cv_pheno[0]
+            for idx in range(1, n_pop):
+                mega_geno = jnp.append(mega_geno, cv_geno[idx], axis=0)
+                mega_pheno = jnp.append(mega_pheno, cv_pheno[idx], axis=0)
+
+            mega_data = core.CleanData(
+                geno=[mega_geno],
+                pheno=[mega_pheno],
+                covar=[None],
+            )
+
+            if cv:
+                cv_mega = _prepare_cv(mega_data.geno, mega_data.pheno, cv_num, seed)
+
+    return snps, regular_data, mega_data, cv_data, cv_mega
+
+
+def _run_regular(
+    data: core.CleanData,
+    cv_data: Optional[List[core.CVData]],
+    args: argparse.Namespace,
+    snps: pd.DataFrame,
+    meta: bool = False,
+    mega: bool = False,
+) -> None:
+    n_pop = len(data.geno)
+
+    resid_var = args.resid_var if mega is False else None
+    effect_var = args.effect_var if mega is False else None
+    rho = args.rho if mega is False else None
+    # keeps track of single-ancestry PIP to get meta-PIP
+    pips = jnp.zeros((snps.shape[0], 1)) if meta else None
+
+    result = []
+    if meta:
+        # if this is meta, run it ancestry by ancestry
+        for idx in range(n_pop):
+            if args.resid_var is not None:
+                resid_var = [float(args.resid_var[idx])]
+
+            if args.effect_var is not None:
+                effect_var = [float(args.effect_var[idx])]
+
+            tmp_result = infer.infer_sushie(
+                [data.geno[idx]],
+                [data.pheno[idx]],
+                [data.covar[idx]],
+                L=args.L,
+                no_scale=args.no_scale,
+                no_regress=args.no_regress,
+                no_update=args.no_update,
+                pi=args.pi,
+                resid_var=resid_var,
+                effect_var=effect_var,
+                rho=None,
+                max_iter=args.max_iter,
+                min_tol=args.min_tol,
+                threshold=args.threshold,
+                purity=args.purity,
+            )
+
+            pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
+            result.append(tmp_result)
+
+        pips = jnp.delete(pips, 0, 1)
+        pips = 1 - jnp.prod(1 - pips, axis=1)
+    else:
+        tmp_result = infer.infer_sushie(
+            data.geno,
+            data.pheno,
+            data.covar,
+            L=args.L,
+            no_scale=args.no_scale,
+            no_regress=args.no_regress,
+            no_update=args.no_update,
+            pi=args.pi,
+            resid_var=resid_var,
+            effect_var=effect_var,
+            rho=rho,
+            max_iter=args.max_iter,
+            min_tol=args.min_tol,
+            threshold=args.threshold,
+            purity=args.purity,
+        )
+        result.append(tmp_result)
+
+    for jdx in range(len(result)):
+        # update output name
+        if meta:
+            output = f"{args.output}.meta.ancestry{jdx + 1}"
+        elif mega:
+            output = f"{args.output}.mega"
+        else:
+            output = args.output
+
+        io.output_cs(result[jdx], pips, snps, output, args.trait, args.no_compress)
+        io.output_weight_pip(
+            result[jdx], pips, snps, output, args.trait, args.no_compress
+        )
+        if args.her:
+            io.output_her(result[jdx], data, output, args.trait, args.no_compress)
+
+        if args.numpy:
+            io.output_numpy(result[jdx], output)
+
+    if not (mega or meta):
+        io.output_corr(result[0], args.output, args.trait, args.no_compress)
+        if args.cv:
+            log.logger.info(f"Starting {args.cv_num}-fold cross validation.")
+            cv_res = _run_cv(args, cv_data, effect_var, resid_var, rho)
+            sample_size = [idx.shape[0] for idx in data.geno]
+            io.output_cv(cv_res, sample_size, args.output, args.trait, args.no_compress)
+
+    return None
 
 
 def run_finemap(args):
@@ -383,52 +624,19 @@ def run_finemap(args):
 
         rawData = io.read_data(args.pheno, args.covar, geno_path, geno_func)
 
-        geno, pheno, covar, snps = _process_raw(rawData)
-
-        result = infer.run_sushie(
-            geno,
-            pheno,
-            covar,
-            L=args.L,
-            no_scale=args.no_scale,
-            no_regress=args.no_regress,
-            no_update=args.no_update,
-            pi=args.pi,
-            resid_var=args.resid_var,
-            effect_var=args.effect_var,
-            rho=args.rho,
-            max_iter=args.max_iter,
-            min_tol=args.min_tol,
-            threshold=args.threshold,
-            purity=args.purity,
+        snps, regular_data, mega_data, cv_data, cv_mega = _process_raw(
+            rawData, args.no_regress, args.mega, args.cv, args.cv_num, args.seed
         )
 
-        # output credible set
-        io.output_cs(result, snps, args.output, args.trait)
-
-        if args.her:
-            io.output_her(result, geno, pheno, covar, args.output, args.trait)
-
-        if args.weight:
-            io.output_weight(result, snps, args.output, args.trait)
-
-        if args.corr:
-            io.output_corr(result, args.output, args.trait)
-
-        if args.cv:
-            log.logger.info(f"Starting {args.cv_num}-fold cross validation.")
-            io.output_cv(geno, pheno, covar, args)
-
-        if args.numpy:
-            io.output_numpy(result, args.output)
+        _run_regular(regular_data, cv_data, args, snps, mega=False)
 
         if args.meta:
             log.logger.info("Starting running meta SuShiE.")
-            io.run_meta(geno, pheno, covar, snps, args)
+            _run_regular(regular_data, cv_data, args, snps, meta=True)
 
         if args.mega:
             log.logger.info("Starting running mega SuShiE.")
-            io.run_mega(geno, pheno, covar, snps, args)
+            _run_regular(mega_data, cv_mega, args, snps, mega=True)
 
     except Exception as err:
         import traceback
@@ -687,27 +895,6 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--weight",
-        default=False,
-        action="store_true",
-        help=(
-            "Indicator to output *.weights.tsv file for prediction weights of all SNPs.",
-            " Default is False. Specify --weight will store True value and increase running time.",
-        ),
-    )
-
-    finemap.add_argument(
-        "--corr",
-        default=False,
-        action="store_true",
-        help=(
-            "Indicator to output *.corr.tsv file.",
-            " Default is False. Specify --corr will store True value and increase running time.",
-            " *.cv.tsv file contains estimated variance and covariance across ancestries.",
-        ),
-    )
-
-    finemap.add_argument(
         "--cv",
         default=False,
         action="store_true",
@@ -771,6 +958,18 @@ def build_finemap_parser(subp):
         action="store_true",
         help="Verbose logging. Includes debug info. Default is False.",
     )
+
+    finemap.add_argument(
+        "--no_compress",
+        default=False,
+        action="store_true",
+        help=(
+            "Indicator to compress all output tsv files in tsv.gz.",
+            " Default is False. Specify --no_compress will store True and save disk space.",
+            " This command will not compress npy files.",
+        ),
+    )
+
     finemap.add_argument(
         "--output",
         default="sushie_finemap",
@@ -809,7 +1008,7 @@ def _main(argsv):
     version = metadata.version("sushie")
 
     masthead = "===================================" + os.linesep
-    masthead += "             SuShiE v{}             ".format(version) + os.linesep
+    masthead += f"             SuShiE v{version}             " + os.linesep
     masthead += "===================================" + os.linesep
 
     # setup logging
@@ -821,6 +1020,7 @@ def _main(argsv):
     else:
         log.logger.setLevel(logging.INFO)
     fmt = logging.Formatter(fmt=log_format, datefmt=date_format)
+    log.logger.propagate = False
 
     # write to stdout unless quiet is set
     if not args.quiet:
@@ -829,7 +1029,6 @@ def _main(argsv):
         sys.stdout.write("Starting log..." + os.linesep)
         stdout_handler = logging.StreamHandler(sys.stdout)
         stdout_handler.setFormatter(fmt)
-        log.logger.propagate = False
         log.logger.addHandler(stdout_handler)
 
     # setup log file, but write PLINK-style command first

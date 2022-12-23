@@ -9,13 +9,41 @@ from jax.tree_util import register_pytree_node, register_pytree_node_class
 # prior argument effect_covar, resid_covar, rho, etc.
 ListFloatOrNone = Optional[List[float]]
 # covar process data, etc.
-ArrayOrNoneList = List[Union[jnp.ndarray, None]]
+ArrayOrNoneList = List[Optional[jnp.ndarray]]
 # effect_covar sushie etc.
 ArrayOrFloat = Union[jnp.ndarray, float]
 # covar paths
-ListStrOrNone = Union[List[str], None]
+ListStrOrNone = Optional[List[str]]
 # covar raw data
-PDOrNone = Union[pd.DataFrame, None]
+PDOrNone = Optional[pd.DataFrame]
+
+
+class CVData(NamedTuple):
+    """Define the raw data object for the future inference.
+    Attributes:
+        train_geno: genotype data for training SuShiE weights.
+        train_pheno: phenotype data for training SuShiE weights.
+        valid_geno: genotype data for validating SuShiE weights.
+        valid_pheno: phenotype data for validating SuShiE weights.
+    """
+
+    train_geno: List[jnp.ndarray]
+    train_pheno: List[jnp.ndarray]
+    valid_geno: List[jnp.ndarray]
+    valid_pheno: List[jnp.ndarray]
+
+
+class CleanData(NamedTuple):
+    """Define the raw data object for the future inference.
+    Attributes:
+        geno: actual genotype data.
+        pheno: phenotype data.
+        covar: covariate needed to be adjusted in the inference.
+    """
+
+    geno: List[jnp.ndarray]
+    pheno: List[jnp.ndarray]
+    covar: ArrayOrNoneList
 
 
 class RawData(NamedTuple):

@@ -10,7 +10,7 @@ from jax import jit, lax, nn
 from . import core, log, utils
 
 
-def run_sushie(
+def infer_sushie(
     Xs: List[jnp.ndarray],
     ys: List[jnp.ndarray],
     covar: core.ArrayOrNoneList,
@@ -52,45 +52,53 @@ def run_sushie(
         n_pop = len(Xs)
     else:
         raise ValueError(
-            "The number of geno and pheno data does not match. Check your input."
+            f"The number of geno ({len(Xs)}) and pheno ({len(ys)}) data does not match. Check your input."
         )
 
     # check x and y have the same sample size
     for idx in range(n_pop):
         if Xs[idx].shape[0] != ys[idx].shape[0]:
             raise ValueError(
-                f"Ancestry {idx + 1}: The samples of geno and pheno data does not match. Check your input."
+                f"Ancestry {idx + 1}: The sample size of geno ({Xs[idx].shape[0]}) "
+                + f"and pheno ({ys[idx].shape[0]}) data does not match. Check your input."
             )
 
     # check each ancestry has the same number of SNPs
     for idx in range(1, n_pop):
         if Xs[idx - 1].shape[1] != Xs[idx].shape[1]:
             raise ValueError(
-                f"Ancestry {idx} and ancestry {idx} do not have the same number of SNPs."
+                f"Ancestry {idx} and ancestry {idx} do not have "
+                + f"the same number of SNPs ({Xs[idx - 1].shape[1]} vs {Xs[idx].shape[1]})."
             )
 
     if L <= 0:
-        raise ValueError("Inferred L is invalid, choose a positive L.")
+        raise ValueError(f"Inferred L ({L}) is invalid, choose a positive L.")
 
     if min_tol > 0.1:
-        log.logger.warning("Minimum intolerance is low. Inference may not be accurate.")
+        log.logger.warning(
+            f"Minimum intolerance ({min_tol}) is greater than 0.1. Inference may not be accurate."
+        )
 
     if not 0 < threshold < 1:
-        raise ValueError("CS threshold is not between 0 and 1. Specify a valid one.")
+        raise ValueError(
+            f"CS threshold ({threshold}) is not between 0 and 1. Specify a valid one."
+        )
 
     if not 0 < purity < 1:
-        raise ValueError("Purity is not between 0 and 1. Specify a valid one.")
+        raise ValueError(
+            f"Purity ({purity}) is not between 0 and 1. Specify a valid one."
+        )
 
     if pi is not None and (pi >= 1 or pi <= 0):
         raise ValueError(
-            "Pi prior is not a probability (0-1). Specify a valid pi prior."
+            f"Pi prior ({pi}) is not a probability (0-1). Specify a valid pi prior."
         )
 
     _, n_snps = Xs[0].shape
 
     if n_snps < L:
         raise ValueError(
-            "The number of common SNPs across ancestries is less than inferred L."
+            f"The number of common SNPs across ancestries ({n_snps}) is less than inferred L ({L})."
             + "Please choose a smaller L or expand the genomic window."
         )
 
@@ -102,16 +110,9 @@ def run_sushie(
     # first regress out covariates if there are any, then scale the genotype and phenotype
     if covar[0] is not None:
         for idx in range(n_pop):
-            ys[idx], _, _, _ = utils.ols(covar[idx], ys[idx])
-
-            # regress covar on each SNP
-            if not no_regress:
-                (
-                    Xs[idx],
-                    _,
-                    _,
-                    _,
-                ) = utils.ols(covar[idx], Xs[idx])
+            Xs[idx], ys[idx] = utils.regress_covar(
+                Xs[idx], ys[idx], covar[idx], no_regress
+            )
 
     # center data
     for idx in range(n_pop):
@@ -131,12 +132,12 @@ def run_sushie(
     else:
         if len(resid_var) != n_pop:
             raise ValueError(
-                "Number of specified residual prior does not match ancestry number."
+                f"Number of specified residual prior ({len(resid_var)}) does not match ancestry number ({n_pop})."
             )
         resid_var = [float(i) for i in resid_var]
         if jnp.any(jnp.array(resid_var) <= 0):
             raise ValueError(
-                "The input of residual prior is invalid (<0). Check your input."
+                f"The input of residual prior ({resid_var}) is invalid (<0). Check your input."
             )
 
     if effect_var is None:
@@ -144,11 +145,13 @@ def run_sushie(
     else:
         if len(effect_var) != n_pop:
             raise ValueError(
-                "Number of specified effect prior does not match ancestry number."
+                f"Number of specified effect prior ({len(effect_var)}) does not match ancestry number ({n_pop})."
             )
         effect_var = [float(i) for i in effect_var]
         if jnp.any(jnp.array(effect_var) <= 0):
-            raise ValueError("The input of effect size prior is invalid (<0).")
+            raise ValueError(
+                f"The input of effect size prior ({effect_var})is invalid (<0)."
+            )
 
     exp_num_rho = math.comb(n_pop, 2)
     if rho is None:
@@ -165,7 +168,7 @@ def run_sushie(
         # double-check the if it's invalid rho
         if jnp.any(jnp.abs(jnp.array(rho)) >= 1):
             raise ValueError(
-                "The input of rho is invalid (>=1 or <=-1). Check your input."
+                f"The input of rho ({rho}) is invalid (>=1 or <=-1). Check your input."
             )
 
     effect_covar = jnp.diag(jnp.array(effect_var))
@@ -235,7 +238,7 @@ def run_sushie(
         )
 
     pip = _get_pip(posteriors.alpha)
-    cs = _get_cs(posteriors.alpha, Xs, threshold, purity)
+    cs = _get_cs(posteriors.alpha, Xs, pip, threshold, purity)
 
     return core.SushieResult(priors, posteriors, pip, cs)
 
@@ -441,6 +444,7 @@ def _get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
 def _get_cs(
     alpha: jnp.ndarray,
     Xs: List[jnp.ndarray],
+    pip: jnp.ndarray,
     threshold: float = 0.9,
     purity: float = 0.5,
 ) -> pd.DataFrame:
@@ -477,6 +481,8 @@ def _get_cs(
         min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
         if min_corr > purity:
             cs = pd.concat([cs, tmp_pd], ignore_index=True)
+
+    cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
 
     return cs
 
