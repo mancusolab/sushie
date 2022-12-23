@@ -3,20 +3,20 @@
 from __future__ import division
 
 import argparse
+import copy
 import logging
 import os
 import sys
 import warnings
 from importlib import metadata
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
-from . import core, infer, io, utils
+from jax import random
 
-# from .log import LOG
+from . import core, infer, io, log, utils
 
-LOG = "sushie"
 warnings.filterwarnings("ignore")
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
@@ -24,11 +24,6 @@ with warnings.catch_warnings():
 
 
 def _get_command_string(args):
-    """
-    Format sushie call and options into a string for logging/printing
-    :return: string containing formatted arguments to sushie
-    """
-
     base = "sushie {}{}".format(args[0], os.linesep)
     rest = args[1:]
     rest_strs = []
@@ -55,10 +50,10 @@ def _get_command_string(args):
 def _parameter_check(
     args,
 ) -> Tuple[List[str], Callable]:
-    log = logging.getLogger(LOG)
-
     n_pop = len(args.pheno)
-    log.info(f"Detecting phenotypes for {n_pop} ancestries for SuShiE fine-mapping.")
+    log.logger.info(
+        f"Detecting phenotypes for {n_pop} ancestries for SuShiE fine-mapping."
+    )
 
     n_geno = (
         int(args.plink is not None)
@@ -67,7 +62,7 @@ def _parameter_check(
     )
 
     if n_geno > 1:
-        log.warning(
+        log.logger.warning(
             f"Detecting {n_geno} genotypes, will use the genotypes in the order of 'plink, vcf, and bgen'"
         )
 
@@ -78,27 +73,27 @@ def _parameter_check(
                 "The numbers of ancestries in plink geno and pheno data does not match. Check your input."
             )
         else:
-            log.info("Detecting genotype data in plink format.")
+            log.logger.info("Detecting genotype data in plink format.")
             geno_path = args.plink
-            geno_func = io._construct_read_geno("plink")
+            geno_func = io.read_triplet
     elif args.vcf is not None:
         if len(args.vcf) != n_pop:
             raise ValueError(
                 "The numbers of ancestries in vcf geno and pheno data does not match. Check your input."
             )
         else:
-            log.info("Detecting genotype data in vcf format.")
+            log.logger.info("Detecting genotype data in vcf format.")
             geno_path = args.vcf
-            geno_func = io._construct_read_geno("vcf")
+            geno_func = io.read_vcf
     elif args.bgen is not None:
         if len(args.bgen) != n_pop:
             raise ValueError(
                 "The numbers of ancestries in bgen geno and pheno data does not match. Check your input."
             )
         else:
-            log.info("Detecting genotype data in bgen format.")
+            log.logger.info("Detecting genotype data in bgen format.")
             geno_path = args.bgen
-            geno_func = io._construct_read_geno("bgen")
+            geno_func = io.read_bgen
     else:
         raise ValueError(
             "No genotype data specified in either plink, vcf, or bgen format. Check your input."
@@ -108,7 +103,7 @@ def _parameter_check(
         if len(args.covar) != n_pop:
             raise ValueError("The number of covariate data does not match geno data.")
     else:
-        log.info("No covariates detected for this analysis.")
+        log.logger.info("No covariates detected for this analysis.")
 
     if args.cv:
         if args.cv_num <= 1:
@@ -117,7 +112,7 @@ def _parameter_check(
                 + " Choose some number greater than 1.",
             )
         elif args.cv_num > 5:
-            log.warning(
+            log.logger.warning(
                 "The number of folds in cross validation is too large."
                 + " It may increase running time.",
             )
@@ -128,13 +123,13 @@ def _parameter_check(
             )
 
     if args.meta and n_pop == 1:
-        log.warning(
-            "Running meta SuSiE, but the number of ancestry is 1, which is redundant."
+        log.logger.warning(
+            "Running meta SuShiE, but the number of ancestry is 1, which is redundant."
         )
 
     if args.mega and n_pop == 1:
-        log.warning(
-            "Running mega SuSiE, but the number of ancestry is 1, which is redundant."
+        log.logger.warning(
+            "Running mega SuShiE, but the number of ancestry is 1, which is redundant."
         )
 
     return geno_path, geno_func
@@ -251,19 +246,111 @@ def _allele_check(
     return correct_idx, flipped_idx, wrong_idx
 
 
+def _prepare_cv(
+    geno: List[jnp.ndarray], pheno: List[jnp.ndarray], cv_num: int, seed: int
+) -> List[core.CVData]:
+    rng_key = random.PRNGKey(seed)
+    n_pop = len(geno)
+
+    # shuffle the data first
+    for idx in range(n_pop):
+        rng_key, c_key = random.split(rng_key, 2)
+        tmp_n = geno[idx].shape[0]
+        shuffled_index = random.choice(c_key, tmp_n, (tmp_n,), replace=False)
+        geno[idx] = geno[idx][shuffled_index]
+        pheno[idx] = pheno[idx][shuffled_index]
+
+    cv_data = []
+    for cv in range(cv_num):
+        train_geno = []
+        train_pheno = []
+        valid_geno = []
+        valid_pheno = []
+
+        # make the training and test for each population separately
+        # because sample size may be different
+        for idx in range(n_pop):
+            tmp_n = geno[idx].shape[0]
+            increment = int(tmp_n / cv_num)
+            start = cv * increment
+            end = (cv + 1) * increment
+
+            # if it is the last fold, take all the rest of the data.
+            if cv == cv_num - 1:
+                end = max(tmp_n, (cv + 1) * increment)
+
+            train_geno.append(geno[idx][jnp.r_[:start, end:tmp_n]])
+            train_pheno.append(pheno[idx][jnp.r_[:start, end:tmp_n]])
+            valid_geno.append(geno[idx][start:end])
+            valid_pheno.append(pheno[idx][start:end])
+
+        tmp_cv_data = core.CVData(
+            train_geno=train_geno,
+            train_pheno=train_pheno,
+            valid_geno=valid_geno,
+            valid_pheno=valid_pheno,
+        )
+
+        cv_data.append(tmp_cv_data)
+
+    return cv_data
+
+
+def _run_cv(args, cv_data, effect_var, resid_var, rho):
+    n_pop = len(cv_data[0].train_geno)
+    # create a list to store future estimated y value
+    est_y = [jnp.array([])] * n_pop
+    ori_y = [jnp.array([])] * n_pop
+    for jdx in range(args.cv_num):
+        cv_result = infer.infer_sushie(
+            cv_data[jdx].train_geno,
+            cv_data[jdx].train_pheno,
+            [None] * n_pop,
+            L=args.L,
+            no_scale=args.no_scale,
+            no_regress=args.no_regress,
+            no_update=args.no_update,
+            pi=args.pi,
+            resid_var=resid_var,
+            effect_var=effect_var,
+            rho=rho,
+            max_iter=args.max_iter,
+            min_tol=args.min_tol,
+            threshold=args.threshold,
+            purity=args.purity,
+        )
+
+        total_weight = jnp.sum(cv_result.posteriors.post_mean, axis=0)
+        for idx in range(n_pop):
+            tmp_cv_weight = total_weight[:, idx]
+            est_y[idx] = jnp.append(
+                est_y[idx], cv_data[jdx].valid_geno[idx] @ tmp_cv_weight
+            )
+            ori_y[idx] = jnp.append(ori_y[idx], cv_data[jdx].valid_pheno[idx])
+    cv_res = []
+    for idx in range(n_pop):
+        _, _, adj_r2, p_value = utils.ols(
+            est_y[idx][:, jnp.newaxis], ori_y[idx][:, jnp.newaxis]
+        )
+        cv_res.append([adj_r2[0], p_value[1][0]])
+
+    return cv_res
+
+
 def _process_raw(
     rawData: List[core.RawData],
-) -> Tuple[List[jnp.ndarray], List[jnp.ndarray], core.ArrayOrNoneList, pd.DataFrame]:
-    """
-    Perform an ordinary linear regression.
-
-    :param X: jnp.ndarray n x p matrix for independent variables with no intercept vector.
-    :param y: jnp.ndarray n x m matrix for dependent variables. If m > 1, then perform m ordinary regression parallel.
-
-    :return: typing.Tuple[jnp.ndarray, core.ArrayOrFloat, core.ArrayOrFloat] returns residuals, adjusted r squared,
-            and p values for betas.
-    """
-    log = logging.getLogger(LOG)
+    no_regress: bool,
+    mega: bool,
+    cv: bool,
+    cv_num: int,
+    seed: int,
+) -> Tuple[
+    pd.DataFrame,
+    core.CleanData,
+    Optional[core.CleanData],
+    Optional[List[core.CVData]],
+    Optional[List[core.CVData]],
+]:
     n_pop = len(rawData)
 
     for idx in range(n_pop):
@@ -272,7 +359,7 @@ def _process_raw(
         rawData[idx], del_num = _drop_nainf(rawData[idx])
 
         if del_num != 0:
-            log.warning(
+            log.logger.warning(
                 f"Ancestry {idx + 1}: Drop {del_num} out of {old_num} subjects because of INF or NAN value"
                 + "in either genotype, phenotype, or covariate data."
             )
@@ -289,7 +376,7 @@ def _process_raw(
                 + "genotype found. Please double check source data.",
             )
         else:
-            log.info(
+            log.logger.info(
                 f"Ancestry {idx + 1}: Found {rawData[idx].fam.shape[0]} common individuals"
                 + " across phenotype, covariate, and genotype.",
             )
@@ -307,7 +394,7 @@ def _process_raw(
         # report how many snps we removed due to independent SNPs
         for idx in range(n_pop):
             snps_num_diff = rawData[idx].bim.shape[0] - snps.shape[0]
-            log.warning(
+            log.logger.warning(
                 f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps.shape[0]}"
                 + " common SNPs. Will remove these independent SNPs.",
             )
@@ -326,7 +413,7 @@ def _process_raw(
             )
 
             if len(tmp_flip_idx) != 0:
-                log.warning(
+                log.logger.warning(
                     f"Ancestry{idx + 1} has {len(tmp_flip_idx)} flipped alleles from ancestry 1. Will flip these SNPs."
                 )
 
@@ -335,7 +422,7 @@ def _process_raw(
 
             if len(wrong_idx) != 0:
                 snps = snps.drop(index=wrong_idx)
-                log.warning(
+                log.logger.warning(
                     f"Ancestry{idx + 1} has {len(wrong_idx)} alleles that couldn't be flipped. Will remove these SNPs."
                 )
 
@@ -344,7 +431,9 @@ def _process_raw(
                     f"Ancestry {idx + 1} has none of correct or flippable SNPs from ancestry 1. Check your source.",
                 )
             # drop unused columns
-            snps = snps.drop(columns=[f"a0_{idx + 1}", f"a1_{idx + 1}", f"pos_{idx+1}"])
+            snps = snps.drop(
+                columns=[f"a0_{idx + 1}", f"a1_{idx + 1}", f"pos_{idx + 1}"]
+            )
         # rename columns for better indexing in the future
     snps = snps.reset_index().rename(
         columns={"index": "SNPIndex", "a0_1": "a0", "a1_1": "a1", "pos_1": "pos"}
@@ -385,41 +474,105 @@ def _process_raw(
         pheno.append(tmp_pheno)
         covar.append(tmp_covar)
 
-    log.info(
+    regular_data = core.CleanData(geno=geno, pheno=pheno, covar=covar)
+
+    log.logger.info(
         f"Successfully prepare covariate and phenotype data with {geno[0].shape[1]} SNPs for {n_pop}"
         + " ancestries, and start fine-mapping using SuShiE.",
     )
 
-    return geno, pheno, covar, snps
+    mega_data = None
+    cv_data = None
+    cv_mega = None
+    # when doing mega or cross validation, we need to regress out covariates first
+    if mega or cv:
+        cv_geno = copy.deepcopy(geno)
+        cv_pheno = copy.deepcopy(pheno)
+        if covar[0] is not None:
+            for idx in range(n_pop):
+                cv_geno[idx], cv_pheno[idx] = utils.regress_covar(
+                    geno[idx], pheno[idx], covar[idx], no_regress
+                )
+
+        if cv:
+            cv_data = _prepare_cv(cv_geno, cv_pheno, cv_num, seed)
+
+        # prepare mega dataset
+        # it's possible that different ancestries have different number of covariates,
+        # so we need to regress out first
+        if mega:
+            mega_geno = cv_geno[0]
+            mega_pheno = cv_pheno[0]
+            for idx in range(1, n_pop):
+                mega_geno = jnp.append(mega_geno, cv_geno[idx], axis=0)
+                mega_pheno = jnp.append(mega_pheno, cv_pheno[idx], axis=0)
+
+            mega_data = core.CleanData(
+                geno=[mega_geno],
+                pheno=[mega_pheno],
+                covar=[None],
+            )
+
+            if cv:
+                cv_mega = _prepare_cv(mega_data.geno, mega_data.pheno, cv_num, seed)
+
+    return snps, regular_data, mega_data, cv_data, cv_mega
 
 
-def run_meta(
-    geno: List[jnp.ndarray],
-    pheno: List[jnp.ndarray],
-    covar: core.ArrayOrNoneList,
-    snps: pd.DataFrame,
+def _run_regular(
+    data: core.CleanData,
+    cv_data: Optional[List[core.CVData]],
     args: argparse.Namespace,
-    save_file: bool = True,
-) -> pd.DataFrame:
-    n_pop = len(geno)
+    snps: pd.DataFrame,
+    meta: bool = False,
+    mega: bool = False,
+) -> None:
+    n_pop = len(data.geno)
 
-    resid_var = None
-    effect_var = None
+    resid_var = args.resid_var if mega is False else None
+    effect_var = args.effect_var if mega is False else None
+    rho = args.rho if mega is False else None
+    # keeps track of single-ancestry PIP to get meta-PIP
+    pips = jnp.zeros((snps.shape[0], 1)) if meta else None
 
-    pips = jnp.zeros((snps.shape[0], 1))
-    cs_table = []
-    # args.resid_var is either None or a list of float, so we have to do so
-    for idx in range(n_pop):
-        if args.resid_var is not None:
-            resid_var = [float(args.resid_var[idx])]
+    result = []
+    if meta:
+        # if this is meta, run it ancestry by ancestry
+        for idx in range(n_pop):
+            if args.resid_var is not None:
+                resid_var = [float(args.resid_var[idx])]
 
-        if args.effect_var is not None:
-            effect_var = [float(args.effect_var[idx])]
+            if args.effect_var is not None:
+                effect_var = [float(args.effect_var[idx])]
 
-        tmp_result = infer.run_sushie(
-            [geno[idx]],
-            [pheno[idx]],
-            [covar[idx]],
+            tmp_result = infer.infer_sushie(
+                [data.geno[idx]],
+                [data.pheno[idx]],
+                [data.covar[idx]],
+                L=args.L,
+                no_scale=args.no_scale,
+                no_regress=args.no_regress,
+                no_update=args.no_update,
+                pi=args.pi,
+                resid_var=resid_var,
+                effect_var=effect_var,
+                rho=None,
+                max_iter=args.max_iter,
+                min_tol=args.min_tol,
+                threshold=args.threshold,
+                purity=args.purity,
+            )
+
+            pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
+            result.append(tmp_result)
+
+        pips = jnp.delete(pips, 0, 1)
+        pips = 1 - jnp.prod(1 - pips, axis=1)
+    else:
+        tmp_result = infer.infer_sushie(
+            data.geno,
+            data.pheno,
+            data.covar,
             L=args.L,
             no_scale=args.no_scale,
             no_regress=args.no_regress,
@@ -427,153 +580,63 @@ def run_meta(
             pi=args.pi,
             resid_var=resid_var,
             effect_var=effect_var,
-            rho=None,
+            rho=rho,
             max_iter=args.max_iter,
             min_tol=args.min_tol,
             threshold=args.threshold,
             purity=args.purity,
         )
+        result.append(tmp_result)
 
-        pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
-        tmp_cs_table = io.output_cs(
-            tmp_result, snps, args.output, args.trait, save_file=False
-        )
-        tmp_cs_table["ancestry"] = idx + 1
-        cs_table.append(tmp_cs_table)
-
-    pips = jnp.delete(pips, 0, 1)
-    pips = 1 - jnp.prod(1 - pips, axis=1)
-
-    final_cs = pd.DataFrame(columns=cs_table[0].columns.values)
-
-    for idx in range(n_pop):
-        tmp_table = cs_table[idx]
-
-        if tmp_table.shape[0] == 1 and tmp_table.snp.isna().values.any():
-            tmp_table["meta_pip"] = jnp.nan
+    for jdx in range(len(result)):
+        # update output name
+        if meta:
+            output = f"{args.output}.meta.ancestry{jdx + 1}"
+        elif mega:
+            output = f"{args.output}.mega"
         else:
-            tmp_table["meta_pip"] = pips[tmp_table.SNPIndex.values.astype(int)]
+            output = args.output
 
-        final_cs = pd.concat([final_cs, tmp_table], axis=0)
+        io.output_cs(result[jdx], pips, snps, output, args.trait, args.no_compress)
+        io.output_weight_pip(
+            result[jdx], pips, snps, output, args.trait, args.no_compress
+        )
+        if args.her:
+            io.output_her(result[jdx], data, output, args.trait, args.no_compress)
 
-    if save_file:
-        final_cs.to_csv(f"{args.output}.meta.tsv", sep="\t", index=False)
+        if args.numpy:
+            io.output_numpy(result[jdx], output)
 
-    return final_cs
+    if not (mega or meta):
+        io.output_corr(result[0], args.output, args.trait, args.no_compress)
+        if args.cv:
+            log.logger.info(f"Starting {args.cv_num}-fold cross validation.")
+            cv_res = _run_cv(args, cv_data, effect_var, resid_var, rho)
+            sample_size = [idx.shape[0] for idx in data.geno]
+            io.output_cv(cv_res, sample_size, args.output, args.trait, args.no_compress)
 
-
-def run_mega(
-    geno: List[jnp.ndarray],
-    pheno: List[jnp.ndarray],
-    covar: core.ArrayOrNoneList,
-    snps: pd.DataFrame,
-    args: argparse.Namespace,
-    save_file: bool = True,
-) -> pd.DataFrame:
-    n_pop = len(geno)
-
-    resid_var = args.resid_var if n_pop == 1 else None
-    effect_var = args.effect_var if n_pop == 1 else None
-    rho = args.rho if n_pop == 1 else None
-
-    # it's possible that different ancestries have different number of covariates,
-    # so we need to regress out first
-    if covar[0] is not None:
-        for idx in range(n_pop):
-            pheno[idx], _, _ = utils.ols(covar[idx], pheno[idx])
-
-            if not args.no_regress:
-                (
-                    geno[idx],
-                    _,
-                    _,
-                ) = utils.ols(covar[idx], geno[idx])
-
-    mega_geno = geno[0]
-    mega_pheno = pheno[0]
-    for idx in range(1, n_pop):
-        mega_geno = jnp.append(mega_geno, geno[idx], axis=0)
-        mega_pheno = jnp.append(mega_pheno, pheno[idx], axis=0)
-
-    mega_result = infer.run_sushie(
-        [mega_geno],
-        [mega_pheno],
-        [None],
-        L=args.L,
-        no_scale=args.no_scale,
-        no_regress=args.no_regress,
-        no_update=args.no_update,
-        pi=args.pi,
-        resid_var=resid_var,
-        effect_var=effect_var,
-        rho=rho,
-        max_iter=args.max_iter,
-        min_tol=args.min_tol,
-        threshold=args.threshold,
-        purity=args.purity,
-    )
-
-    mega_table = io.output_cs(
-        mega_result, snps, f"{args.output}.mega", args.trait, save_file=save_file
-    )
-
-    return mega_table
+    return None
 
 
 def run_finemap(args):
-    log = logging.getLogger(LOG)
-
     try:
         geno_path, geno_func = _parameter_check(args)
 
         rawData = io.read_data(args.pheno, args.covar, geno_path, geno_func)
 
-        geno, pheno, covar, snps = _process_raw(rawData)
-
-        result = infer.run_sushie(
-            geno,
-            pheno,
-            covar,
-            L=args.L,
-            no_scale=args.no_scale,
-            no_regress=args.no_regress,
-            no_update=args.no_update,
-            pi=args.pi,
-            resid_var=args.resid_var,
-            effect_var=args.effect_var,
-            rho=args.rho,
-            max_iter=args.max_iter,
-            min_tol=args.min_tol,
-            threshold=args.threshold,
-            purity=args.purity,
+        snps, regular_data, mega_data, cv_data, cv_mega = _process_raw(
+            rawData, args.no_regress, args.mega, args.cv, args.cv_num, args.seed
         )
 
-        # output credible set
-        io.output_cs(result, snps, args.output, args.trait)
-
-        if args.her:
-            io.output_her(result, geno, pheno, covar, args.output, args.trait)
-
-        if args.weight:
-            io.output_weight(result, snps, args.output, args.trait)
-
-        if args.corr:
-            io.output_corr(result, args.output, args.trait)
-
-        if args.cv:
-            log.info(f"Starting {args.cv_num}-fold cross validation.")
-            io.output_cv(geno, pheno, covar, args)
-
-        if args.numpy:
-            io.output_numpy(result, args.output)
+        _run_regular(regular_data, cv_data, args, snps, mega=False)
 
         if args.meta:
-            log.info("Starting running meta SuSiE.")
-            run_meta(geno, pheno, covar, snps, args)
+            log.logger.info("Starting running meta SuShiE.")
+            _run_regular(regular_data, cv_data, args, snps, meta=True)
 
         if args.mega:
-            log.info("Starting running mega SuSiE.")
-            run_mega(geno, pheno, covar, snps, args)
+            log.logger.info("Starting running mega SuShiE.")
+            _run_regular(mega_data, cv_mega, args, snps, mega=True)
 
     except Exception as err:
         import traceback
@@ -585,10 +648,10 @@ def run_finemap(args):
                 )
             )
         )
-        log.error(err)
+        log.logger.error(err)
 
     finally:
-        log.info(
+        log.logger.info(
             "Finished SuShiE fine-mapping. Thanks for using our software."
             + " For bug reporting, suggestions, and comments, please go to https://github.com/mancusolab/sushie.",
         )
@@ -804,7 +867,7 @@ def build_finemap_parser(subp):
         default=False,
         action="store_true",
         help=(
-            "Indicator to perform meta analysis of single-ancestry SuSiE and output *.pip.meta.tsv file.",
+            "Indicator to perform meta analysis of single-ancestry SuShiE and output *.pip.meta.tsv file.",
             " Default is False. Specify --meta will store True value and increase running time.",
         ),
     )
@@ -814,7 +877,7 @@ def build_finemap_parser(subp):
         default=False,
         action="store_true",
         help=(
-            "Indicator to perform mega SuSiE by stacking the genotype and phenotype data across ancestries.",
+            "Indicator to perform mega SuShiE by row-binding the genotype and phenotype data across ancestries.",
             " It will output *.pip.mega.tsv file.",
             " Default is False. Specify --mega will store True value and increase running time.",
         ),
@@ -828,27 +891,6 @@ def build_finemap_parser(subp):
             "Indicator to perform heritability analysis using limix and output *.h2g.tsv file.",
             " Default is False. Specify --her will store True value and increase running time.",
             " *.h2g.tsv file contains two estimated h2g using all genotypes and using only SNPs in the credible sets.",
-        ),
-    )
-
-    finemap.add_argument(
-        "--weight",
-        default=False,
-        action="store_true",
-        help=(
-            "Indicator to output *.weights.tsv file for prediction weights of all SNPs.",
-            " Default is False. Specify --weight will store True value and increase running time.",
-        ),
-    )
-
-    finemap.add_argument(
-        "--corr",
-        default=False,
-        action="store_true",
-        help=(
-            "Indicator to output *.corr.tsv file.",
-            " Default is False. Specify --corr will store True value and increase running time.",
-            " *.cv.tsv file contains estimated variance and covariance across ancestries.",
         ),
     )
 
@@ -916,6 +958,18 @@ def build_finemap_parser(subp):
         action="store_true",
         help="Verbose logging. Includes debug info. Default is False.",
     )
+
+    finemap.add_argument(
+        "--no_compress",
+        default=False,
+        action="store_true",
+        help=(
+            "Indicator to compress all output tsv files in tsv.gz.",
+            " Default is False. Specify --no_compress will store True and save disk space.",
+            " This command will not compress npy files.",
+        ),
+    )
+
     finemap.add_argument(
         "--output",
         default="sushie_finemap",
@@ -937,7 +991,6 @@ def _main(argsv):
         help="Subcommands: finemap to perform gene expression fine-mapping using SuShiE"
     )
 
-    # add subparsers for focus commands
     finemap = build_finemap_parser(subp)
     finemap.set_defaults(func=run_finemap)
 
@@ -955,18 +1008,19 @@ def _main(argsv):
     version = metadata.version("sushie")
 
     masthead = "===================================" + os.linesep
-    masthead += "             SuShiE v{}             ".format(version) + os.linesep
+    masthead += f"             SuShiE v{version}             " + os.linesep
     masthead += "===================================" + os.linesep
 
     # setup logging
     log_format = "[%(asctime)s - %(levelname)s] %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
-    log = logging.getLogger(LOG)
+
     if args.verbose:
-        log.setLevel(logging.DEBUG)
+        log.logger.setLevel(logging.DEBUG)
     else:
-        log.setLevel(logging.INFO)
+        log.logger.setLevel(logging.INFO)
     fmt = logging.Formatter(fmt=log_format, datefmt=date_format)
+    log.logger.propagate = False
 
     # write to stdout unless quiet is set
     if not args.quiet:
@@ -975,8 +1029,7 @@ def _main(argsv):
         sys.stdout.write("Starting log..." + os.linesep)
         stdout_handler = logging.StreamHandler(sys.stdout)
         stdout_handler.setFormatter(fmt)
-        log.propagate = False
-        log.addHandler(stdout_handler)
+        log.logger.addHandler(stdout_handler)
 
     # setup log file, but write PLINK-style command first
     disk_log_stream = open(f"{args.output}.log", "w")
@@ -986,7 +1039,7 @@ def _main(argsv):
 
     disk_handler = logging.StreamHandler(disk_log_stream)
     disk_handler.setFormatter(fmt)
-    log.addHandler(disk_handler)
+    log.logger.addHandler(disk_handler)
 
     # launch finemap
     args.func(args)

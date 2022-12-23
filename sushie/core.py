@@ -9,16 +9,53 @@ from jax.tree_util import register_pytree_node, register_pytree_node_class
 # prior argument effect_covar, resid_covar, rho, etc.
 ListFloatOrNone = Optional[List[float]]
 # covar process data, etc.
-ArrayOrNoneList = List[Union[jnp.ndarray, None]]
-# effect_covar susie, sushie etc.
+ArrayOrNoneList = List[Optional[jnp.ndarray]]
+# effect_covar sushie etc.
 ArrayOrFloat = Union[jnp.ndarray, float]
 # covar paths
-ListStrOrNone = Union[List[str], None]
+ListStrOrNone = Optional[List[str]]
 # covar raw data
-PDOrNone = Union[pd.DataFrame, None]
+PDOrNone = Optional[pd.DataFrame]
+
+
+class CVData(NamedTuple):
+    """Define the raw data object for the future inference.
+    Attributes:
+        train_geno: genotype data for training SuShiE weights.
+        train_pheno: phenotype data for training SuShiE weights.
+        valid_geno: genotype data for validating SuShiE weights.
+        valid_pheno: phenotype data for validating SuShiE weights.
+    """
+
+    train_geno: List[jnp.ndarray]
+    train_pheno: List[jnp.ndarray]
+    valid_geno: List[jnp.ndarray]
+    valid_pheno: List[jnp.ndarray]
+
+
+class CleanData(NamedTuple):
+    """Define the raw data object for the future inference.
+    Attributes:
+        geno: actual genotype data.
+        pheno: phenotype data.
+        covar: covariate needed to be adjusted in the inference.
+    """
+
+    geno: List[jnp.ndarray]
+    pheno: List[jnp.ndarray]
+    covar: ArrayOrNoneList
 
 
 class RawData(NamedTuple):
+    """Define the raw data object for the future inference.
+    Attributes:
+        bim: SNP information data.
+        fam: individual information data.
+        bed: actual genotype data.
+        pheno: phenotype data.
+        covar: covariate needed to be adjusted in the inference.
+    """
+
     bim: pd.DataFrame
     fam: pd.DataFrame
     bed: jnp.ndarray
@@ -27,8 +64,7 @@ class RawData(NamedTuple):
 
 
 class Prior(NamedTuple):
-    """
-    Define the class for the prior parameter of SuShiE model
+    """Define the class for the prior parameter of SuShiE model
     Attributes:
         pi: the prior probability for one SNP to be causal
         resid_var: the prior residual variance for all SNPs
@@ -41,13 +77,12 @@ class Prior(NamedTuple):
 
 
 class Posterior(NamedTuple):
-    """
-    Define the class for the posterior parameter of SuShiE model
+    """Define the class for the posterior parameter of SuShiE model
     Attributes:
         alpha: the posterior probability for each SNP to be causal (L x p)
         post_mean: the posterior mean for each SNP (L x p x k)
-        post_mean_sq: the posterior mean square for each SNP (L x p x k x k, diagonal for kx k)
-        post_covar: the posterior effect covariance for each SNP (L x p x k x k)
+        post_mean_sq: the posterior mean square for each SNP (L x p x k x k, a diagonal matrix for k x k)
+        post_covar: the posterior effect covariance for each SNP (L x k x k)
         kl: the KL divergence for each L
     """
 
@@ -59,8 +94,7 @@ class Posterior(NamedTuple):
 
 
 class SushieResult(NamedTuple):
-    """
-    Define the class for the SuShiE inference results
+    """Define the class for the SuShiE inference results
     Attributes:
         priors: the final prior parameter for the inference
         posteriors: the final posterior parameter for the inference
