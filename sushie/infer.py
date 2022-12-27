@@ -436,8 +436,7 @@ class NoopOptFunc(core.AbstractOptFunc):
 
 
 def _get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
-    pip = 1 - jnp.prod((1 - alpha), axis=0)
-
+    pip = 1 - jnp.exp(jnp.sum(jnp.log1p(-alpha), axis=0))
     return pip
 
 

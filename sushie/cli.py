@@ -329,7 +329,7 @@ def _run_cv(args, cv_data, effect_var, resid_var, rho):
             ori_y[idx] = jnp.append(ori_y[idx], cv_data[jdx].valid_pheno[idx])
     cv_res = []
     for idx in range(n_pop):
-        _, _, adj_r2, p_value = utils.ols(
+        _, adj_r2, p_value = utils.ols(
             est_y[idx][:, jnp.newaxis], ori_y[idx][:, jnp.newaxis]
         )
         cv_res.append([adj_r2[0], p_value[1][0]])
