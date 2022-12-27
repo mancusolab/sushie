@@ -13,7 +13,7 @@ from . import core, log, utils
 def infer_sushie(
     Xs: List[jnp.ndarray],
     ys: List[jnp.ndarray],
-    covar: core.ArrayOrNoneList,
+    covar: core.ArrayOrNoneList = [None],
     L: int = 5,
     no_scale: bool = False,
     no_regress: bool = False,
