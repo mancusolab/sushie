@@ -305,7 +305,7 @@ def _run_cv(args, cv_data, effect_var, resid_var, rho):
         cv_result = infer.infer_sushie(
             cv_data[jdx].train_geno,
             cv_data[jdx].train_pheno,
-            [None] * n_pop,
+            None,
             L=args.L,
             no_scale=args.no_scale,
             no_regress=args.no_regress,
@@ -327,6 +327,7 @@ def _run_cv(args, cv_data, effect_var, resid_var, rho):
                 est_y[idx], cv_data[jdx].valid_geno[idx] @ tmp_cv_weight
             )
             ori_y[idx] = jnp.append(ori_y[idx], cv_data[jdx].valid_pheno[idx])
+
     cv_res = []
     for idx in range(n_pop):
         _, adj_r2, p_value = utils.ols(
@@ -464,17 +465,22 @@ def _process_raw(
         common_pheno_id = tmp_fam[f"phenoIDX_{idx + 1}"].values
         tmp_pheno = tmp_pheno["pheno"].values[common_pheno_id]
 
+        geno.append(tmp_geno)
+        pheno.append(tmp_pheno)
+
         if tmp_covar is not None:
             # select the common individual for covar
             common_covar_id = tmp_fam[f"covarIDX_{idx + 1}"].values
             n_covar = tmp_covar.shape[1]
             tmp_covar = tmp_covar.iloc[common_covar_id, 2:n_covar].values
+            covar.append(tmp_covar)
 
-        geno.append(tmp_geno)
-        pheno.append(tmp_pheno)
-        covar.append(tmp_covar)
+    if len(covar) == 0:
+        data_covar = None
+    else:
+        data_covar = covar
 
-    regular_data = core.CleanData(geno=geno, pheno=pheno, covar=covar)
+    regular_data = core.CleanData(geno=geno, pheno=pheno, covar=data_covar)
 
     log.logger.info(
         f"Successfully prepare covariate and phenotype data with {geno[0].shape[1]} SNPs for {n_pop}"
@@ -488,7 +494,7 @@ def _process_raw(
     if mega or cv:
         cv_geno = copy.deepcopy(geno)
         cv_pheno = copy.deepcopy(pheno)
-        if covar[0] is not None:
+        if covar is not None:
             for idx in range(n_pop):
                 cv_geno[idx], cv_pheno[idx] = utils.regress_covar(
                     geno[idx], pheno[idx], covar[idx], no_regress
@@ -510,7 +516,7 @@ def _process_raw(
             mega_data = core.CleanData(
                 geno=[mega_geno],
                 pheno=[mega_pheno],
-                covar=[None],
+                covar=None,
             )
 
             if cv:
@@ -529,26 +535,44 @@ def _run_regular(
 ) -> None:
     n_pop = len(data.geno)
 
-    resid_var = args.resid_var if mega is False else None
-    effect_var = args.effect_var if mega is False else None
-    rho = args.rho if mega is False else None
+    if meta:
+        output = f"{args.output}.meta"
+    elif mega:
+        output = f"{args.output}.mega"
+    else:
+        output = f"{args.output}.sushie"
+
+    resid_var = None if mega is True else args.resid_var
+    effect_var = None if mega is True else args.effect_var
+    rho = None if mega is True else args.rho
+
     # keeps track of single-ancestry PIP to get meta-PIP
     pips = jnp.zeros((snps.shape[0], 1)) if meta else None
-
     result = []
     if meta:
         # if this is meta, run it ancestry by ancestry
         for idx in range(n_pop):
-            if args.resid_var is not None:
-                resid_var = [float(args.resid_var[idx])]
+            if args.resid_var is None:
+                resid_var = None
+            else:
+                resid_var = [args.resid_var[idx]]
 
-            if args.effect_var is not None:
-                effect_var = [float(args.effect_var[idx])]
+            if args.effect_var is None:
+                effect_var = None
+            else:
+                effect_var = [args.effect_var[idx]]
+
+            if data.covar is None:
+                covar = None
+            else:
+                covar = [data.covar[idx]]
+
+            log.logger.info(f"Running Meta SuShiE on ancestry {idx + 1}.")
 
             tmp_result = infer.infer_sushie(
                 [data.geno[idx]],
                 [data.pheno[idx]],
-                [data.covar[idx]],
+                covar,
                 L=args.L,
                 no_scale=args.no_scale,
                 no_regress=args.no_regress,
@@ -569,6 +593,9 @@ def _run_regular(
         pips = jnp.delete(pips, 0, 1)
         pips = 1 - jnp.prod(1 - pips, axis=1)
     else:
+        if mega:
+            log.logger.info("Running Mega SuShiE.")
+
         tmp_result = infer.infer_sushie(
             data.geno,
             data.pheno,
@@ -588,29 +615,24 @@ def _run_regular(
         )
         result.append(tmp_result)
 
-    for jdx in range(len(result)):
-        # update output name
-        if meta:
-            output = f"{args.output}.meta.ancestry{jdx + 1}"
-        elif mega:
-            output = f"{args.output}.mega"
-        else:
-            output = args.output
+    io.output_cs(
+        result, pips, snps, output, args.trait, args.no_compress, meta=meta, mega=mega
+    )
+    io.output_weight_pip(
+        result, pips, snps, output, args.trait, args.no_compress, meta=meta, mega=mega
+    )
 
-        io.output_cs(result[jdx], pips, snps, output, args.trait, args.no_compress)
-        io.output_weight_pip(
-            result[jdx], pips, snps, output, args.trait, args.no_compress
-        )
-        if args.her:
-            io.output_her(result[jdx], data, output, args.trait, args.no_compress)
-
-        if args.numpy:
-            io.output_numpy(result[jdx], output)
+    if args.numpy:
+        io.output_numpy(result, output)
 
     if not (mega or meta):
-        io.output_corr(result[0], args.output, args.trait, args.no_compress)
+        io.output_corr(result, args.output, args.trait, args.no_compress)
+
+        if args.her:
+            io.output_her(result, data, output, args.trait, args.no_compress)
+
         if args.cv:
-            log.logger.info(f"Starting {args.cv_num}-fold cross validation.")
+            log.logger.info(f"Running {args.cv_num}-fold cross validation.")
             cv_res = _run_cv(args, cv_data, effect_var, resid_var, rho)
             sample_size = [idx.shape[0] for idx in data.geno]
             io.output_cv(cv_res, sample_size, args.output, args.trait, args.no_compress)
@@ -628,15 +650,16 @@ def run_finemap(args):
             rawData, args.no_regress, args.mega, args.cv, args.cv_num, args.seed
         )
 
-        _run_regular(regular_data, cv_data, args, snps, mega=False)
+        _run_regular(regular_data, cv_data, args, snps, meta=False, mega=False)
 
-        if args.meta:
-            log.logger.info("Starting running meta SuShiE.")
-            _run_regular(regular_data, cv_data, args, snps, meta=True)
+        # if only one ancestry, need to run mega or meta
+        n_pop = len(regular_data.geno)
+        if n_pop != 1:
+            if args.meta:
+                _run_regular(regular_data, cv_data, args, snps, meta=True, mega=False)
 
-        if args.mega:
-            log.logger.info("Starting running mega SuShiE.")
-            _run_regular(mega_data, cv_mega, args, snps, mega=True)
+            if args.mega:
+                _run_regular(mega_data, cv_mega, args, snps, meta=False, mega=True)
 
     except Exception as err:
         import traceback

@@ -13,7 +13,7 @@ from . import core, log, utils
 def infer_sushie(
     Xs: List[jnp.ndarray],
     ys: List[jnp.ndarray],
-    covar: core.ArrayOrNoneList = [None],
+    covar: core.ListArrayOrNone = None,
     L: int = 5,
     no_scale: bool = False,
     no_regress: bool = False,
@@ -108,7 +108,7 @@ def infer_sushie(
         )
 
     # first regress out covariates if there are any, then scale the genotype and phenotype
-    if covar[0] is not None:
+    if covar is not None:
         for idx in range(n_pop):
             Xs[idx], ys[idx] = utils.regress_covar(
                 Xs[idx], ys[idx], covar[idx], no_regress

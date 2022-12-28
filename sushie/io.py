@@ -134,21 +134,39 @@ def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 
 # output functions
 def output_cs(
-    result: core.SushieResult,
+    result: List[core.SushieResult],
     meta_pip: Optional[jnp.ndarray],
     snps: pd.DataFrame,
     output: str,
     trait: str,
     no_compress: bool,
+    meta: bool,
+    mega: bool,
 ) -> pd.DataFrame:
     """Output credible set in tsv file."""
-    cs = (
-        pd.merge(snps, result.cs, how="inner", on=["SNPIndex"])
-        .assign(trait=trait, n_snps=snps.shape[0])
-        .sort_values(by=["CSIndex", "alpha", "c_alpha"], ascending=[True, False, True])
-    )
-    if meta_pip is not None:
-        cs["meta_pip"] = meta_pip[cs.SNPIndex.values.astype(int)]
+    cs = pd.DataFrame()
+
+    for idx in range(len(result)):
+        tmp_cs = (
+            pd.merge(snps, result[idx].cs, how="inner", on=["SNPIndex"])
+            .assign(trait=trait, n_snps=snps.shape[0])
+            .sort_values(
+                by=["CSIndex", "alpha", "c_alpha"], ascending=[True, False, True]
+            )
+        )
+
+        if meta_pip is not None:
+            tmp_cs["meta_pip"] = meta_pip[tmp_cs.SNPIndex.values.astype(int)]
+
+        if meta:
+            ancestry_idx = f"ancestry_{idx + 1}"
+        elif mega:
+            ancestry_idx = "mega"
+        else:
+            ancestry_idx = "sushie"
+
+        tmp_cs["ancestry"] = ancestry_idx
+        cs = pd.concat([cs, tmp_cs], axis=0)
 
     # add a placeholder better for post-hoc analysis
     if cs.shape[0] == 0:
@@ -162,26 +180,42 @@ def output_cs(
 
 
 def output_weight_pip(
-    result: core.SushieResult,
+    result: List[core.SushieResult],
     meta_pip: Optional[jnp.ndarray],
     snps: pd.DataFrame,
     output: str,
     trait: str,
     no_compress: bool,
+    meta: bool,
+    mega: bool,
 ) -> pd.DataFrame:
     """Output prediction weights in tsv file."""
-    n_pop = len(result.priors.resid_var)
-
+    n_pop = len(result[0].priors.resid_var)
     snp_copy = copy.deepcopy(snps).assign(trait=trait)
-    tmp_weights = pd.DataFrame(
-        data=jnp.sum(result.posteriors.post_mean, axis=0),
-        columns=[f"ancestry{idx + 1}_sushie_weight" for idx in range(n_pop)],
-    )
-    tmp_weights["pip"] = result.pip
-    if meta_pip is not None:
-        tmp_weights["meta_pip"] = meta_pip
+    total_weights = pd.DataFrame()
+    for idx in range(len(result)):
+        if meta:
+            ancestry_idx = [f"ancestry{idx + 1}_single_weight"]
+            ancestry_pip = f"ancestry{idx + 1}_single_pip"
+        elif mega:
+            ancestry_idx = ["mega_weight"]
+            ancestry_pip = "mega_pip"
+        else:
+            ancestry_idx = [f"ancestry{jdx + 1}_sushie_weight" for jdx in range(n_pop)]
+            ancestry_pip = "sushie_pip"
 
-    weights = pd.concat([snp_copy, tmp_weights], axis=1)
+        tmp_weights = pd.DataFrame(
+            data=jnp.sum(result[idx].posteriors.post_mean, axis=0),
+            columns=ancestry_idx,
+        )
+
+        tmp_weights[ancestry_pip] = result[idx].pip
+        total_weights = pd.concat([total_weights, tmp_weights], axis=1)
+
+    if meta_pip is not None:
+        total_weights["meta_pip"] = meta_pip
+
+    weights = pd.concat([snp_copy, total_weights], axis=1)
 
     if weights.shape[0] == 0:
         weights = weights.append({"trait": trait}, ignore_index=True)
@@ -195,18 +229,78 @@ def output_weight_pip(
     return weights
 
 
+def output_her(
+    result: List[core.SushieResult],
+    data: core.CleanData,
+    output: str,
+    trait: str,
+    no_compress: bool,
+) -> pd.DataFrame:
+    """Output heritability results in tsv file."""
+    n_pop = len(data.geno)
+    est_h2g = jnp.zeros(n_pop)
+    p_value = jnp.zeros(n_pop)
+
+    for idx in range(n_pop):
+        if data.covar is None:
+            tmp_covar = None
+        else:
+            tmp_covar = data.covar[idx]
+
+        tmp_h2g, tmp_p_value = utils.estimate_her(
+            data.geno[idx], data.pheno[idx], tmp_covar
+        )
+        est_h2g = est_h2g.at[idx].set(tmp_h2g)
+        p_value = p_value.at[idx].set(tmp_p_value)
+
+    est_her = pd.DataFrame(
+        data={"trait": trait, "h2g": est_h2g, "h2g_p": p_value},
+        index=[idx + 1 for idx in range(n_pop)],
+    ).reset_index(names="ancestry")
+
+    # only output h2g that has credible sets
+    SNPIndex = result[0].cs.SNPIndex.values.astype(int)
+    if len(SNPIndex) != 0:
+        shared_h2g = jnp.zeros(n_pop)
+        p_value = jnp.zeros(n_pop)
+        for idx in range(n_pop):
+            if data.covar is None:
+                tmp_covar = None
+            else:
+                tmp_covar = data.covar[idx]
+
+            tmp_shared_h2g, tmp_p_value = utils.estimate_her(
+                data.geno[idx][:, SNPIndex], data.pheno[idx], tmp_covar
+            )
+
+            shared_h2g = shared_h2g.at[idx].set(tmp_shared_h2g)
+            p_value = p_value.at[idx].set(tmp_p_value)
+
+        est_her["shared_h2g"] = shared_h2g
+        est_her["shared_h2g_p"] = p_value
+
+    if est_her.shape[0] == 0:
+        est_her = est_her.append({"trait": trait}, ignore_index=True)
+
+    file_name = f"{output}.h2g.tsv.gz" if not no_compress else f"{output}.h2g.tsv"
+
+    est_her.to_csv(file_name, sep="\t", index=False)
+
+    return est_her
+
+
 def output_corr(
-    result: core.SushieResult,
+    result: List[core.SushieResult],
     output: str,
     trait: str,
     no_compress: bool,
 ) -> pd.DataFrame:
     """Output correlation results in tsv file."""
-    n_pop = len(result.priors.resid_var)
+    n_pop = len(result[0].priors.resid_var)
 
-    CSIndex = jnp.unique(result.cs.CSIndex.values.astype(int))
+    CSIndex = jnp.unique(result[0].cs.CSIndex.values.astype(int))
     # only output after-purity CS
-    corr_cs_only = jnp.transpose(result.posteriors.post_covar[CSIndex - 1])
+    corr_cs_only = jnp.transpose(result[0].posteriors.post_covar[CSIndex - 1])
     corr = pd.DataFrame(data={"trait": trait, "CSIndex": CSIndex})
     for idx in range(n_pop):
         _var = corr_cs_only[idx, idx]
@@ -235,57 +329,8 @@ def output_corr(
     return corr
 
 
-def output_her(
-    result: core.SushieResult,
-    data: core.CleanData,
-    output: str,
-    trait: str,
-    no_compress: bool,
-) -> pd.DataFrame:
-    """Output heritability results in tsv file."""
-    n_pop = len(data.geno)
-    est_h2g = jnp.zeros(n_pop)
-    p_value = jnp.zeros(n_pop)
-    for idx in range(n_pop):
-        tmp_h2g, tmp_p_value = utils.estimate_her(
-            data.geno[idx], data.pheno[idx], data.covar[idx]
-        )
-        est_h2g = est_h2g.at[idx].set(tmp_h2g)
-        p_value = p_value.at[idx].set(tmp_p_value)
-
-    est_her = pd.DataFrame(
-        data={"trait": trait, "h2g": est_h2g, "h2g_p": p_value},
-        index=[idx + 1 for idx in range(n_pop)],
-    ).reset_index(names="ancestry")
-
-    # only output h2g that has credible sets
-    SNPIndex = result.cs.SNPIndex.values.astype(int)
-    if len(SNPIndex) != 0:
-        shared_h2g = jnp.zeros(n_pop)
-        p_value = jnp.zeros(n_pop)
-        for idx in range(n_pop):
-            tmp_covar = None if data.covar[idx] is None else data.covar[idx]
-            tmp_shared_h2g, tmp_p_value = utils.estimate_her(
-                data.geno[idx][:, SNPIndex], data.pheno[idx], tmp_covar
-            )
-            shared_h2g = shared_h2g.at[idx].set(tmp_shared_h2g)
-            p_value = p_value.at[idx].set(tmp_p_value)
-
-        est_her["shared_h2g"] = shared_h2g
-        est_her["shared_h2g_p"] = p_value
-
-    if est_her.shape[0] == 0:
-        est_her = est_her.append({"trait": trait}, ignore_index=True)
-
-    file_name = f"{output}.h2g.tsv.gz" if not no_compress else f"{output}.h2g.tsv"
-
-    est_her.to_csv(file_name, sep="\t", index=False)
-
-    return est_her
-
-
 def output_cv(
-    cv_res: List[List],
+    cv_res: List,
     sample_size: List[int],
     output: str,
     trait: str,
@@ -299,7 +344,7 @@ def output_cv(
             columns=["rsq", "p_value"],
         )
         .reset_index(names="ancestry")
-        .assign(N=sample_size)
+        .assign(N=sample_size, trait=trait)
     )
 
     if cv_r2.shape[0] == 0:
@@ -312,7 +357,7 @@ def output_cv(
     return cv_r2
 
 
-def output_numpy(result: core.SushieResult, output: str) -> None:
+def output_numpy(result: List[core.SushieResult], output: str) -> None:
     """Output all results in npy file."""
 
     jnp.save(f"{output}.all.results.npy", result)

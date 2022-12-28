@@ -9,7 +9,7 @@ from jax.tree_util import register_pytree_node, register_pytree_node_class
 # prior argument effect_covar, resid_covar, rho, etc.
 ListFloatOrNone = Optional[List[float]]
 # covar process data, etc.
-ArrayOrNoneList = List[Optional[jnp.ndarray]]
+ListArrayOrNone = Optional[List[jnp.ndarray]]
 # effect_covar sushie etc.
 ArrayOrFloat = Union[jnp.ndarray, float]
 # covar paths
@@ -43,7 +43,7 @@ class CleanData(NamedTuple):
 
     geno: List[jnp.ndarray]
     pheno: List[jnp.ndarray]
-    covar: ArrayOrNoneList
+    covar: ListArrayOrNone
 
 
 class RawData(NamedTuple):
