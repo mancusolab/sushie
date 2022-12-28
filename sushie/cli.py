@@ -350,7 +350,6 @@ def _process_raw(
     core.CleanData,
     Optional[core.CleanData],
     Optional[List[core.CVData]],
-    Optional[List[core.CVData]],
 ]:
     n_pop = len(rawData)
 
@@ -489,15 +488,14 @@ def _process_raw(
 
     mega_data = None
     cv_data = None
-    cv_mega = None
     # when doing mega or cross validation, we need to regress out covariates first
     if mega or cv:
         cv_geno = copy.deepcopy(geno)
         cv_pheno = copy.deepcopy(pheno)
-        if covar is not None:
+        if data_covar is not None:
             for idx in range(n_pop):
                 cv_geno[idx], cv_pheno[idx] = utils.regress_covar(
-                    geno[idx], pheno[idx], covar[idx], no_regress
+                    geno[idx], pheno[idx], data_covar[idx], no_regress
                 )
 
         if cv:
@@ -519,10 +517,7 @@ def _process_raw(
                 covar=None,
             )
 
-            if cv:
-                cv_mega = _prepare_cv(mega_data.geno, mega_data.pheno, cv_num, seed)
-
-    return snps, regular_data, mega_data, cv_data, cv_mega
+    return snps, regular_data, mega_data, cv_data
 
 
 def _run_regular(
@@ -646,7 +641,7 @@ def run_finemap(args):
 
         rawData = io.read_data(args.pheno, args.covar, geno_path, geno_func)
 
-        snps, regular_data, mega_data, cv_data, cv_mega = _process_raw(
+        snps, regular_data, mega_data, cv_data = _process_raw(
             rawData, args.no_regress, args.mega, args.cv, args.cv_num, args.seed
         )
 
@@ -656,10 +651,10 @@ def run_finemap(args):
         n_pop = len(regular_data.geno)
         if n_pop != 1:
             if args.meta:
-                _run_regular(regular_data, cv_data, args, snps, meta=True, mega=False)
+                _run_regular(regular_data, None, args, snps, meta=True, mega=False)
 
             if args.mega:
-                _run_regular(mega_data, cv_mega, args, snps, meta=False, mega=True)
+                _run_regular(mega_data, None, args, snps, meta=False, mega=True)
 
     except Exception as err:
         import traceback
