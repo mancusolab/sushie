@@ -192,7 +192,7 @@ def infer_sushie(
         alpha=jnp.zeros((L, n_snps)),
         post_mean=jnp.zeros((L, n_snps, n_pop)),
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
-        post_covar=jnp.zeros((L, n_pop, n_pop)),
+        weighted_sum_covar=jnp.zeros((L, n_pop, n_pop)),
         kl=jnp.zeros((L,)),
     )
 
@@ -206,6 +206,9 @@ def infer_sushie(
     elbo_cur = -jnp.inf
     elbo_increase = True
     for o_iter in range(max_iter):
+        prev_priors = priors
+        prev_posteriors = posteriors
+
         priors, posteriors, elbo_cur = _update_effects(
             Xs,
             ys,
@@ -214,28 +217,34 @@ def infer_sushie(
             posteriors,
             opt_v_func,
         )
-        if elbo_cur < elbo_last and (not jnp.isclose(elbo_cur, elbo_last, atol=1e-8)):
-            elbo_increase = False
+
+        elbo_increase = elbo_cur < elbo_last and (
+            not jnp.isclose(elbo_cur, elbo_last, atol=1e-8)
+        )
+        if elbo_increase or jnp.isnan(elbo_cur):
+            log.logger.warning(
+                f"Optimization finished. ELBO does not non-decrease. Final ELBO score: {elbo_cur}."
+                + " Return last iteration's results."
+                + " It can be precision issue, and slightly increase minimum tolerance may fix it."
+                + " If this issue keeps arising after changing minimum tolerance, contact the developer."
+            )
+            priors = prev_priors
+            posteriors = prev_posteriors
+            break
 
         if jnp.abs(elbo_cur - elbo_last) < min_tol:
             log.logger.info(
-                f"Reach minimum tolerance threshold {min_tol} after {o_iter + 1}"
-                + " iterations, stop optimization.",
+                f"Optimization finished. Final ELBO score: {elbo_cur}."
+                + f" Reach minimum tolerance threshold {min_tol} after {o_iter + 1}.",
             )
             break
 
         if o_iter + 1 == max_iter:
-            log.logger.info(f"Reach maximum iteration threshold {max_iter}.")
+            log.logger.info(
+                f"Optimization finished. Final ELBO score: {elbo_cur}."
+                + f" Reach maximum iteration threshold {max_iter}.",
+            )
         elbo_last = elbo_cur
-
-    if elbo_increase:
-        log.logger.info(f"Optimization finished. Final ELBO score: {elbo_cur}.")
-    else:
-        log.logger.warning(
-            f"ELBO does not non-decrease. Final ELBO score: {elbo_cur}."
-            + " Double check your genotype, phenotype, and covariate data."
-            + " Contact developer if this error message remains.",
-        )
 
     pip = _get_pip(posteriors.alpha)
     cs = _get_cs(posteriors.alpha, Xs, pip, threshold, purity)
@@ -339,7 +348,7 @@ def _ssr(
     priors: core.Prior,
     posteriors: core.Posterior,
     l_iter: int,
-    optimize_v: core.AbstractOptFunc,
+    opt_v_func: core.AbstractOptFunc,
 ) -> Tuple[core.Prior, core.Posterior]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
@@ -354,7 +363,7 @@ def _ssr(
 
     shat2 = jnp.eye(n_pop) * (shat2[:, jnp.newaxis])
 
-    priors = optimize_v(beta_hat, shat2, priors, posteriors, l_iter)
+    priors = opt_v_func(beta_hat, shat2, priors, posteriors, l_iter)
 
     _, posteriors = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
 
@@ -375,7 +384,7 @@ def _compute_posterior(
     )
 
     prior_covar = priors.effect_covar[l_iter]
-    post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(priors.effect_covar[l_iter]))
+    post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
     rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
     post_mean = jnp.einsum("ijk,ik->ij", post_covar, rTZDinv)
@@ -389,20 +398,24 @@ def _compute_posterior(
     weighted_post_mean = post_mean * alpha[:, jnp.newaxis]
     weighted_post_mean_sq = post_mean_sq * alpha[:, jnp.newaxis, jnp.newaxis]
     # this is also the prior in our E step
-    weighted_post_covar = jnp.einsum("j,jmn->mn", alpha, post_mean_sq)
-
+    weighted_sum_covar = jnp.einsum("j,jmn->mn", alpha, post_mean_sq)
     kl_alpha = _kl_categorical(alpha, priors.pi)
     kl_betas = alpha.T @ _kl_mvn(post_mean, post_covar, 0.0, prior_covar)
 
     priors = priors._replace(
-        effect_covar=priors.effect_covar.at[l_iter].set(weighted_post_covar)
+        # add offset to avoid non-PSD prior
+        effect_covar=priors.effect_covar.at[l_iter].set(
+            weighted_sum_covar + 1e-4 * jnp.eye(n_pop)
+        )
     )
 
     posteriors = posteriors._replace(
         alpha=posteriors.alpha.at[l_iter].set(alpha),
         post_mean=posteriors.post_mean.at[l_iter].set(weighted_post_mean),
         post_mean_sq=posteriors.post_mean_sq.at[l_iter].set(weighted_post_mean_sq),
-        post_covar=posteriors.post_covar.at[l_iter].set(weighted_post_covar),
+        weighted_sum_covar=posteriors.weighted_sum_covar.at[l_iter].set(
+            weighted_sum_covar
+        ),
         kl=posteriors.kl.at[l_iter].set(kl_alpha + kl_betas),
     )
 

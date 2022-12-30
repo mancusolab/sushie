@@ -80,16 +80,16 @@ class Posterior(NamedTuple):
     """Define the class for the posterior parameter of SuShiE model
     Attributes:
         alpha: the posterior probability for each SNP to be causal (L x p)
-        post_mean: the posterior mean for each SNP (L x p x k)
-        post_mean_sq: the posterior mean square for each SNP (L x p x k x k, a diagonal matrix for k x k)
-        post_covar: the posterior effect covariance for each SNP (L x k x k)
+        post_mean: the alpha-weighted posterior mean for each SNP (L x p x k)
+        post_mean_sq: the alpha-weighted posterior mean square for each SNP (L x p x k x k, a diagonal matrix for k x k)
+        weighted_sum_covar: the alpha-weighted sum of posterior effect covariance across SNPs (L x k x k)
         kl: the KL divergence for each L
     """
 
     alpha: jnp.ndarray
     post_mean: jnp.ndarray
     post_mean_sq: jnp.ndarray
-    post_covar: jnp.ndarray
+    weighted_sum_covar: jnp.ndarray
     kl: jnp.ndarray
 
 

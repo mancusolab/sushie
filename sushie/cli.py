@@ -63,7 +63,7 @@ def _parameter_check(
 
     if n_geno > 1:
         log.logger.warning(
-            f"Detecting {n_geno} genotypes, will use the genotypes in the order of 'plink, vcf, and bgen'"
+            f"Detecting {n_geno} genotypes, will only use one genotypes in the order of 'plink, vcf, and bgen'"
         )
 
     # decide genotype data
@@ -122,14 +122,9 @@ def _parameter_check(
                 "The seed specified for CV is invalid. Please choose a positive integer."
             )
 
-    if args.meta and n_pop == 1:
+    if (args.meta or args.mega) and n_pop == 1:
         log.logger.warning(
-            "Running meta SuShiE, but the number of ancestry is 1, which is redundant."
-        )
-
-    if args.mega and n_pop == 1:
-        log.logger.warning(
-            "Running mega SuShiE, but the number of ancestry is 1, which is redundant."
+            "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuShiE."
         )
 
     return geno_path, geno_func
@@ -841,7 +836,7 @@ def build_finemap_parser(subp):
 
     finemap.add_argument(
         "--max_iter",
-        default=500,
+        default=300,
         type=int,
         help=(
             "Maximum iterations for the optimization. Default is 500.",
@@ -851,7 +846,7 @@ def build_finemap_parser(subp):
 
     finemap.add_argument(
         "--min_tol",
-        default=1e-5,
+        default=1e-3,
         type=float,
         help=(
             "Minimum tolerance for the convergence. Default is 1e-5.",

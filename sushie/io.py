@@ -300,7 +300,7 @@ def output_corr(
 
     CSIndex = jnp.unique(result[0].cs.CSIndex.values.astype(int))
     # only output after-purity CS
-    corr_cs_only = jnp.transpose(result[0].posteriors.post_covar[CSIndex - 1])
+    corr_cs_only = jnp.transpose(result[0].posteriors.weighted_sum_covar[CSIndex - 1])
     corr = pd.DataFrame(data={"trait": trait, "CSIndex": CSIndex})
     for idx in range(n_pop):
         _var = corr_cs_only[idx, idx]
