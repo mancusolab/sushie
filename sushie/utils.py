@@ -6,12 +6,8 @@ from scipy import stats
 
 import jax.numpy as jnp
 
-from . import core
 
-
-def ols(
-    X: jnp.ndarray, y: jnp.ndarray
-) -> Tuple[jnp.ndarray, core.ArrayOrFloat, jnp.ndarray]:
+def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Perform ordinary linear regression.
 
     Args:
@@ -54,7 +50,7 @@ def regress_covar(
 
 def estimate_her(
     X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray = None
-) -> Tuple[float, float]:
+) -> Tuple[float, float, float, float, float]:
     """Calculate proportion of gene expression variation explained by genotypes (cis-heritability).
 
     Args:
@@ -63,8 +59,11 @@ def estimate_her(
         covar: n x m vector for covariates or None.
 
     Returns:
-        h2g: cis-heritability
-        p_value: LRT p-value for cis-heritability
+        g: genetic variance
+        h2g_w_v: narrow-sense heritability including the fixed effect variance
+        h2g_wo_v: narrow-sense heritability including the fixed effect variance
+        lrt_stats: LRT test statistics for narrow-sense heritability
+        p_value: LRT p-value for narrow-sense heritability
     """
     n, p = X.shape
 
@@ -80,8 +79,8 @@ def estimate_her(
     g = method.scale * (1 - method.delta)
     e = method.scale * method.delta
     v = jnp.var(method.mean())
-    h2g = g / (v + g + e)
-
+    h2g_w_v = g / (v + g + e)
+    h2g_wo_v = g / (g + e)
     alt_lk = method.lml()
     method.delta = 1
     method.fix("delta")
@@ -90,4 +89,4 @@ def estimate_her(
     lrt_stats = -2 * (null_lk - alt_lk)
     p_value = stats.chi2.sf(lrt_stats, 1) / 2
 
-    return h2g, p_value
+    return g, h2g_w_v, h2g_wo_v, lrt_stats, p_value

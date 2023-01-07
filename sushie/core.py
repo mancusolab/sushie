@@ -106,6 +106,8 @@ class SushieResult(NamedTuple):
     posteriors: Posterior
     pip: jnp.ndarray
     cs: pd.DataFrame
+    elbo: float
+    elbo_increase: bool
 
 
 @register_pytree_node_class

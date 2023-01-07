@@ -247,13 +247,17 @@ def _prepare_cv(
     rng_key = random.PRNGKey(seed)
     n_pop = len(geno)
 
+    geno_split = []
+    pheno_split = []
     # shuffle the data first
     for idx in range(n_pop):
-        rng_key, c_key = random.split(rng_key, 2)
         tmp_n = geno[idx].shape[0]
+        rng_key, c_key = random.split(rng_key, 2)
         shuffled_index = random.choice(c_key, tmp_n, (tmp_n,), replace=False)
         geno[idx] = geno[idx][shuffled_index]
         pheno[idx] = pheno[idx][shuffled_index]
+        geno_split.append(jnp.array_split(geno[idx], cv_num))
+        pheno_split.append(jnp.array_split(pheno[idx], cv_num))
 
     cv_data = []
     for cv in range(cv_num):
@@ -261,23 +265,19 @@ def _prepare_cv(
         train_pheno = []
         valid_geno = []
         valid_pheno = []
+        train_index = jnp.delete(jnp.arange(5), cv).tolist()
 
         # make the training and test for each population separately
         # because sample size may be different
         for idx in range(n_pop):
-            tmp_n = geno[idx].shape[0]
-            increment = int(tmp_n / cv_num)
-            start = cv * increment
-            end = (cv + 1) * increment
-
-            # if it is the last fold, take all the rest of the data.
-            if cv == cv_num - 1:
-                end = max(tmp_n, (cv + 1) * increment)
-
-            train_geno.append(geno[idx][jnp.r_[:start, end:tmp_n]])
-            train_pheno.append(pheno[idx][jnp.r_[:start, end:tmp_n]])
-            valid_geno.append(geno[idx][start:end])
-            valid_pheno.append(pheno[idx][start:end])
+            valid_geno.append(geno_split[idx][cv])
+            valid_pheno.append(pheno_split[idx][cv])
+            train_geno.append(
+                jnp.concatenate([geno_split[idx][jdx] for jdx in train_index])
+            )
+            train_pheno.append(
+                jnp.concatenate([pheno_split[idx][jdx] for jdx in train_index])
+            )
 
         tmp_cv_data = core.CVData(
             train_geno=train_geno,
@@ -291,7 +291,7 @@ def _prepare_cv(
     return cv_data
 
 
-def _run_cv(args, cv_data, effect_var, resid_var, rho):
+def _run_cv(args, cv_data) -> List[List[float]]:
     n_pop = len(cv_data[0].train_geno)
     # create a list to store future estimated y value
     est_y = [jnp.array([])] * n_pop
@@ -306,9 +306,9 @@ def _run_cv(args, cv_data, effect_var, resid_var, rho):
             no_regress=args.no_regress,
             no_update=args.no_update,
             pi=args.pi,
-            resid_var=resid_var,
-            effect_var=effect_var,
-            rho=rho,
+            resid_var=args.resid_var,
+            effect_var=args.effect_var,
+            rho=args.rho,
             max_iter=args.max_iter,
             min_tol=args.min_tol,
             threshold=args.threshold,
@@ -623,7 +623,7 @@ def _run_regular(
 
         if args.cv:
             log.logger.info(f"Running {args.cv_num}-fold cross validation.")
-            cv_res = _run_cv(args, cv_data, effect_var, resid_var, rho)
+            cv_res = _run_cv(args, cv_data)
             sample_size = [idx.shape[0] for idx in data.geno]
             io.output_cv(cv_res, sample_size, args.output, args.trait, args.no_compress)
 
@@ -836,7 +836,7 @@ def build_finemap_parser(subp):
 
     finemap.add_argument(
         "--max_iter",
-        default=300,
+        default=500,
         type=int,
         help=(
             "Maximum iterations for the optimization. Default is 500.",
@@ -846,7 +846,7 @@ def build_finemap_parser(subp):
 
     finemap.add_argument(
         "--min_tol",
-        default=1e-3,
+        default=1e-4,
         type=float,
         help=(
             "Minimum tolerance for the convergence. Default is 1e-5.",

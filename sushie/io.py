@@ -82,32 +82,16 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
     """Read in genotype data in vcf format."""
     vcf = VCF(path)
     fam = pd.DataFrame(vcf.samples).rename(columns={0: "iid"})
-    bim = pd.DataFrame(columns=["chrom", "snp", "pos", "a0", "a1"])
-    # add a placeholder
-    bed = jnp.ones((1, fam.shape[0]))
+    bim_list = []
+    bed_list = []
     for var in vcf:
-        tmp_bim = pd.DataFrame(
-            data={
-                "chrom": var.CHROM,
-                "snp": var.ID,
-                "pos": var.POS,
-                "a0": var.ALT,
-                "a1": var.REF,
-            }
-        )
-        bim = pd.concat([bim, tmp_bim])
+        bim_list.append([var.CHROM, var.ID, var.POS, var.ALT[0], var.REF])
         raw_bed = pd.DataFrame(var.gt_bases)[0].str.split("/", expand=True)
         tmp_bed = jnp.array((raw_bed[0] == var.REF) * 1 + (raw_bed[1] == var.REF) * 1)
-        bed = jnp.append(
-            bed,
-            tmp_bed[
-                jnp.newaxis,
-            ],
-            axis=0,
-        )
-    # delete place holder, and transpose it
-    bed = jnp.delete(bed, 0, 0).T
-    bim = bim.reset_index(drop=True)
+        bed_list.append(tmp_bed)
+
+    bim = pd.DataFrame(bim_list, columns=["chrom", "snp", "pos", "a0", "a1"])
+    bed = jnp.array(bed_list).T
 
     return bim, fam, bed
 
@@ -238,46 +222,49 @@ def output_her(
 ) -> pd.DataFrame:
     """Output heritability results in tsv file."""
     n_pop = len(data.geno)
-    est_h2g = jnp.zeros(n_pop)
-    p_value = jnp.zeros(n_pop)
 
+    her_result = []
     for idx in range(n_pop):
         if data.covar is None:
             tmp_covar = None
         else:
             tmp_covar = data.covar[idx]
-
-        tmp_h2g, tmp_p_value = utils.estimate_her(
-            data.geno[idx], data.pheno[idx], tmp_covar
-        )
-        est_h2g = est_h2g.at[idx].set(tmp_h2g)
-        p_value = p_value.at[idx].set(tmp_p_value)
+        tmp_her_result = utils.estimate_her(data.geno[idx], data.pheno[idx], tmp_covar)
+        her_result.append(tmp_her_result)
 
     est_her = pd.DataFrame(
-        data={"trait": trait, "h2g": est_h2g, "h2g_p": p_value},
+        data=her_result,
+        columns=["genetic_var", "h2g_w_v", "h2g_wo_v", "lrt_stats", "p_value"],
         index=[idx + 1 for idx in range(n_pop)],
     ).reset_index(names="ancestry")
 
     # only output h2g that has credible sets
     SNPIndex = result[0].cs.SNPIndex.values.astype(int)
+    shared_col = [
+        "s_genetic_var",
+        "s_h2g_w_v",
+        "s_h2g_wo_v",
+        "s_lrt_stats",
+        "s_p_value",
+    ]
+    est_shared_her = pd.DataFrame(columns=shared_col)
     if len(SNPIndex) != 0:
-        shared_h2g = jnp.zeros(n_pop)
-        p_value = jnp.zeros(n_pop)
+        shared_her = []
         for idx in range(n_pop):
             if data.covar is None:
                 tmp_covar = None
             else:
                 tmp_covar = data.covar[idx]
 
-            tmp_shared_h2g, tmp_p_value = utils.estimate_her(
+            tmp_shared_her = utils.estimate_her(
                 data.geno[idx][:, SNPIndex], data.pheno[idx], tmp_covar
             )
+            shared_her.append(tmp_shared_her)
 
-            shared_h2g = shared_h2g.at[idx].set(tmp_shared_h2g)
-            p_value = p_value.at[idx].set(tmp_p_value)
-
-        est_her["shared_h2g"] = shared_h2g
-        est_her["shared_h2g_p"] = p_value
+        est_shared_her = pd.DataFrame(
+            data=shared_her, columns=shared_col, index=[idx + 1 for idx in range(n_pop)]
+        ).reset_index(names="ancestry")
+    est_her = pd.concat([est_her, est_shared_her], axis=1).assign(trait=trait)
 
     if est_her.shape[0] == 0:
         est_her = est_her.append({"trait": trait}, ignore_index=True)

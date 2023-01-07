@@ -5,9 +5,11 @@ import pandas as pd
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-from jax import jit, lax, nn
+from jax import config, jit, lax, nn
 
 from . import core, log, utils
+
+config.update("jax_enable_x64", True)
 
 
 def infer_sushie(
@@ -23,7 +25,7 @@ def infer_sushie(
     effect_var: core.ListFloatOrNone = None,
     rho: core.ListFloatOrNone = None,
     max_iter: int = 500,
-    min_tol: float = 1e-5,
+    min_tol: float = 1e-4,
     threshold: float = 0.9,
     purity: float = 0.5,
 ) -> core.SushieResult:
@@ -221,27 +223,30 @@ def infer_sushie(
         elbo_increase = elbo_cur < elbo_last and (
             not jnp.isclose(elbo_cur, elbo_last, atol=1e-8)
         )
+
         if elbo_increase or jnp.isnan(elbo_cur):
             log.logger.warning(
-                f"Optimization finished. ELBO does not non-decrease. Final ELBO score: {elbo_cur}."
-                + " Return last iteration's results."
-                + " It can be precision issue, and slightly increase minimum tolerance may fix it."
-                + " If this issue keeps arising after changing minimum tolerance, contact the developer."
+                f"Optimization finished after {o_iter + 1} iterations."
+                + f" ELBO decreases. Final ELBO score: {elbo_cur}. Return last iteration's results."
+                + " It can be precision issue,"
+                + " and adding 'import jax; jax.config.update('jax_enable_x64', True)' may fix it."
+                + " If this issue keeps rising for many genes, contact the developer."
             )
             priors = prev_priors
             posteriors = prev_posteriors
+            elbo_increase = False
             break
 
         if jnp.abs(elbo_cur - elbo_last) < min_tol:
             log.logger.info(
-                f"Optimization finished. Final ELBO score: {elbo_cur}."
-                + f" Reach minimum tolerance threshold {min_tol} after {o_iter + 1}.",
+                f"Optimization finished after {o_iter + 1} iterations. Final ELBO score: {elbo_cur}."
+                + f" Reach minimum tolerance threshold {min_tol}.",
             )
             break
 
         if o_iter + 1 == max_iter:
             log.logger.info(
-                f"Optimization finished. Final ELBO score: {elbo_cur}."
+                f"Optimization finished after {o_iter + 1} iterations. Final ELBO score: {elbo_cur}."
                 + f" Reach maximum iteration threshold {max_iter}.",
             )
         elbo_last = elbo_cur
@@ -249,7 +254,7 @@ def infer_sushie(
     pip = _get_pip(posteriors.alpha)
     cs = _get_cs(posteriors.alpha, Xs, pip, threshold, purity)
 
-    return core.SushieResult(priors, posteriors, pip, cs)
+    return core.SushieResult(priors, posteriors, pip, cs, elbo_cur, elbo_increase)
 
 
 class _LResult(NamedTuple):
@@ -291,18 +296,16 @@ def _update_effects(
 
     _, _, _, priors, posteriors, _ = l_result
 
-    erss_list = []
+    sigma2_list = []
     exp_ll = 0.0
     tr_b_s = posteriors.post_mean.T
     tr_bsq_s = jnp.einsum("nmij,ij->nmi", posteriors.post_mean_sq, jnp.eye(n_pop)).T
     for idx in range(n_pop):
-        tr_b = tr_b_s[idx]
-        tr_bsq = tr_bsq_s[idx]
-        tmp_erss = _erss(Xs[idx], ys[idx], tr_b, tr_bsq) / ns[idx]
-        erss_list.append(tmp_erss)
-        exp_ll += _eloglike(Xs[idx], ys[idx], tr_b, tr_bsq, tmp_erss)
+        tmp_sigma2 = _erss(Xs[idx], ys[idx], tr_b_s[idx], tr_bsq_s[idx]) / ns[idx]
+        sigma2_list.append(tmp_sigma2)
+        exp_ll += _eloglike(Xs[idx], ys[idx], tr_b_s[idx], tr_bsq_s[idx], tmp_sigma2)
 
-    priors = priors._replace(resid_var=jnp.array(erss_list))
+    priors = priors._replace(resid_var=jnp.array(sigma2_list))
     kl_divs = jnp.sum(posteriors.kl)
     elbo_score = exp_ll - kl_divs
 
@@ -400,13 +403,10 @@ def _compute_posterior(
     # this is also the prior in our E step
     weighted_sum_covar = jnp.einsum("j,jmn->mn", alpha, post_mean_sq)
     kl_alpha = _kl_categorical(alpha, priors.pi)
-    kl_betas = alpha.T @ _kl_mvn(post_mean, post_covar, 0.0, prior_covar)
+    kl_betas = alpha @ _kl_mvn(post_mean, post_covar, 0.0, prior_covar)
 
     priors = priors._replace(
-        # add offset to avoid non-PSD prior
-        effect_covar=priors.effect_covar.at[l_iter].set(
-            weighted_sum_covar + 1e-4 * jnp.eye(n_pop)
-        )
+        effect_covar=priors.effect_covar.at[l_iter].set(weighted_sum_covar)
     )
 
     posteriors = posteriors._replace(
@@ -462,9 +462,10 @@ def _get_cs(
 ) -> pd.DataFrame:
     n_l, _ = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
-    cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
+
     # ld is always pxp, so it can be converted to jnp.array
     ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
+    cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
 
     for idx in range(n_l):
         # select original index and alpha
@@ -476,7 +477,7 @@ def _get_cs(
         tmp_pd["csum"] = tmp_pd[[idx]].cumsum()
         n_row = tmp_pd[tmp_pd.csum < threshold].shape[0]
 
-        # if all rows less than threshold + 1 is what we want to select
+        # if select rows less than total rows, n_row + 1
         if n_row == tmp_pd.shape[0]:
             select_idx = jnp.arange(n_row)
         else:
@@ -506,7 +507,7 @@ def _eloglike(
     beta_sq: jnp.ndarray,
     sigma_sq: core.ArrayOrFloat,
 ) -> core.ArrayOrFloat:
-    n, p = X.shape
+    n, _ = X.shape
     norm_term = -(0.5 * n) * jnp.log(2 * jnp.pi * sigma_sq)
     quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)
 
@@ -521,24 +522,26 @@ def _kl_categorical(
 
 
 def _kl_mvn(
-    m1: jnp.ndarray,
-    s12: jnp.ndarray,
-    m0: float,
-    s02: jnp.ndarray,
+    m0: jnp.ndarray,
+    sigma0: jnp.ndarray,
+    m1: float,
+    sigma1: jnp.ndarray,
 ) -> float:
     # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
-    k, k = s02.shape
+    k, _ = sigma1.shape
 
     p1 = (
-        jnp.trace(jnp.einsum("ij,kjm->kim", jnp.linalg.inv(s02), s12), axis1=1, axis2=2)
+        jnp.trace(
+            jnp.einsum("ij,kjm->kim", jnp.linalg.inv(sigma1), sigma0), axis1=1, axis2=2
+        )
         - k
     )
-    p2 = jnp.einsum("ij,jm,im->i", (m0 - m1), jnp.linalg.inv(s02), (m0 - m1))
+    p2 = jnp.einsum("ij,jm,im->i", (m1 - m0), jnp.linalg.inv(sigma1), (m1 - m0))
 
-    s0, sld0 = jnp.linalg.slogdet(s02)
-    s1, sld1 = jnp.linalg.slogdet(s12)
+    _, sld1 = jnp.linalg.slogdet(sigma1)
+    _, sld0 = jnp.linalg.slogdet(sigma0)
 
-    p3 = sld0 - sld1
+    p3 = sld1 - sld0
 
     return 0.5 * (p1 + p2 + p3)
 
