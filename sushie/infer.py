@@ -20,10 +20,10 @@ def infer_sushie(
     no_scale: bool = False,
     no_regress: bool = False,
     no_update: bool = False,
-    param_pi: jnp.ndarray = None,
-    param_resid_var: core.ListFloatOrNone = None,
-    param_effect_var: core.ListFloatOrNone = None,
-    param_rho: core.ListFloatOrNone = None,
+    pi: jnp.ndarray = None,
+    resid_var: core.ListFloatOrNone = None,
+    effect_var: core.ListFloatOrNone = None,
+    rho: core.ListFloatOrNone = None,
     max_iter: int = 500,
     min_tol: float = 1e-4,
     threshold: float = 0.9,
@@ -38,10 +38,10 @@ def infer_sushie(
         no_scale: do not scale the genotype and phenotype, default is to scale.
         no_regress: do not regress covariates on genotypes, default is to regress.
         no_update: do not update the effect size prior, default is to update using em.
-        param_pi: the probability prior for an SNP to be an eQTL, default is 1/p (None) where p is the number of SNPs.
-        param_resid_var: prior residual variance, default is 1e-3 (None).
-        param_effect_var: prior effect size variance, default is 1e-3 (None).
-        param_rho: prior effect size correlation, default is 0.1 (None).
+        pi: the probability prior for an SNP to be an eQTL, default is 1/p (None) where p is the number of SNPs.
+        resid_var: prior residual variance, default is 1e-3 (None).
+        effect_var: prior effect size variance, default is 1e-3 (None).
+        rho: prior effect size correlation, default is 0.1 (None).
         max_iter: the maximum iteration for optimization, default is 500.
         min_tol: the convergence tolerance, default is 1e-5.
         threshold: the credible set threshold, default is 0.9.
@@ -91,9 +91,9 @@ def infer_sushie(
             f"Purity ({purity}) is not between 0 and 1. Specify a valid one."
         )
 
-    if param_pi is not None and (param_pi >= 1 or param_pi <= 0):
+    if pi is not None and (pi >= 1 or pi <= 0):
         raise ValueError(
-            f"Pi prior ({param_pi}) is not a probability (0-1). Specify a valid pi prior."
+            f"Pi prior ({pi}) is not a probability (0-1). Specify a valid pi prior."
         )
 
     # first regress out covariates if there are any, then scale the genotype and phenotype
@@ -114,16 +114,16 @@ def infer_sushie(
 
         ys[idx] = jnp.squeeze(ys[idx])
 
-    if param_resid_var is None:
+    if resid_var is None:
         resid_var = []
         for idx in range(n_pop):
             resid_var.append(jnp.var(ys[idx], ddof=1))
     else:
-        if len(param_resid_var) != n_pop:
+        if len(resid_var) != n_pop:
             raise ValueError(
-                f"Number of specified residual prior ({len(param_resid_var)}) does not match ancestry number ({n_pop})."
+                f"Number of specified residual prior ({len(resid_var)}) does not match ancestry number ({n_pop})."
             )
-        resid_var = [float(i) for i in param_resid_var]
+        resid_var = [float(i) for i in resid_var]
         if jnp.any(jnp.array(resid_var) <= 0):
             raise ValueError(
                 f"The input of residual prior ({resid_var}) is invalid (<0). Check your input."
@@ -137,21 +137,23 @@ def infer_sushie(
             + "Please choose a smaller L or expand the genomic window."
         )
 
-    if param_effect_var is None:
+    param_effect_var = effect_var
+    if effect_var is None:
         effect_var = [1e-3] * n_pop
     else:
-        if len(param_effect_var) != n_pop:
+        if len(effect_var) != n_pop:
             raise ValueError(
-                f"Number of specified effect prior ({len(param_effect_var)}) does not match ancestry number ({n_pop})."
+                f"Number of specified effect prior ({len(effect_var)}) does not match ancestry number ({n_pop})."
             )
-        effect_var = [float(i) for i in param_effect_var]
+        effect_var = [float(i) for i in effect_var]
         if jnp.any(jnp.array(effect_var) <= 0):
             raise ValueError(
                 f"The input of effect size prior ({effect_var})is invalid (<0)."
             )
 
     exp_num_rho = math.comb(n_pop, 2)
-    if param_rho is None:
+    param_rho = rho
+    if rho is None:
         rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
@@ -159,12 +161,12 @@ def infer_sushie(
                 "Running single-ancestry SuShiE, but --rho is specified. Will ignore."
             )
 
-        if (len(param_rho) != exp_num_rho) and n_pop != 1:
+        if (len(rho) != exp_num_rho) and n_pop != 1:
             raise ValueError(
-                f"Number of specified rho ({len(param_rho)}) does not match expected"
+                f"Number of specified rho ({len(rho)}) does not match expected"
                 + f"number {exp_num_rho}.",
             )
-        rho = [float(i) for i in param_rho]
+        rho = [float(i) for i in rho]
         # double-check the if it's invalid rho
         if jnp.any(jnp.abs(jnp.array(rho)) >= 1):
             raise ValueError(
@@ -216,7 +218,7 @@ def infer_sushie(
         )
 
     priors = core.Prior(
-        pi=jnp.ones(n_snps) / float(n_snps) if param_pi is None else param_pi,
+        pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
         resid_var=jnp.array(resid_var),
         # L x k x k
         effect_covar=jnp.array([effect_covar] * L),
