@@ -155,8 +155,11 @@ def infer_sushie(
         rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
-            log.logger.info("Running single-ancestry SuShiE. No need to specify rho.")
-        if len(param_rho) != exp_num_rho:
+            log.logger.info(
+                "Running single-ancestry SuShiE, but --rho is specified. Will ignore."
+            )
+
+        if (len(param_rho) != exp_num_rho) and n_pop != 1:
             raise ValueError(
                 f"Number of specified rho ({len(param_rho)}) does not match expected"
                 + f"number {exp_num_rho}.",
@@ -180,7 +183,7 @@ def infer_sushie(
 
     if no_update:
         # if we specify no_update and rho, we want to keep rho through iterations and update variance
-        if param_effect_var is None and param_rho is not None:
+        if param_effect_var is None and param_rho is not None and n_pop != 1:
             prior_adjustor = core.PriorAdjustor(
                 times=jnp.eye(n_pop),
                 plus=effect_covar - jnp.diag(jnp.diag(effect_covar)),
@@ -190,7 +193,7 @@ def infer_sushie(
                 "No updates on the prior effect correlation rho while updating prior effect variance."
             )
         # if we specify no_update and effect_covar, we want to keep variance through iterations, and update rho
-        elif param_effect_var is not None and param_rho is None:
+        elif param_effect_var is not None and param_rho is None and n_pop != 1:
             prior_adjustor = core.PriorAdjustor(
                 times=jnp.ones((n_pop, n_pop)) - jnp.eye(n_pop),
                 plus=effect_covar * jnp.eye(n_pop),
@@ -204,7 +207,9 @@ def infer_sushie(
             prior_adjustor = core.PriorAdjustor(
                 times=jnp.zeros((n_pop, n_pop)), plus=effect_covar
             )
-            log.logger.info("No updates on the prior effect size covariance matrix.")
+            log.logger.info(
+                "No updates on the prior effect size variance/covariance matrix."
+            )
     else:
         prior_adjustor = core.PriorAdjustor(
             times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop))

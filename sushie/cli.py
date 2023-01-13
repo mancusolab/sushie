@@ -836,9 +836,8 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to update effect covariance prior before running single effect regression.",
             " Default is False (updating).",
-            " Specify --no_update will store True value; it can slow the inference or have different one.",
-            " The updating algorithm is similar to EM algorithm that computes the prior covariance conditioned",
-            " on other parameters.",
+            " Specify --no_update will store True value. The updating algorithm is similar to EM algorithm",
+            " that computes the prior covariance conditioned on other parameters.",
         ),
     )
 
