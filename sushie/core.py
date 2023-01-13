@@ -110,6 +110,11 @@ class SushieResult(NamedTuple):
     elbo_increase: bool
 
 
+class PriorAdjustor(NamedTuple):
+    times: jnp.ndarray
+    plus: jnp.ndarray
+
+
 @register_pytree_node_class
 class AbstractOptFunc(ABC):
     @abstractmethod
@@ -119,6 +124,7 @@ class AbstractOptFunc(ABC):
         shat2: ArrayOrFloat,
         priors: Prior,
         posteriors: Posterior,
+        prior_adjustor: PriorAdjustor,
         l_iter: int,
     ) -> Prior:
         pass

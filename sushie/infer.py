@@ -20,10 +20,10 @@ def infer_sushie(
     no_scale: bool = False,
     no_regress: bool = False,
     no_update: bool = False,
-    pi: jnp.ndarray = None,
-    resid_var: core.ListFloatOrNone = None,
-    effect_var: core.ListFloatOrNone = None,
-    rho: core.ListFloatOrNone = None,
+    param_pi: jnp.ndarray = None,
+    param_resid_var: core.ListFloatOrNone = None,
+    param_effect_var: core.ListFloatOrNone = None,
+    param_rho: core.ListFloatOrNone = None,
     max_iter: int = 500,
     min_tol: float = 1e-4,
     threshold: float = 0.9,
@@ -38,10 +38,10 @@ def infer_sushie(
         no_scale: do not scale the genotype and phenotype, default is to scale.
         no_regress: do not regress covariates on genotypes, default is to regress.
         no_update: do not update the effect size prior, default is to update using em.
-        pi: the probability prior for an SNP to be an eQTL, default is 1/p (None) where p is the number of SNPs.
-        resid_var: prior residual variance, default is 1e-3 (None).
-        effect_var: prior effect size variance, default is 1e-3 (None).
-        rho: prior effect size correlation, default is 0.1 (None).
+        param_pi: the probability prior for an SNP to be an eQTL, default is 1/p (None) where p is the number of SNPs.
+        param_resid_var: prior residual variance, default is 1e-3 (None).
+        param_effect_var: prior effect size variance, default is 1e-3 (None).
+        param_rho: prior effect size correlation, default is 0.1 (None).
         max_iter: the maximum iteration for optimization, default is 500.
         min_tol: the convergence tolerance, default is 1e-5.
         threshold: the credible set threshold, default is 0.9.
@@ -91,22 +91,9 @@ def infer_sushie(
             f"Purity ({purity}) is not between 0 and 1. Specify a valid one."
         )
 
-    if pi is not None and (pi >= 1 or pi <= 0):
+    if param_pi is not None and (param_pi >= 1 or param_pi <= 0):
         raise ValueError(
-            f"Pi prior ({pi}) is not a probability (0-1). Specify a valid pi prior."
-        )
-
-    _, n_snps = Xs[0].shape
-
-    if n_snps < L:
-        raise ValueError(
-            f"The number of common SNPs across ancestries ({n_snps}) is less than inferred L ({L})."
-            + "Please choose a smaller L or expand the genomic window."
-        )
-
-    if no_update:
-        log.logger.info(
-            "No updates on the effect size prior. Inference may be slow and different."
+            f"Pi prior ({param_pi}) is not a probability (0-1). Specify a valid pi prior."
         )
 
     # first regress out covariates if there are any, then scale the genotype and phenotype
@@ -127,46 +114,54 @@ def infer_sushie(
 
         ys[idx] = jnp.squeeze(ys[idx])
 
-    if resid_var is None:
+    if param_resid_var is None:
         resid_var = []
         for idx in range(n_pop):
             resid_var.append(jnp.var(ys[idx], ddof=1))
     else:
-        if len(resid_var) != n_pop:
+        if len(param_resid_var) != n_pop:
             raise ValueError(
-                f"Number of specified residual prior ({len(resid_var)}) does not match ancestry number ({n_pop})."
+                f"Number of specified residual prior ({len(param_resid_var)}) does not match ancestry number ({n_pop})."
             )
-        resid_var = [float(i) for i in resid_var]
+        resid_var = [float(i) for i in param_resid_var]
         if jnp.any(jnp.array(resid_var) <= 0):
             raise ValueError(
                 f"The input of residual prior ({resid_var}) is invalid (<0). Check your input."
             )
 
-    if effect_var is None:
+    _, n_snps = Xs[0].shape
+
+    if n_snps < L:
+        raise ValueError(
+            f"The number of common SNPs across ancestries ({n_snps}) is less than inferred L ({L})."
+            + "Please choose a smaller L or expand the genomic window."
+        )
+
+    if param_effect_var is None:
         effect_var = [1e-3] * n_pop
     else:
-        if len(effect_var) != n_pop:
+        if len(param_effect_var) != n_pop:
             raise ValueError(
-                f"Number of specified effect prior ({len(effect_var)}) does not match ancestry number ({n_pop})."
+                f"Number of specified effect prior ({len(param_effect_var)}) does not match ancestry number ({n_pop})."
             )
-        effect_var = [float(i) for i in effect_var]
+        effect_var = [float(i) for i in param_effect_var]
         if jnp.any(jnp.array(effect_var) <= 0):
             raise ValueError(
                 f"The input of effect size prior ({effect_var})is invalid (<0)."
             )
 
     exp_num_rho = math.comb(n_pop, 2)
-    if rho is None:
+    if param_rho is None:
         rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
             log.logger.info("Running single-ancestry SuShiE. No need to specify rho.")
-        if len(rho) != exp_num_rho:
+        if len(param_rho) != exp_num_rho:
             raise ValueError(
-                f"Number of specified rho ({len(rho)}) does not match expected"
+                f"Number of specified rho ({len(param_rho)}) does not match expected"
                 + f"number {exp_num_rho}.",
             )
-        rho = [float(i) for i in rho]
+        rho = [float(i) for i in param_rho]
         # double-check the if it's invalid rho
         if jnp.any(jnp.abs(jnp.array(rho)) >= 1):
             raise ValueError(
@@ -178,13 +173,45 @@ def infer_sushie(
     for row in range(1, n_pop):
         for col in range(n_pop):
             if col < row:
-                _cov = jnp.sqrt(effect_var[row] * effect_var[col])
-                effect_covar = effect_covar.at[row, col].set(rho[ct] * _cov)
-                effect_covar = effect_covar.at[col, row].set(rho[ct] * _cov)
+                _two_sd = jnp.sqrt(effect_var[row] * effect_var[col])
+                effect_covar = effect_covar.at[row, col].set(rho[ct] * _two_sd)
+                effect_covar = effect_covar.at[col, row].set(rho[ct] * _two_sd)
                 ct += 1
 
+    if no_update:
+        # if we specify no_update and rho, we want to keep rho through iterations and update variance
+        if param_effect_var is None and param_rho is not None:
+            prior_adjustor = core.PriorAdjustor(
+                times=jnp.eye(n_pop),
+                plus=effect_covar - jnp.diag(jnp.diag(effect_covar)),
+            )
+
+            log.logger.info(
+                "No updates on the prior effect correlation rho while updating prior effect variance."
+            )
+        # if we specify no_update and effect_covar, we want to keep variance through iterations, and update rho
+        elif param_effect_var is not None and param_rho is None:
+            prior_adjustor = core.PriorAdjustor(
+                times=jnp.ones((n_pop, n_pop)) - jnp.eye(n_pop),
+                plus=effect_covar * jnp.eye(n_pop),
+            )
+            log.logger.info(
+                "No updates on the prior effect variance while updating prior effect correlation rho."
+            )
+        # if we (do not specify effect_covar and rho) or (specify both effect_covar and rho)
+        # nothing is updated through iterations
+        else:
+            prior_adjustor = core.PriorAdjustor(
+                times=jnp.zeros((n_pop, n_pop)), plus=effect_covar
+            )
+            log.logger.info("No updates on the prior effect size covariance matrix.")
+    else:
+        prior_adjustor = core.PriorAdjustor(
+            times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop))
+        )
+
     priors = core.Prior(
-        pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
+        pi=jnp.ones(n_snps) / float(n_snps) if param_pi is None else param_pi,
         resid_var=jnp.array(resid_var),
         # L x k x k
         effect_covar=jnp.array([effect_covar] * L),
@@ -198,6 +225,8 @@ def infer_sushie(
         kl=jnp.zeros((L,)),
     )
 
+    # since we use prior adjustor, this is really no need
+    # opt_v_func = NoopOptFunc() would work
     opt_v_func = EMOptFunc() if not no_update else NoopOptFunc()
 
     XtXs = []
@@ -217,9 +246,9 @@ def infer_sushie(
             XtXs,
             priors,
             posteriors,
+            prior_adjustor,
             opt_v_func,
         )
-
         elbo_increase = elbo_cur < elbo_last and (
             not jnp.isclose(elbo_cur, elbo_last, atol=1e-8)
         )
@@ -263,6 +292,7 @@ class _LResult(NamedTuple):
     XtXs: List[jnp.ndarray]
     priors: core.Prior
     posteriors: core.Posterior
+    prior_adjustor: core.PriorAdjustor
     opt_v_func: core.AbstractOptFunc
 
 
@@ -273,6 +303,7 @@ def _update_effects(
     XtXs: List[jnp.ndarray],
     priors: core.Prior,
     posteriors: core.Posterior,
+    prior_adjustor: core.PriorAdjustor,
     opt_v_func: core.AbstractOptFunc,
 ) -> Tuple[core.Prior, core.Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
@@ -289,12 +320,13 @@ def _update_effects(
         XtXs=XtXs,
         priors=priors,
         posteriors=posteriors,
+        prior_adjustor=prior_adjustor,
         opt_v_func=opt_v_func,
     )
 
     l_result = lax.fori_loop(0, l_dim, _update_l, init_l_result)
 
-    _, _, _, priors, posteriors, _ = l_result
+    _, _, _, priors, posteriors, _, _ = l_result
 
     sigma2_list = []
     exp_ll = 0.0
@@ -313,7 +345,7 @@ def _update_effects(
 
 
 def _update_l(l_iter: int, param: _LResult) -> _LResult:
-    Xs, residual, XtXs, priors, posteriors, opt_v_func = param
+    Xs, residual, XtXs, priors, posteriors, prior_adjustor, opt_v_func = param
     n_pop = len(Xs)
     residual_l = []
 
@@ -328,6 +360,7 @@ def _update_l(l_iter: int, param: _LResult) -> _LResult:
         XtXs,
         priors,
         posteriors,
+        prior_adjustor,
         l_iter,
         opt_v_func,
     )
@@ -350,6 +383,7 @@ def _ssr(
     XtXs: List[jnp.ndarray],
     priors: core.Prior,
     posteriors: core.Posterior,
+    prior_adjustor: core.PriorAdjustor,
     l_iter: int,
     opt_v_func: core.AbstractOptFunc,
 ) -> Tuple[core.Prior, core.Posterior]:
@@ -366,7 +400,7 @@ def _ssr(
 
     shat2 = jnp.eye(n_pop) * (shat2[:, jnp.newaxis])
 
-    priors = opt_v_func(beta_hat, shat2, priors, posteriors, l_iter)
+    priors = opt_v_func(beta_hat, shat2, priors, posteriors, prior_adjustor, l_iter)
 
     _, posteriors = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
 
@@ -429,6 +463,7 @@ class EMOptFunc(core.AbstractOptFunc):
         shat2: core.ArrayOrFloat,
         priors: core.Prior,
         posteriors: core.Posterior,
+        prior_adjustor: core.PriorAdjustor,
         l_iter: int,
     ) -> core.Prior:
         priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
@@ -443,8 +478,15 @@ class NoopOptFunc(core.AbstractOptFunc):
         shat2: core.ArrayOrFloat,
         priors: core.Prior,
         posteriors: core.Posterior,
+        prior_adjustor: core.PriorAdjustor,
         l_iter: int,
     ) -> core.Prior:
+        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+        priors = priors._replace(
+            effect_covar=priors.effect_covar.at[l_iter].set(
+                priors.effect_covar[l_iter] * prior_adjustor.times + prior_adjustor.plus
+            )
+        )
         return priors
 
 
