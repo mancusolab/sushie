@@ -6,12 +6,8 @@ from scipy import stats
 
 import jax.numpy as jnp
 
-from . import core
 
-
-def ols(
-    X: jnp.ndarray, y: jnp.ndarray
-) -> Tuple[jnp.ndarray, float, core.ArrayOrFloat, jnp.ndarray]:
+def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Perform ordinary linear regression.
 
     Args:
@@ -20,7 +16,6 @@ def ols(
 
     Returns:
         residual: regression residual   s
-        sigma_sq: estimated residual variance
         adj_r: adjusted r squared
         p_val: p values for betas
     """
@@ -40,57 +35,58 @@ def ols(
     adj_r = 1 - (1 - r_sq) * (n_samples - 1) / (n_samples - n_features)
     p_value = jnp.array(2 * stats.t.sf(abs(t_scores), df=(n_samples - n_features)))
 
-    return residual, sigma_sq, adj_r, p_value
+    return residual, adj_r, p_value
 
 
 def regress_covar(
     X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray, no_regress: bool
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    y, _, _, _ = ols(covar, y)
+    y, _, _ = ols(covar, y)
     if not no_regress:
-        X, _, _, _ = ols(covar, X)
+        X, _, _ = ols(covar, X)
 
     return X, y
 
 
 def estimate_her(
-    X: jnp.ndarray, y: jnp.ndarray, Covar: jnp.ndarray = None
-) -> Tuple[float, float]:
+    X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray = None
+) -> Tuple[float, float, float, float, float]:
     """Calculate proportion of gene expression variation explained by genotypes (cis-heritability).
 
     Args:
         X: n x p matrix for independent variables with no intercept vector.
         y: n x 1 vector for gene expression.
-        Covar: n x m vector for covariates or None.
+        covar: n x m vector for covariates or None.
 
     Returns:
-        h2g: cis-heritability
-        p_value: LRT p-value for cis-heritability
+        g: genetic variance
+        h2g_w_v: narrow-sense heritability including the fixed effect variance
+        h2g_wo_v: narrow-sense heritability including the fixed effect variance
+        lrt_stats: LRT test statistics for narrow-sense heritability
+        p_value: LRT p-value for narrow-sense heritability
     """
     n, p = X.shape
+
+    if covar is None:
+        covar = jnp.ones(n)
+
     GRM = jnp.dot(X, X.T) / p
-
-    # compute the likelihood ratio test
-    # compute the null
-    if Covar is not None:
-        residual, sigma_sq, _, _ = ols(Covar, y)
-        like_covar = Covar
-    else:
-        residual = y
-        sigma_sq = jnp.var(y)
-        like_covar = jnp.ones(n)
-
-    null_lk = jnp.sum(stats.norm.logpdf(residual, loc=0, scale=jnp.sqrt(sigma_sq)))
-    # compute the alternative
     GRM = GRM / jnp.diag(GRM).mean()
     QS = economic_qs(GRM)
-    method = LMM(y, like_covar, QS, restricted=True)
+    method = LMM(y, covar, QS, restricted=True)
     method.fit(verbose=False)
-    alt_lk = method.lml()
-    lrt_stats = -2 * (null_lk - alt_lk)
-    p_value = stats.chi2.sf(lrt_stats, 1)
+
     g = method.scale * (1 - method.delta)
     e = method.scale * method.delta
     v = jnp.var(method.mean())
-    h2g = g / (v + g + e)
-    return h2g, p_value
+    h2g_w_v = g / (v + g + e)
+    h2g_wo_v = g / (g + e)
+    alt_lk = method.lml()
+    method.delta = 1
+    method.fix("delta")
+    method.fit(verbose=False)
+    null_lk = method.lml()
+    lrt_stats = -2 * (null_lk - alt_lk)
+    p_value = stats.chi2.sf(lrt_stats, 1) / 2
+
+    return g, h2g_w_v, h2g_wo_v, lrt_stats, p_value
