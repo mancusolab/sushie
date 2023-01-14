@@ -29,28 +29,41 @@
 
 |
 
-.. _Documentation: https://mancusolab.github.io/sushie/
-.. |Documentation| replace:: **Documentation**
-
-
 ======
 SuShiE
 ======
-Software to fine-map causal SNPs and compute prediction weights of complex traits across multiple ancestries
+Software to fine-map causal SNPs, compute prediction weights of molecular data, and infer effect size correlation across multiple ancestries. The manuscript is in progress.
 
 .. code:: diff
 
     - We detest usage of our software or scientific outcome to promote racial discrimination.
 
+Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation
 
-|Documentation|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_ | |Support|_
+
+|Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_ | |Support|_
+
+.. _Model:
+.. |Model| replace:: **Model**
+
+Model Description
+=================
+The Sum of *SI*ngle *S*hared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral effect size similarity. Specifically, for i^"th"  of total k∈N ancestries, we model the gene expression g_i∈R^(n_i  ×1) for n_i∈N individuals as a linear combination of standardized genotype matrix X_i∈R^(n_i  ×p) for p∈N SNPs as
+We extend the Sum of Single Effects model (i.e. SuSiE) [1]_ to principal component analysis. $Z_{N \\times K}$ is the latent factors
+
+$$X | Z,W \\sim \\mathcal{MN}_{N,P}(ZW, I_N, \\sigma^2 I_P)$$
+
+$$\\mathbf{w}_k = \\sum_{l=1}^L \\mathbf{w}_{kl} $$
+$$\\mathbf{w}_{kl} = w_{kl} \\gamma_{kl}$$
+$$w_{kl} \\sim \\mathcal{N}(0,\\sigma^2_{0kl})$$
+$$\\gamma_{kl} | \\pi \\sim \\text{Multi}(1,\\pi) $$
 
 .. _Installation:
 .. |Installation| replace:: **Installation**
 
-Installing
+Installation
 ==========
-The easiest way to install is with pip:
+The easiest way to install is with ``pip``:
 
 .. code:: bash
 
@@ -62,9 +75,16 @@ Alternatively you can download the latest repo and then use setuptools:
 
     git clone https://github.com/mancusolab/sushie.git
     cd sushie
-    python setup.py install
+    pip install
 
 *We currently only support Python3.8+.*
+
+Caveat:
+~~~~~~
+
+SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compliation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, you need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and then install SuShiE using ``pip`` in your desired environment.
+
+
 
 .. _Example:
 .. |Example| replace:: **Example**
@@ -112,6 +132,14 @@ Support
 =======
 Please report any bugs or feature requests in the `Issue Tracker <https://github.com/mancusolab/sushie/issues>`_. If you have any
 questions or comments please contact zeyunlu@usc.edu and/or nmancuso@usc.edu.
+
+Other Software
+=============
+MA-FOCUS
+
+TWAS Simulator
+
+SuSiE PCA is a scalable Bayesian variable selection technique for sparse principal component analysis
 
 ---------------------
 
