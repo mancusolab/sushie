@@ -50,8 +50,9 @@ Model Description
 =================
 The Sum of SIngle Shared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral effect size similarity. Specifically, for $i^{\\text{th}}$ of total $k \\in \\mathbb{N}$ ancestries, we model the molecular data $g_i \\in \\mathbb{R}^{n_i \\times 1}$ for $n_i \\in \\mathbb{N}$ individuals as a linear combination of standardized genotype matrix $X_i \\in \\mathbb{R}^{n_i \\times p}$ for $p \\in \\mathbb{N}$ SNPs as
 
-$$\\mathbf{g}_i=\\mathbf{X}_i \\mathbf{\\beta}_i+\\mathbf{\\epsilon}_i  $$
-$$\\mathbf{\\beta}_i= \\sum_{l=1}^{L}\\mathbf{\\beta}_{i,l}$$
+$$\\mathbf{g}_i=\\mathbf{X}_i \\mathbf{\beta}_i+\\mathbf{\epsilon}_i$$
+$$\\mathbf{\beta}_i= \\sum_{l=1}^{L}\\mathbf{\beta}_{i,l}$$
+
 β_(i,l)=γ_l∙b_(i,l)
 b_l=[█(b_(1,l)@⋮@b_(i,l)@⋮@b_(k,l) )]  ~N(0,C_l)
 C_(i,i^',l)={█(σ_(i,b,l)^2                         "if"  i=i^'@ρ_(i,i^',l) σ_(i,b,l) σ_(i^',b,l)     "otherwise" )┤
