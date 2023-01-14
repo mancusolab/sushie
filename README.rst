@@ -48,7 +48,17 @@ Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation
 
 Model Description
 =================
-The Sum of *SI*ngle *S*hared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral effect size similarity. Specifically, for i^"th"  of total k∈N ancestries, we model the gene expression g_i∈R^(n_i  ×1) for n_i∈N individuals as a linear combination of standardized genotype matrix X_i∈R^(n_i  ×p) for p∈N SNPs as
+The Sum of SIngle Shared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral effect size similarity. Specifically, for $i^\text{th}$ of total $k \in \N$ ancestries, we model the molecular data $g_i \in \R^{n_i \times 1}$ for $n_i \in \N$ individuals as a linear combination of standardized genotype matrix $X_i \in \R^{n_i \times p}$ for $p \in \N$ SNPs as
+
+$$g_i=X_i β_i+ϵ_i  $$
+β_i=∑_(l=1)^L▒β_(i,l)
+β_(i,l)=γ_l∙b_(i,l)
+b_l=[█(b_(1,l)@⋮@b_(i,l)@⋮@b_(k,l) )]  ~N(0,C_l)
+C_(i,i^',l)={█(σ_(i,b,l)^2                         "if"  i=i^'@ρ_(i,i^',l) σ_(i,b,l) σ_(i^',b,l)     "otherwise" )┤
+γ_l="Multi"(1,π)
+ϵ_i  ~ N(0,σ_(i,e)^2 I_(n_i ))
+$$
+
 We extend the Sum of Single Effects model (i.e. SuSiE) [1]_ to principal component analysis. $Z_{N \\times K}$ is the latent factors
 
 $$X | Z,W \\sim \\mathcal{MN}_{N,P}(ZW, I_N, \\sigma^2 I_P)$$
