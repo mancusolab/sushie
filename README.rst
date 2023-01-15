@@ -54,13 +54,9 @@ $$g_i=X_i \\beta_i+\\epsilon_i$$
 
 $$\\beta_i=\\sum_{l=1}^{L}\\beta_{i,l}$$
 
-$$\\beta_{i,l} = \\gamma_l \cdot b_{i, l}$$
+$$\\beta_{i,l} = \\gamma_l \cdot \b_{i, l}$$
 
-$$b_{l} = \\begin{bmatrix}
-  b_{1,l} \\\\
-  \vdots \\\\
-  b_{k,l}
-\\end{bmatrix}$$
+$$b_{l} = \\begin{bmatrix} \b_{1,l} \\\\ \vdots \\\\ \b_{k,l} \\end{bmatrix}$$
 We extend the Sum of Single Effects model (i.e. SuSiE) [1]_ to principal component analysis. $Z_{N \\times K}$ is the latent factors
 
 $$X | Z,W \\sim \\mathcal{MN}_{N,P}(ZW, I_N, \\sigma^2 I_P)$$
