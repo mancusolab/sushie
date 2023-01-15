@@ -58,7 +58,7 @@ $$\\beta_{i,l} = \\gamma_l \\cdot \b_{i, l}$$
 
 $$\b_{l} = \\begin{bmatrix} \b_{1,l} \\\\ \\vdots \\\\ \b_{k,l} \\end{bmatrix} \\sim \\mathcal{N}(0, C_l) $$
 
-$$C_{i,i',l}= \\begin{cases} \\sigma^2_{i,b,l}  \\text{if } i = i' \\\\ \\rho_{i,i',l}\\sigma_{i,b,l}\\sigma_{i',b,l} \\text{otherwise}\end{cases}$$
+$$C_{i,i',l}= \\begin{cases} \\sigma^2_{i,b,l}  \\text{if } i = i' \\\\ \\rho_{i,i',l}\\sigma_{i,b,l}\\sigma_{i',b,l} \\text{otherwise}\\end{cases}$$
 
 $$\\gamma_l = \\text{Multi}(1, \\pi)$$
 
