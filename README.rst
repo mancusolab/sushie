@@ -46,7 +46,7 @@ Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 .. _Model:
 .. |Model| replace:: **Model**
 
-======
+=================
 Model Description
 =================
 The Sum of SIngle Shared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral quantitative trait loci (QTL) effect size similarity. Specifically, for $i^{\\text{th}}$ of total $k \\in \\mathbb{N}$ ancestries, we model the molecular data $g_i \\in \\mathbb{R}^{n_i \\times 1}$ for $n_i \\in \\mathbb{N}$ individuals as a linear combination of standardized genotype matrix $X_i \\in \\mathbb{R}^{n_i \\times p}$ for $p \\in \\mathbb{N}$ SNPs as
