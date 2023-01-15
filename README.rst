@@ -41,7 +41,7 @@ Python software to fine-map causal SNPs, compute prediction weights of molecular
 Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 
 
-|Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_ | |Support|_
+|Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |Version|_ ||Reference|_ | |Support|_
 
 .. _Model:
 .. |Model| replace:: **Model**
@@ -140,10 +140,18 @@ SuShiE enable 64-bit precision for more accurate inference by default. If you ne
 In addition, the default computation device for JAX is set by environment variables
 (see `here <https://jax.readthedocs.io/en/latest/faq.html#faq-data-placement>`_). To change this before calling `sushie`, uncomment and modify ``platform = "cpu"`` and ``config.update("jax_platform_name", platform)`` on ``line 27`` and ``line 28`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
 
-.. _References:
-.. |References| replace:: **References**
+.. _Version:
+.. |Version| replace:: **Version**
 
-References
+Version History
+===============
+
+#. Version 0.1: Initial release.
+
+.. _Reference:
+.. |Reference| replace:: **Reference**
+
+Reference
 ==========
 .. [1] Wang, G., Sarkar, A., Carbonetto, P. and Stephens, M. (2020), A simple new approach to variable selection in regression, with application to genetic fine mapping. J. R. Stat. Soc. B, 82: 1273-1300. https://doi.org/10.1111/rssb.12388
 
