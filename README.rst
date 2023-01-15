@@ -56,8 +56,13 @@ $$\\beta_i=\\sum_{l=1}^{L}\\beta_{i,l}$$
 
 $$\\beta_{i,l} = \\gamma_l \\cdot \b_{i, l}$$
 
-$$\b_{l} = \\begin{bmatrix} \b_{1,l} \\\\ \\vdots \\\\ \b_{k,l} \\end{bmatrix}$$
+$$\b_{l} = \\begin{bmatrix} \b_{1,l} \\\\ \\vdots \\\\ \b_{k,l} \\end{bmatrix} \\sim \\mathcal{N}(0, C_l) $$
 
+$$C_{i,i',l}= \\begin{cases} \\sigma^2_{i,b,l}  \\text{if } i = i' \\\\ \\rho_{i,i',l}\\sigma_{i,b,l}\\sigma_{i',b,l} \\text{otherwise}\end{cases}$$
+
+$$\\gamma_l = \\text{Multi}(1, \\pi)$$
+
+$$\\epsilon_i \sim \\mathcal{N}(0, \\sigma^2_{i, e}I_{n_i})$$
 
 We extend the Sum of Single Effects model (i.e. SuSiE) [1]_ to principal component analysis. $Z_{N \\times K}$ is the latent factors
 
