@@ -135,10 +135,10 @@ Please see the wiki for more details on how to use SuShiE.
 Notes
 =====
 
-JAX uses 32-bit precision by default, but SuShiE enable 64-bit precision for more accurate inference. If you need to enable 32-bit precision, comment out ``# config.update("jax_enable_x64", True)`` on the ``line 25`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
+SuShiE enable 64-bit precision for more accurate inference by default. If you need to enable 32-bit precision, comment out ``# config.update("jax_enable_x64", True)`` on the ``line 25`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
 
-Similarly, the default computation device for JAX is set by environment variables
-(see `here <https://jax.readthedocs.io/en/latest/faq.html#faq-data-placement>`_). To change this programmatically before calling `sushie`, uncomment ``platform = "cpu"`` and ``config.update("jax_platform_name", platform)`` on ``line 27`` and ``line 28`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
+In addition, the default computation device for JAX is set by environment variables
+(see `here <https://jax.readthedocs.io/en/latest/faq.html#faq-data-placement>`_). To change this before calling `sushie`, uncomment and modify ``platform = "cpu"`` and ``config.update("jax_platform_name", platform)`` on ``line 27`` and ``line 28`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
 
 .. _References:
 .. |References| replace:: **References**
@@ -153,15 +153,18 @@ References
 Support
 =======
 Please report any bugs or feature requests in the `Issue Tracker <https://github.com/mancusolab/sushie/issues>`_. If you have any
-questions or comments please contact zeyunlu@usc.edu and/or nmancuso@usc.edu.
+questions or comments please contact zeyunlu@usc.edu and nmancuso@usc.edu.
 
 Other Software
 =============
-MA-FOCUS
+Feel free to use other software developed by `Mancuso Lab <https://www.mancusolab.com/>`_:
 
-TWAS Simulator
+`MA-FOCUS <https://github.com/mancusolab/ma-focus>`_: a Bayesian fine-mapping framework using `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics across multiple ancestries to identify the causal genes for complex traits.
 
-SuSiE PCA is a scalable Bayesian variable selection technique for sparse principal component analysis
+`SuSiE-PCA <https://github.com/mancusolab/susiepca>`_: a scalable Bayesian variable selection technique for sparse principal component analysis
+
+`twas_sim <https://github.com/mancusolab/twas_sim>`_: a Python software to simulate `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics.
+
 
 ---------------------
 
