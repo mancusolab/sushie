@@ -41,7 +41,7 @@ Python software to fine-map causal SNPs, compute prediction weights of molecular
 Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 
 
-|Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |Version|_ ||Reference|_ | |Support|_
+|Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |Version|_ | |Reference|_ | |Support|_
 
 .. _Model:
 .. |Model| replace:: **Model**
@@ -146,7 +146,14 @@ In addition, the default computation device for JAX is set by environment variab
 Version History
 ===============
 
-#. Version 0.1: Initial release.
+.. list-table::
+   :header-rows: 1
+
+   * - Version Number
+     - Description
+   * - 0.1
+     - Initial Release
+
 
 .. _Reference:
 .. |Reference| replace:: **Reference**
@@ -167,11 +174,11 @@ Other Software
 =============
 Feel free to use other software developed by `Mancuso Lab <https://www.mancusolab.com/>`_:
 
-`MA-FOCUS <https://github.com/mancusolab/ma-focus>`_: a Bayesian fine-mapping framework using `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics across multiple ancestries to identify the causal genes for complex traits.
+* `MA-FOCUS <https://github.com/mancusolab/ma-focus>`_: a Bayesian fine-mapping framework using `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics across multiple ancestries to identify the causal genes for complex traits.
 
-`SuSiE-PCA <https://github.com/mancusolab/susiepca>`_: a scalable Bayesian variable selection technique for sparse principal component analysis
+* `SuSiE-PCA <https://github.com/mancusolab/susiepca>`_: a scalable Bayesian variable selection technique for sparse principal component analysis
 
-`twas_sim <https://github.com/mancusolab/twas_sim>`_: a Python software to simulate `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics.
+* `twas_sim <https://github.com/mancusolab/twas_sim>`_: a Python software to simulate `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics.
 
 
 ---------------------
