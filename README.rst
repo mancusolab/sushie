@@ -38,7 +38,7 @@ Software to fine-map causal SNPs, compute prediction weights of molecular data, 
 
     - We detest usage of our software or scientific outcome to promote racial discrimination.
 
-Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation
+Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 
 
 |Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |References|_ | |Support|_
@@ -46,6 +46,7 @@ Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation
 .. _Model:
 .. |Model| replace:: **Model**
 
+======
 Model Description
 =================
 The Sum of SIngle Shared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral quantitative trait loci (QTL) effect size similarity. Specifically, for $i^{\\text{th}}$ of total $k \\in \\mathbb{N}$ ancestries, we model the molecular data $g_i \\in \\mathbb{R}^{n_i \\times 1}$ for $n_i \\in \\mathbb{N}$ individuals as a linear combination of standardized genotype matrix $X_i \\in \\mathbb{R}^{n_i \\times p}$ for $p \\in \\mathbb{N}$ SNPs as
@@ -64,12 +65,15 @@ $$\\gamma_l \\sim \\text{Multi}(1, \\pi)$$
 
 $$\\epsilon_i \\sim \\mathcal{N}(0, \\sigma^2_{i, e}I_{n_i})$$
 
-where $\\beta_i \\in \\mathbb{R}^{p \\times1}$ is the shared QTL effects, $\\epsilon_i \\in \\mathbb{R}^{n_i \\times 1}$ is the ancestry-specific effects and other environmental noises, $L \\in \\mathbb{R}$ is the number of shared effects, for  $l^{\\text{th}}$  single shared effect,  $b_{i,l} \\in \\mathbb{R}$ is a scaler representing effect size, $C_l \\in \\mathbb{R}^{k \\times k} is the prior covariance matrix with $\\sigma^2_{i,b}$ as variance and $\\rho$ as correlation, $\\gamma_l$ is an binary indicator vector specifying which single SNP is the QTL, $\\pi$ is the prior probability for each SNP to be QTL, and $\\sigma^2_e$ is the prior variance for noises.
+where $\\beta_i \\in \\mathbb{R}^{p \\times1}$ is the shared QTL effects, $\\epsilon_i \\in \\mathbb{R}^{n_i \\times 1}$ is the ancestry-specific effects and other environmental noises, $L \\in \\mathbb{R}$ is the number of shared effects, for  $l^{\\text{th}}$  single shared effect,  $b_{i,l} \\in \\mathbb{R}$ is a scaler representing effect size, $C_l \\in \\mathbb{R}^{k \\times k}$ is the prior covariance matrix with $\\sigma^2_{i,b}$ as variance and $\\rho$ as correlation, $\\gamma_l$ is an binary indicator vector specifying which single SNP is the QTL, $\\pi$ is the prior probability for each SNP to be QTL, and $\\sigma^2_e$ is the prior variance for noises.
 
 SuShiE runs `varitional inference <https://en.wikipedia.org/wiki/Variational_Bayesian_methods>`_ to estimate the posterior distribution for $\\beta_l$ and $\\gamma_l$ for each $l^{\\text{th}}$ effect. We can quantify the probability of QTL for each SNP through Posterior Inclusion Probabilities (PIPs). If the posterior distribution of $\\gamma_l$ is $\\text{Multi}(1, \\alpha_l)$, then for each SNP $j$, we have:
 
-$$\\text{PIP}_j = 1 - \\prod_{l=1}^L(1 - \\alpha_{l, i})$$
+$$\\text{PIP}_j = 1 - \\prod_{l=1}^L(1 - \\alpha_{l, j})$$
 
+Suppose $w_{l, j}$ is the posterior estimate of $\\beta_l$ for SNP $j$ and $l^\\text{th}$ effect, we can quantify the QTL prediction weights by summing across $L$ effects:
+
+$$w_j = \\sum_{l=1}^Lw_{l,j}$$
 
 
 .. _Installation:
