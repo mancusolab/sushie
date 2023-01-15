@@ -149,7 +149,7 @@ Version History
 .. list-table::
    :header-rows: 1
 
-   * - Version Number
+   * - Version
      - Description
    * - 0.1
      - Initial Release
