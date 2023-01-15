@@ -32,7 +32,7 @@
 ======
 SuShiE
 ======
-Software to fine-map causal SNPs, compute prediction weights of molecular data, and infer effect size correlation across multiple ancestries. The manuscript is in progress.
+Python software to fine-map causal SNPs, compute prediction weights of molecular data, and infer effect size correlation across multiple ancestries. The manuscript is in progress.
 
 .. code:: diff
 
@@ -47,6 +47,7 @@ Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 .. |Model| replace:: **Model**
 
 =================
+
 Model Description
 =================
 The Sum of SIngle Shared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral quantitative trait loci (QTL) effect size similarity. Specifically, for $i^{\\text{th}}$ of total $k \\in \\mathbb{N}$ ancestries, we model the molecular data $g_i \\in \\mathbb{R}^{n_i \\times 1}$ for $n_i \\in \\mathbb{N}$ individuals as a linear combination of standardized genotype matrix $X_i \\in \\mathbb{R}^{n_i \\times p}$ for $p \\in \\mathbb{N}$ SNPs as
@@ -87,7 +88,7 @@ The easiest way to install is with ``pip``:
 
     pip install sushie
 
-Alternatively you can download the latest repo and then use setuptools:
+Alternatively you can download the latest repository and then use ``pip``:
 
 .. code:: bash
 
@@ -100,7 +101,7 @@ Alternatively you can download the latest repo and then use setuptools:
 Caveat:
 ~~~~~~
 
-SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compliation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, you need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and then install SuShiE using ``pip`` in your desired environment.
+SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compliation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, you need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and then install SuShiE using ``pip`` in your desired environment. In addition, we are not aware of any issues when running SuShiE in Linux OS.
 
 
 
@@ -109,8 +110,24 @@ SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://
 
 Get Started with Example
 ========================
+SuShiE software is very easy to use:
 
-Please see the wiki for more details on how to use SuShiE to database files.
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --covar EUR.covar AFR.covar --output ~/test_result
+
+It can perform:
+
+* narrow-sense cis-heritability estimation
+* QTL effect size correlation estimation
+* mega-analysis (row-stack the data across ancestries)
+* single-ancestry SuSiE followed by meta-analysis
+* multi-ancestry SuSiE (correlation prior is set to 0)
+* cross-validation for SuShiE prediction weights
+* convert prediction results to `FUSION <http://gusevlab.org/projects/fusion/>`_ format
+
+Please see the wiki for more details on how to use SuShiE.
 
 .. _Notes:
 .. |Notes| replace:: **Notes**
@@ -118,23 +135,10 @@ Please see the wiki for more details on how to use SuShiE to database files.
 Notes
 =====
 
-`JAX <https://github.com/google/jax>`_ uses 32-bit precision by default. To enable 64-bit precision before calling
-`sushie` add the following code:
+JAX uses 32-bit precision by default, but SuShiE enable 64-bit precision for more accurate inference. If you need to enable 32-bit precision, comment out ``# config.update("jax_enable_x64", True)`` on the ``line 25`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
 
-.. code:: python
-
-   import jax
-   jax.config.update("jax_enable_x64", True)
-
-Similarly, the default computation device for `JAX <https://github.com/google/jax>`_ is set by environment variables
-(see `here <https://jax.readthedocs.io/en/latest/faq.html#faq-data-placement>`_). To change this programmatically before
-calling `sushie` add the following code:
-
-.. code:: python
-
-   import jax
-   platform = "gpu" # "gpu", "cpu", or "tpu"
-   jax.config.update("jax_platform_name", platform)
+Similarly, the default computation device for JAX is set by environment variables
+(see `here <https://jax.readthedocs.io/en/latest/faq.html#faq-data-placement>`_). To change this programmatically before calling `sushie`, uncomment ``platform = "cpu"`` and ``config.update("jax_platform_name", platform)`` on ``line 27`` and ``line 28`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
 
 .. _References:
 .. |References| replace:: **References**

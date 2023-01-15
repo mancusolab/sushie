@@ -5,11 +5,9 @@ import pandas as pd
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-from jax import config, jit, lax, nn
+from jax import jit, lax, nn
 
 from . import core, log, utils
-
-config.update("jax_enable_x64", True)
 
 
 def infer_sushie(

@@ -13,7 +13,7 @@ from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
-from jax import random
+from jax import config, random
 
 from . import core, infer, io, log, utils
 
@@ -21,6 +21,11 @@ warnings.filterwarnings("ignore")
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     import jax.numpy as jnp
+
+config.update("jax_enable_x64", True)
+
+# platform = "cpu"  # "cpu", "gpu", or "tpu"
+# config.update("jax_platform_name", platform)
 
 
 def _get_command_string(args):
