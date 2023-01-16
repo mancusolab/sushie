@@ -19,6 +19,8 @@ Contents
    :maxdepth: 2
    :caption: API Reference
 
+   api/run_cli.rst
+
 .. toctree::
    :maxdepth: 2
    :caption: Development

@@ -1,8 +1,8 @@
 =========
-Changelog
+Version History
 =========
 
 Version 0.1
 ===========
 
-- TBD
+- Initial Release

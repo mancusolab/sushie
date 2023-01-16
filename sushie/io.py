@@ -175,31 +175,39 @@ def output_weight_pip(
 ) -> pd.DataFrame:
     """Output prediction weights in tsv file."""
     n_pop = len(result[0].priors.resid_var)
-    snp_copy = copy.deepcopy(snps).assign(trait=trait)
-    total_weights = pd.DataFrame()
+    weights = copy.deepcopy(snps).assign(trait=trait)
+
     for idx in range(len(result)):
         if meta:
-            ancestry_idx = [f"ancestry{idx + 1}_single_weight"]
-            ancestry_pip = f"ancestry{idx + 1}_single_pip"
+            cname_idx = [f"ancestry{idx + 1}_single_weight"]
+            cname_pip = f"ancestry{idx + 1}_single_pip"
+            cname_cs = f"ancestry{idx + 1}_in_cs"
         elif mega:
-            ancestry_idx = ["mega_weight"]
-            ancestry_pip = "mega_pip"
+            cname_idx = ["mega_weight"]
+            cname_pip = "mega_pip"
+            cname_cs = "mega_in_cs"
         else:
-            ancestry_idx = [f"ancestry{jdx + 1}_sushie_weight" for jdx in range(n_pop)]
-            ancestry_pip = "sushie_pip"
+            cname_idx = [f"ancestry{jdx + 1}_sushie_weight" for jdx in range(n_pop)]
+            cname_pip = "sushie_pip"
+            cname_cs = "sushie_in_cs"
 
         tmp_weights = pd.DataFrame(
             data=jnp.sum(result[idx].posteriors.post_mean, axis=0),
-            columns=ancestry_idx,
+            columns=cname_idx,
         )
 
-        tmp_weights[ancestry_pip] = result[idx].pip
-        total_weights = pd.concat([total_weights, tmp_weights], axis=1)
+        tmp_weights[cname_pip] = result[idx].pip
+        weights = pd.concat([weights, tmp_weights], axis=1)
+        weights[cname_cs] = (
+            weights["SNPIndex"].isin(result[idx].cs["SNPIndex"].tolist()).astype(int)
+        )
 
     if meta_pip is not None:
-        total_weights["meta_pip"] = meta_pip
-
-    weights = pd.concat([snp_copy, total_weights], axis=1)
+        weights["meta_pip"] = meta_pip
+        tmp_cs = (weights["ancestry1_in_cs"] == 0) * 1
+        for idx in range(1, len(result)):
+            tmp_cs = tmp_cs * (weights["ancestry1_in_cs"] == 0) * 1
+        weights["meta_in_cs"] = 1 - tmp_cs
 
     if weights.shape[0] == 0:
         weights = weights.append({"trait": trait}, ignore_index=True)

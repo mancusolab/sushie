@@ -101,8 +101,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", ".venv"]
 autodoc_class_signature = "separated"
 
 python_apigen_modules = {
-    "sushie": "api/",
-    #"sushie.infer": "api/infer/",
+    "sushie.utils": "api/haha.rst",
 }
 
 python_apigen_default_groups = [
