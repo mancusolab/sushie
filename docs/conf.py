@@ -185,7 +185,7 @@ html_css_files = ["extra_css.css"]
 html_last_updated_fmt = ""
 html_title = "SuShiE"
 html_favicon = "_static/images/favicon.ico"
-html_logo = "_static/images/dna.gif"
+html_logo = "_static/images/dna.png"
 
 html_theme_options = {
     "icon": {
