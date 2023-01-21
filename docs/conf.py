@@ -73,7 +73,7 @@ master_doc = "index"
 
 # General information about the project.
 project = "SuShiE"
-copyright = "2022, MancusoLab"
+copyright = "2023, MancusoLab"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -101,12 +101,19 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", ".venv"]
 autodoc_class_signature = "separated"
 
 python_apigen_modules = {
-    "sushie.utils": "api/haha.rst",
+    "sushie.infer": "api/infer/",
+    "sushie.core": "api/core/",
+    "sushie.io": "api/io/",
+    "sushie.utils": "api/utils/",
 }
 
 python_apigen_default_groups = [
-    (r".*:.*", "Public-members"),
-    (r"class:.*", "Classes"),
+    (r".*:sushie.infer.*", "Infer Public-members"),
+    (r"class:sushie.infer.*", "Infer Classes"),
+    (r".*:susiepca.metrics.*", "Metrics Public-members"),
+    (r"class:susiepca.metrics.*", "Metrics Classes"),
+    (r".*:susiepca.sim.*", "Sim Public-members"),
+    (r"class:susiepca.sim.*", "Sim Classes"),
     (r"method:.*\.__(str|repr)__", "String representation"),
     # ("method:.*", "Methods"),
     # ("classmethod:.*", "Class methods"),
@@ -125,14 +132,9 @@ python_apigen_default_order = [
 ]
 
 object_description_options = [
-    (
-        "py.*",
-        dict(
-            include_in_toc=False,
-            include_fields_in_toc=False,
-            wrap_signatures_with_css=True,
-        ),
-    ),
+    ("py.*", dict(include_in_toc=False,
+                  include_fields_in_toc=False,
+                  wrap_signatures_with_css=True)),
     ("py.class", dict(include_in_toc=True)),
     ("py.function", dict(include_in_toc=True)),
 ]
@@ -179,11 +181,11 @@ html_theme = "sphinx_immaterial"
 
 # The name for this set of Sphinx documents.  If None, it defaults to
 html_static_path = ["_static"]
-# html_css_files = ["extra_css.css"]
+html_css_files = ["extra_css.css"]
 html_last_updated_fmt = ""
 html_title = "SuShiE"
 html_favicon = "_static/images/favicon.ico"
-html_logo = "_static/images/dna.png"
+html_logo = "_static/images/dna.gif"
 
 html_theme_options = {
     "icon": {
@@ -191,7 +193,7 @@ html_theme_options = {
     },
     "site_url": "https://mancusolab.github.io/sushie/",
     "repo_url": "https://github.com/mancusolab/sushie/",
-    "repo_name": "sushie",
+    "repo_name": "SuShiE",
     "repo_type": "github",
     "edit_uri": "blob/main/docs",
     "globaltoc_collapse": True,
@@ -213,8 +215,8 @@ html_theme_options = {
         {
             "media": "(prefers-color-scheme: light)",
             "scheme": "default",
-            "primary": "teal",
-            "accent": "light-blue",
+            "primary": "cyan",
+            "accent": "amber",
             "toggle": {
                 "icon": "material/lightbulb-outline",
                 "name": "Switch to dark mode",
@@ -233,13 +235,13 @@ html_theme_options = {
     ],
     # BEGIN: version_dropdown
     "version_dropdown": True,
-    "version_info": [
-        {
-            "version": "https://mancusolab.github.io/sushie",
-            "title": "Github Pages",
-            "aliases": [],
-        },
-    ],
+    # "version_info": [
+    #     {
+    #         "version": "https://mancusolab.github.io/sushie",
+    #         "title": "Github Pages",
+    #         "aliases": [],
+    #     },
+    # ],
     # END: version_dropdown
     "toc_title_is_page_title": True,
     # BEGIN: social icons
@@ -248,10 +250,10 @@ html_theme_options = {
             "icon": "fontawesome/brands/github",
             "link": "https://github.com/mancusolab/sushie",
         },
-        # {
-        #    "icon": "fontawesome/brands/python",
-        #    "link": "https://pypi.org/project/sphinx-immaterial/",
-        # },
+        {
+           "icon": "fontawesome/brands/python",
+           "link": "https://pypi.org/project/sushie/",
+        },
     ],
     # END: social icons
 }
@@ -276,21 +278,15 @@ print(f"loading configurations for {project} {version} ...", file=sys.stderr)
 
 # -- Post process ------------------------------------------------------------
 import collections
-
-
 def remove_namedtuple_attrib_docstring(app, what, name, obj, skip, options):
     if type(obj) is collections._tuplegetter:
         return True
     return skip
 
-
-def autodoc_process_signature(
-    app, what, name, obj, options, signature, return_annotation
-):
+def autodoc_process_signature(app, what, name, obj, options, signature, return_annotation):
     signature = modify_type_hints(signature)
     return_annotation = modify_type_hints(return_annotation)
     return signature, return_annotation
-
 
 def modify_type_hints(signature):
     if signature:
@@ -299,5 +295,5 @@ def modify_type_hints(signature):
 
 
 def setup(app):
-    app.connect("autodoc-skip-member", remove_namedtuple_attrib_docstring)
+    app.connect('autodoc-skip-member', remove_namedtuple_attrib_docstring)
     app.connect("autodoc-process-signature", autodoc_process_signature)

@@ -175,6 +175,7 @@ def output_weight_pip(
 ) -> pd.DataFrame:
     """Output prediction weights in tsv file."""
     n_pop = len(result[0].priors.resid_var)
+    n_l = result[0].posteriors.alpha.shape[0]
     weights = copy.deepcopy(snps).assign(trait=trait)
 
     for idx in range(len(result)):
@@ -182,14 +183,17 @@ def output_weight_pip(
             cname_idx = [f"ancestry{idx + 1}_single_weight"]
             cname_pip = f"ancestry{idx + 1}_single_pip"
             cname_cs = f"ancestry{idx + 1}_in_cs"
+            cname_alpha = [f"ancestry{idx + 1}_l{ldx +1}_alpha" for ldx in range(n_l)]
         elif mega:
             cname_idx = ["mega_weight"]
             cname_pip = "mega_pip"
             cname_cs = "mega_in_cs"
+            cname_alpha = [f"mega_l{ldx + 1}_alpha" for ldx in range(n_l)]
         else:
             cname_idx = [f"ancestry{jdx + 1}_sushie_weight" for jdx in range(n_pop)]
             cname_pip = "sushie_pip"
             cname_cs = "sushie_in_cs"
+            cname_alpha = [f"sushie_l{ldx + 1}_alpha" for ldx in range(n_l)]
 
         tmp_weights = pd.DataFrame(
             data=jnp.sum(result[idx].posteriors.post_mean, axis=0),
@@ -197,6 +201,7 @@ def output_weight_pip(
         )
 
         tmp_weights[cname_pip] = result[idx].pip
+        tmp_weights[cname_alpha] = jnp.transpose(result[idx].posteriors.alpha)
         weights = pd.concat([weights, tmp_weights], axis=1)
         weights[cname_cs] = (
             weights["SNPIndex"].isin(result[idx].cs["SNPIndex"].tolist()).astype(int)

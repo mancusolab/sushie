@@ -22,31 +22,26 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     import jax.numpy as jnp
 
-config.update("jax_enable_x64", True)
-
-# platform = "cpu"  # "cpu", "gpu", or "tpu"
-# config.update("jax_platform_name", platform)
-
 
 def _get_command_string(args):
-    base = "sushie {}{}".format(args[0], os.linesep)
+    base = f"sushie {args[0]}{os.linesep}"
     rest = args[1:]
     rest_strs = []
     needs_tab = True
     for cmd in rest:
         if "-" == cmd[0]:
             if cmd in ["--quiet", "-q", "--verbose", "-v"]:
-                rest_strs.append("\t{}{}".format(cmd, os.linesep))
+                rest_strs.append(f"\t{cmd}{os.linesep}")
                 needs_tab = True
             else:
-                rest_strs.append("\t{}".format(cmd))
+                rest_strs.append(f"\t{cmd}")
                 needs_tab = False
         else:
             if needs_tab:
-                rest_strs.append("\t{}{}".format(cmd, os.linesep))
+                rest_strs.append(f"\t{cmd}{os.linesep}")
                 needs_tab = True
             else:
-                rest_strs.append(" {}{}".format(cmd, os.linesep))
+                rest_strs.append(f" {cmd}{os.linesep}")
                 needs_tab = True
 
     return base + "".join(rest_strs) + os.linesep
@@ -637,6 +632,11 @@ def _run_regular(
 
 def run_finemap(args):
     try:
+        if args.jax_precision == 64:
+            config.update("jax_enable_x64", True)
+
+        config.update("jax_platform_name", args.platform)
+
         geno_path, geno_func = _parameter_check(args)
 
         rawData = io.read_data(args.pheno, args.covar, geno_path, geno_func)
@@ -992,6 +992,28 @@ def build_finemap_parser(subp):
             "Indicator to compress all output tsv files in tsv.gz.",
             " Default is False. Specify --no_compress will store True and save disk space.",
             " This command will not compress npy files.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--platform",
+        default="cpu",
+        type=str,
+        choices=["cpu", "gpu", "tpu"],
+        help=(
+            "Indicator for the JAX platform. It has to be 'cpu', 'gpu', or 'tpu'.",
+            " Default is cpu.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--jax_precision",
+        default=64,
+        type=int,
+        choices=[32, 64],
+        help=(
+            "Indicator for the JAX precision: 64-bit or 32-bit.",
+            " Default is 64-bit. Choose 32-bit may cause elbo to decrease.",
         ),
     )
 

@@ -19,7 +19,9 @@ Contents
    :maxdepth: 2
    :caption: API Reference
 
-   api/run_cli.rst
+   api/cli/run_cli.rst
+   api/cli/run_finemap.rst
+
 
 .. toctree::
    :maxdepth: 2
@@ -27,6 +29,6 @@ Contents
 
    Contributions & Help <contributing>
    Code of Conduct <conduct>
-   Changelog <changelog>
+   Version History <versionhistory>
    Authors <authors>
    License <license>

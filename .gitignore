@@ -14,6 +14,12 @@ __pycache__/
 ._*
 
 .idea/
+# api doc
+docs/api/infer/*
+docs/api/cli/*
+docs/api/core/*
+docs/api/io/*
+docs/api/utils/*
 
 # User-specific stuff
 .idea/**/workspace.xml

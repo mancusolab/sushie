@@ -32,7 +32,7 @@
 ======
 SuShiE
 ======
-Python software to fine-map causal SNPs, compute prediction weights of molecular data, and infer effect size correlation across multiple ancestries. The manuscript is in progress.
+Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation across multiple ancestries. **The manuscript is in progress.**
 
 .. code:: diff
 
@@ -41,7 +41,7 @@ Python software to fine-map causal SNPs, compute prediction weights of molecular
 Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 
 
-|Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |Version|_ | |Reference|_ | |Support|_
+|Model|_ | |Installation|_ | |Example|_ | |Notes|_ | |Version|_ | |Support|_ | |Other Software|_  | |Reference|_
 
 .. _Model:
 .. |Model| replace:: **Model**
@@ -50,38 +50,37 @@ Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 
 Model Description
 =================
-The Sum of SIngle Shared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) model by introducing a prior correlation estimator to account for the ancestral quantitative trait loci (QTL) effect size similarity. Specifically, for $i^{\\text{th}}$ of total $k \\in \\mathbb{N}$ ancestries, we model the molecular data $g_i \\in \\mathbb{R}^{n_i \\times 1}$ for $n_i \\in \\mathbb{N}$ individuals as a linear combination of standardized genotype matrix $X_i \\in \\mathbb{R}^{n_i \\times p}$ for $p \\in \\mathbb{N}$ SNPs as
+The SUm of SIngle sHared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) [1]_ model by introducing a prior correlation estimator to account for the ancestral quantitative trait loci (QTL) effect size similarity. Specifically, for :math:`i^{\text{th}}` of total :math:`k \in \mathbb{N}` ancestries, we model the molecular data :math:`g_i \in \mathbb{R}^{n_i \times 1}` for :math:`n_i \in \mathbb{N}` individuals as a linear combination of standardized genotype matrix :math:`X_i \in \mathbb{R}^{n_i \times p}` for :math:`p \in \mathbb{N}` SNPs as
 
-$$g_i=X_i \\beta_i+\\epsilon_i$$
+.. math::
 
-$$\\beta_i=\\sum_{l=1}^{L}\\beta_{i,l}$$
+   g_i &=X_i \beta_i+\epsilon_i \\
 
-$$\\beta_{i,l} = \\gamma_l \\cdot \b_{i, l}$$
+   \beta_i &= \sum_{l=1}^{L}\beta_{i,l} \\
 
-$$\b_{l} = \\begin{bmatrix} \b_{1,l} \\\\ \\vdots \\\\ \b_{k,l} \\end{bmatrix} \\sim \\mathcal{N}(0, C_l) $$
+   \beta_{i,l} &= \gamma_l \cdot b_{i, l} \\
 
-$$C_{i,i',l}= \\begin{cases} \\sigma^2_{i,b,l} & \\text{if } i = i' \\\\ \\rho_{i,i',l} \\cdot \\sigma_{i,b,l} \\cdot \\sigma_{i',b,l} & \\text{otherwise}\\end{cases}$$
+   b_{l} &= \begin{bmatrix} b_{1,l} \\ \vdots \\ b_{k,l} \end{bmatrix} \sim \mathcal{N}(0, C_l) \\
 
-$$\\gamma_l \\sim \\text{Multi}(1, \\pi)$$
+   C_{i,i',l} &= \begin{cases} \sigma_{i,b,l}^2 & \text{if } i = i' \\ \rho_{i,i',l} \cdot \sigma_{i,b,l} \cdot \sigma_{i',b,l} & \text{otherwise}\end{cases} \\
 
-$$\\epsilon_i \\sim \\mathcal{N}(0, \\sigma^2_{i, e}I_{n_i})$$
+   \gamma_l &\sim \text{Multi}(1, \pi) \\
 
-where $\\beta_i \\in \\mathbb{R}^{p \\times1}$ is the shared QTL effects, $\\epsilon_i \\in \\mathbb{R}^{n_i \\times 1}$ is the ancestry-specific effects and other environmental noises, $L \\in \\mathbb{R}$ is the number of shared effects, for  $l^{\\text{th}}$  single shared effect,  $b_{i,l} \\in \\mathbb{R}$ is a scaler representing effect size, $C_l \\in \\mathbb{R}^{k \\times k}$ is the prior covariance matrix with $\\sigma^2_{i,b}$ as variance and $\\rho$ as correlation, $\\gamma_l$ is an binary indicator vector specifying which single SNP is the QTL, $\\pi$ is the prior probability for each SNP to be QTL, and $\\sigma^2_e$ is the prior variance for noises.
+   \epsilon_i &\sim \mathcal{N}(0, \sigma^2_{i, e}I_{n_i}) \\
 
-SuShiE runs `varitional inference <https://en.wikipedia.org/wiki/Variational_Bayesian_methods>`_ to estimate the posterior distribution for $\\beta_l$ and $\\gamma_l$ for each $l^{\\text{th}}$ effect. We can quantify the probability of QTL for each SNP through Posterior Inclusion Probabilities (PIPs). If the posterior distribution of $\\gamma_l$ is $\\text{Multi}(1, \\alpha_l)$, then for each SNP $j$, we have:
+where :math:`\beta_i \in \mathbb{R}^{p \times1}` is the shared QTL effects, :math:`\epsilon_i \in \mathbb{R}^{n_i \times 1}` is the ancestry-specific effects and other environmental noises, :math:`L \in \mathbb{R}` is the number of shared effects, for  :math:`l^{\text{th}}`  single shared effect,  :math:`b_{i,l} \in \mathbb{R}` is a scaler representing effect size, :math:`C_l \in \mathbb{R}^{k \times k}` is the prior covariance matrix with :math:`\sigma^2_{i,b}` as variance and :math:`\rho` as correlation, :math:`\gamma_l` is an binary indicator vector specifying which single SNP is the QTL, :math:`\pi` is the prior probability for each SNP to be QTL, and :math:`\sigma^2_e` is the prior variance for noises.
 
-$$\\text{PIP}_j = 1 - \\prod_{l=1}^L(1 - \\alpha_{l, j})$$
+SuShiE runs `varitional inference <https://en.wikipedia.org/wiki/Variational_Bayesian_methods>`_ to estimate the posterior distribution for :math:`\beta_l` and :math:`\gamma_l` for each :math:`l^{\text{th}}` effect. We can quantify the probability of QTL for each SNP through Posterior Inclusion Probabilities (PIPs). If the posterior distribution of :math:`\gamma_l` is :math:`\text{Multi}(1, \alpha_l)`, then for each SNP :math:`j`, we have:
 
-Suppose $w_{l, j}$ is the posterior estimate of $\\beta_l$ for SNP $j$ and $l^\\text{th}$ effect, we can quantify the QTL prediction weights by summing across $L$ effects:
-
-$$w_j = \\sum_{l=1}^Lw_{l,j}$$
+.. math::
+   \text{PIP}_j = 1 - \prod_{l=1}^L(1 - \alpha_{l, j})
 
 
 .. _Installation:
 .. |Installation| replace:: **Installation**
 
 Installation
-==========
+============
 The easiest way to install is with ``pip``:
 
 .. code:: bash
@@ -97,12 +96,6 @@ Alternatively you can download the latest repository and then use ``pip``:
     pip install
 
 *We currently only support Python3.8+.*
-
-Caveat:
-~~~~~~
-
-SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compliation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, you need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and then install SuShiE using ``pip`` in your desired environment. In addition, we are not aware of any issues when running SuShiE in Linux OS.
-
 
 
 .. _Example:
@@ -135,10 +128,7 @@ Please see the wiki for more details on how to use SuShiE.
 Notes
 =====
 
-SuShiE enable 64-bit precision for more accurate inference by default. If you need to enable 32-bit precision, comment out ``# config.update("jax_enable_x64", True)`` on the ``line 25`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
-
-In addition, the default computation device for JAX is set by environment variables
-(see `here <https://jax.readthedocs.io/en/latest/faq.html#faq-data-placement>`_). To change this before calling `sushie`, uncomment and modify ``platform = "cpu"`` and ``config.update("jax_platform_name", platform)`` on ``line 27`` and ``line 28`` in ``./sushie/cli.py``, and re-install SuShiE using ``pip``.
+SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compliation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, you need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and then install SuShiE using ``pip`` in your desired environment. In addition, we are not aware of any issues when running SuShiE in Linux OS as of now.
 
 .. _Version:
 .. |Version| replace:: **Version**
@@ -154,14 +144,6 @@ Version History
    * - 0.1
      - Initial Release
 
-
-.. _Reference:
-.. |Reference| replace:: **Reference**
-
-Reference
-==========
-.. [1] Wang, G., Sarkar, A., Carbonetto, P. and Stephens, M. (2020), A simple new approach to variable selection in regression, with application to genetic fine mapping. J. R. Stat. Soc. B, 82: 1273-1300. https://doi.org/10.1111/rssb.12388
-
 .. _Support:
 .. |Support| replace:: **Support**
 
@@ -170,15 +152,26 @@ Support
 Please report any bugs or feature requests in the `Issue Tracker <https://github.com/mancusolab/sushie/issues>`_. If you have any
 questions or comments please contact zeyunlu@usc.edu and nmancuso@usc.edu.
 
+.. _OtherSoftware:
+.. |Other Software| replace:: **Other Software**
+
 Other Software
-=============
+==============
+
 Feel free to use other software developed by `Mancuso Lab <https://www.mancusolab.com/>`_:
 
 * `MA-FOCUS <https://github.com/mancusolab/ma-focus>`_: a Bayesian fine-mapping framework using `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics across multiple ancestries to identify the causal genes for complex traits.
 
-* `SuSiE-PCA <https://github.com/mancusolab/susiepca>`_: a scalable Bayesian variable selection technique for sparse principal component analysis
+* `SuSiE-PCA <https://github.com/mancusolab/sushie>`_: a scalable Bayesian variable selection technique for sparse principal component analysis
 
 * `twas_sim <https://github.com/mancusolab/twas_sim>`_: a Python software to simulate `TWAS <https://www.nature.com/articles/ng.3506>`_ statistics.
+
+.. _Reference:
+.. |Reference| replace:: **Reference**
+
+Reference
+==========
+.. [1] Wang, G., Sarkar, A., Carbonetto, P. and Stephens, M. (2020), A simple new approach to variable selection in regression, with application to genetic fine mapping. J. R. Stat. Soc. B, 82: 1273-1300. https://doi.org/10.1111/rssb.12388
 
 
 ---------------------

@@ -28,18 +28,19 @@ def infer_sushie(
     purity: float = 0.5,
 ) -> core.SushieResult:
     """The main inference function for running SuShiE.
-    Attributes:
+
+    Args:
         Xs: genotype data for multiple ancestries.
         ys: phenotype data for multiple ancestries.
         covar: covariate data for multiple ancestries.
         L: inferred number of eQTLs for the gene, default is five.
         no_scale: do not scale the genotype and phenotype, default is to scale.
         no_regress: do not regress covariates on genotypes, default is to regress.
-        no_update: do not update the effect size prior, default is to update using em.
-        pi: the probability prior for an SNP to be an eQTL, default is 1/p (None) where p is the number of SNPs.
-        resid_var: prior residual variance, default is 1e-3 (None).
-        effect_var: prior effect size variance, default is 1e-3 (None).
-        rho: prior effect size correlation, default is 0.1 (None).
+        no_update: do not update the effect size prior, default is to update.
+        pi: the prob. prior for one SNP to be causal, default is 1 over the number of SNPs by specifying it as None.
+        resid_var: prior residual variance, default is 1e-3 by specifying it as None.
+        effect_var: prior effect size variance, default is 1e-3 by specifying it as None.
+        rho: prior effect size correlation, default is 0.1 by specifying it as None.
         max_iter: the maximum iteration for optimization, default is 500.
         min_tol: the convergence tolerance, default is 1e-5.
         threshold: the credible set threshold, default is 0.9.
@@ -47,6 +48,7 @@ def infer_sushie(
 
     Returns:
         SuShiE result object that contains prior, posterior, cs, and pip
+
     """
     if len(Xs) == len(ys):
         n_pop = len(Xs)
