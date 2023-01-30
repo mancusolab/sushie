@@ -1,23 +1,45 @@
-from typing import Tuple
+from typing import List, Optional, Tuple, Union
 
+import pandas as pd
 from glimix_core.lmm import LMM
 from numpy_sugar.linalg import economic_qs
 from scipy import stats
 
 import jax.numpy as jnp
 
+__all__ = [
+    "ListFloatOrNone",
+    "ols",
+    "estimate_her",
+    "regress_covar",
+]
+
+# prior argument effect_covar, resid_covar, rho, etc.
+ListFloatOrNone = Optional[List[float]]
+# covar process data, etc.
+ListArrayOrNone = Optional[List[jnp.ndarray]]
+# effect_covar sushie etc.
+ArrayOrFloat = Union[jnp.ndarray, float]
+# covar paths
+ListStrOrNone = Optional[List[str]]
+# covar raw data
+PDOrNone = Optional[pd.DataFrame]
+
 
 def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Perform ordinary linear regression.
 
     Args:
-        X: n x p matrix for independent variables with no intercept vector.
-        y: n x m matrix for dependent variables. If m > 1, then perform m ordinary regression parallel.
+        X: :math:`n \\times p` matrix for independent variables with no intercept vector.
+        y: :math:`n \\times m` matrix for dependent variables. If :math:`m > 1`, then
+            perform :math:`m` ordinary regression in parallel.
 
     Returns:
-        residual: regression residual   s
-        adj_r: adjusted r squared
-        p_val: p values for betas
+        :py:obj:`Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]`: A tuple of
+            #. contains residuals (:py:obj:`jnp.ndarray`),
+            #. adjusted :math:`r^2` (:py:obj:`jnp.ndarray`) for of the regression,
+            #. :math:`p` values (:py:obj:`jnp.ndarray`) for the coefficients.
+
     """
     n_samples, n_features = X.shape
     X_inter = jnp.append(jnp.ones((n_samples, 1)), X, axis=1)
@@ -41,6 +63,20 @@ def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.n
 def regress_covar(
     X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray, no_regress: bool
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """Regress phenotypes and genotypes on covariates and return the residuals.
+
+    Args:
+        X: :math:`n \\times p` genotype matrix.
+        y: :math:`n \\times 1` phenotype vector.
+        covar: :math:`n \\times m` matrix for covariates.
+        no_regress: boolean indicator whether to regress genotypes on covariates.
+
+    Returns:
+        :py:obj:`Tuple[jnp.ndarray, jnp.ndarray]`: A tuple of
+            #. genotype residual matrix after regressing out covariates effects (:py:obj:`jnp.ndarray`),
+            #. phenotype residual vector (:py:obj:`jnp.ndarray`) after regressing out covariates effects.
+
+    """
     y, _, _ = ols(covar, y)
     if not no_regress:
         X, _, _ = ols(covar, X)
@@ -51,19 +87,21 @@ def regress_covar(
 def estimate_her(
     X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray = None
 ) -> Tuple[float, float, float, float, float]:
-    """Calculate proportion of gene expression variation explained by genotypes (cis-heritability).
+    """Calculate proportion of expression variation explained by genotypes (cis-heritability; :math:`h_g^2`).
 
     Args:
-        X: n x p matrix for independent variables with no intercept vector.
-        y: n x 1 vector for gene expression.
-        covar: n x m vector for covariates or None.
+        X: :math:`n \\times p` matrix for independent variables with no intercept vector.
+        y: :math:`n \\times 1` vector for gene expression.
+        covar: :math:`n \\times m` matrix for covariates.
 
     Returns:
-        g: genetic variance
-        h2g_w_v: narrow-sense heritability including the fixed effect variance
-        h2g_wo_v: narrow-sense heritability including the fixed effect variance
-        lrt_stats: LRT test statistics for narrow-sense heritability
-        p_value: LRT p-value for narrow-sense heritability
+        :py:obj:`Tuple[float, float, float, float, float]`: A tuple of
+            #. genetic variance (:py:obj:`float`) of the complex trait,
+            #. :math:`h_g^2` (:py:obj:`float`) from `limix <https://github.com/limix/limix>`_ definition,
+            #. :math:`h_g^2` (:py:obj:`float`) from `gcta <https://yanglab.westlake.edu.cn/software/gcta/>`_ definition,
+            #. LRT test statistics (:py:obj:`float`) for :math:`h_g^2`,
+            #. LRT :math:`p` value (:py:obj:`float`) for :math:`h_g^2`.
+
     """
     n, p = X.shape
 

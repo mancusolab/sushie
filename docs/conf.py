@@ -8,7 +8,6 @@
 # serve to show the default.
 
 import os
-import shutil
 import sys
 
 # -- Path setup --------------------------------------------------------------
@@ -26,6 +25,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.coverage",
     "sphinx.ext.doctest",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.extlinks",
     "sphinx.ext.intersphinx",
     "sphinx.ext.mathjax",
@@ -102,19 +102,20 @@ autodoc_class_signature = "separated"
 
 python_apigen_modules = {
     "sushie.infer": "api/infer/",
-    "sushie.core": "api/core/",
-    "sushie.io": "api/io/",
     "sushie.utils": "api/utils/",
+    "sushie.io": "api/io/",
+    "sushie.cli": "api/cli/",
+
 }
 
 python_apigen_default_groups = [
+    (r".*:sushie.cli.*", "CLI Public-members"),
+    (r".*:sushie.utils.*", "Utils Public-members"),
     (r".*:sushie.infer.*", "Infer Public-members"),
     (r"class:sushie.infer.*", "Infer Classes"),
-    (r".*:susiepca.metrics.*", "Metrics Public-members"),
-    (r"class:susiepca.metrics.*", "Metrics Classes"),
-    (r".*:susiepca.sim.*", "Sim Public-members"),
-    (r"class:susiepca.sim.*", "Sim Classes"),
-    (r"method:.*\.__(str|repr)__", "String representation"),
+    (r".*:sushie.io.*", "IO Public-members"),
+    (r"class:sushie.io.*", "IO Classes"),
+    # (r"method:.*\.__(str|repr)__", "String representation"),
     # ("method:.*", "Methods"),
     # ("classmethod:.*", "Class methods"),
     # (r"method:.*\.__(init|new)__", "Constructors"),
@@ -225,8 +226,8 @@ html_theme_options = {
         {
             "media": "(prefers-color-scheme: dark)",
             "scheme": "slate",
-            "primary": "teal",
-            "accent": "lime",
+            "primary": "cyan",
+            "accent": "amber",
             "toggle": {
                 "icon": "material/lightbulb",
                 "name": "Switch to light mode",

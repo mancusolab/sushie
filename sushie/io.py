@@ -1,6 +1,6 @@
 import copy
 import warnings
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, NamedTuple, Optional, Tuple
 
 import pandas as pd
 
@@ -11,16 +11,94 @@ with warnings.catch_warnings():
     from bgen_reader import open_bgen
     import jax.numpy as jnp
 
-from . import core, log, utils
+from . import infer, log, utils
+
+__all__ = [
+    "CVData",
+    "CleanData",
+    "RawData",
+    "read_data",
+    "read_triplet",
+    "read_bgen",
+    "read_vcf",
+    "output_cs",
+    "output_weights",
+    "output_her",
+    "output_corr",
+    "output_cv",
+    "output_numpy",
+]
+
+
+class CVData(NamedTuple):
+    """Define the raw data object for the future inference.
+
+    Attributes:
+        train_geno: genotype data for training SuShiE weights.
+        train_pheno: phenotype data for training SuShiE weights.
+        valid_geno: genotype data for validating SuShiE weights.
+        valid_pheno: phenotype data for validating SuShiE weights.
+
+    """
+
+    train_geno: List[jnp.ndarray]
+    train_pheno: List[jnp.ndarray]
+    valid_geno: List[jnp.ndarray]
+    valid_pheno: List[jnp.ndarray]
+
+
+class CleanData(NamedTuple):
+    """Define the raw data object for the future inference.
+
+    Attributes:
+        geno: actual genotype data.
+        pheno: phenotype data.
+        covar: covariate needed to be adjusted in the inference.
+
+    """
+
+    geno: List[jnp.ndarray]
+    pheno: List[jnp.ndarray]
+    covar: utils.ListArrayOrNone
+
+
+class RawData(NamedTuple):
+    """Define the raw data object for the future inference.
+
+    Attributes:
+        bim: SNP information data.
+        fam: individual information data.
+        bed: actual genotype data.
+        pheno: phenotype data.
+        covar: covariate needed to be adjusted in the inference.
+
+    """
+
+    bim: pd.DataFrame
+    fam: pd.DataFrame
+    bed: jnp.ndarray
+    pheno: pd.DataFrame
+    covar: utils.PDOrNone
 
 
 def read_data(
     pheno_paths: List[str],
-    covar_paths: core.ListStrOrNone,
+    covar_paths: utils.ListStrOrNone,
     geno_paths: List[str],
     geno_func: Callable,
-) -> List[core.RawData]:
-    """Read in pheno, covar, and genotype data and convert it to raw data object."""
+) -> List[RawData]:
+    """Read in pheno, covar, and genotype data and convert it to raw data object.
+
+    Args:
+        pheno_paths: The path for phenotype data across ancestries.
+        covar_paths: The path for covariates data across ancestries.
+        geno_paths: The path for genotype data across ancestries.
+        geno_func: The function to read in genotypes depending on the format.
+
+    Returns:
+        :py:obj:`List[RawData]`: A list of Raw data object (:py:obj:`RawData`).
+
+    """
     n_pop = len(pheno_paths)
 
     rawData = []
@@ -60,7 +138,7 @@ def read_data(
             tmp_covar = None
 
         rawData.append(
-            core.RawData(
+            RawData(
                 bim=tmp_bim, fam=tmp_fam, bed=tmp_bed, pheno=tmp_pheno, covar=tmp_covar
             )
         )
@@ -69,7 +147,19 @@ def read_data(
 
 
 def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
-    """Read in genotype data in plink format."""
+    """Read in genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format.
+
+    Args:
+        path: The path for plink genotype data (suffix only).
+
+    Returns:
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]`: A tuple of
+            #. SNP information (bim; :py:obj:`pd.DataFrame`),
+            #. individuals information (fam; :py:obj:`pd.DataFrame`),
+            #. genotype matrix (bed; :py:obj:`jnp.ndarray`).
+
+    """
+
     bim, fam, bed = read_plink(path, verbose=False)
     bim = bim[["chrom", "snp", "pos", "a0", "a1"]]
     fam = fam[["iid"]]
@@ -79,7 +169,19 @@ def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 
 
 def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
-    """Read in genotype data in vcf format."""
+    """Read in genotype data in `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_ format.
+
+    Args:
+        path: The path for vcf genotype data (full file name).
+
+    Returns:
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]`: A tuple of
+            #. SNP information (bim; :py:obj:`pd.DataFrame`),
+            #. participants information (fam; :py:obj:`pd.DataFrame`),
+            #. genotype matrix (bed; :py:obj:`jnp.ndarray`).
+
+    """
+
     vcf = VCF(path)
     fam = pd.DataFrame(vcf.samples).rename(columns={0: "iid"})
     bim_list = []
@@ -97,7 +199,19 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 
 
 def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
-    """Read in genotype data in bgen format."""
+    """Read in genotype data in `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
+
+    Args:
+        path: The path for bgen genotype data (full file name).
+
+    Returns:
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]`: A tuple of
+            #. SNP information (bim; :py:obj:`pd.DataFrame`),
+            #. individuals information (fam; :py:obj:`pd.DataFrame`),
+            #. genotype matrix (bed; :py:obj:`jnp.ndarray`).
+
+    """
+
     bgen = open_bgen(path, verbose=False)
     fam = pd.DataFrame(bgen.samples).rename(columns={0: "iid"})
     bim = pd.DataFrame(
@@ -118,7 +232,7 @@ def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 
 # output functions
 def output_cs(
-    result: List[core.SushieResult],
+    result: List[infer.SushieResult],
     meta_pip: Optional[jnp.ndarray],
     snps: pd.DataFrame,
     output: str,
@@ -127,7 +241,22 @@ def output_cs(
     meta: bool,
     mega: bool,
 ) -> pd.DataFrame:
-    """Output credible set in tsv file."""
+    """Output credible set file ``*cs.tsv`` (see :ref:`csfile`).
+
+    Args:
+        result: The sushie inference result.
+        meta_pip: The meta-analyzed PIPs from Meta SuShiE.
+        snps: The SNP information table.
+        output: The output file prefix.
+        trait: The trait name better for post-hoc analysis index.
+        no_compress: The indicator whether to compress the output files.
+        meta: The indicator whether the sushie inference result is meta.
+        mega: The indicator whether the sushie inference result is mega.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*cs.tsv`` file (:py:obj:`pd.DataFrame`).
+
+    """
     cs = pd.DataFrame()
 
     for idx in range(len(result)):
@@ -163,8 +292,8 @@ def output_cs(
     return cs
 
 
-def output_weight_pip(
-    result: List[core.SushieResult],
+def output_weights(
+    result: List[infer.SushieResult],
     meta_pip: Optional[jnp.ndarray],
     snps: pd.DataFrame,
     output: str,
@@ -173,7 +302,23 @@ def output_weight_pip(
     meta: bool,
     mega: bool,
 ) -> pd.DataFrame:
-    """Output prediction weights in tsv file."""
+    """Output prediction weights file ``*weights.tsv`` (see :ref:`weightsfile`).
+
+    Args:
+        result: The sushie inference result.
+        meta_pip: The meta-analyzed PIPs from Meta SuShiE.
+        snps: The SNP information table.
+        output: The output file prefix.
+        trait: The trait name better for post-hoc analysis index.
+        no_compress: The indicator whether to compress the output files.
+        meta: The indicator whether the sushie inference result is meta.
+        mega: The indicator whether the sushie inference result is meta.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*weights.tsv`` file (:py:obj:`pd.DataFrame`).
+
+    """
+
     n_pop = len(result[0].priors.resid_var)
     n_l = result[0].posteriors.alpha.shape[0]
     weights = copy.deepcopy(snps).assign(trait=trait)
@@ -183,7 +328,7 @@ def output_weight_pip(
             cname_idx = [f"ancestry{idx + 1}_single_weight"]
             cname_pip = f"ancestry{idx + 1}_single_pip"
             cname_cs = f"ancestry{idx + 1}_in_cs"
-            cname_alpha = [f"ancestry{idx + 1}_l{ldx +1}_alpha" for ldx in range(n_l)]
+            cname_alpha = [f"ancestry{idx + 1}_l{ldx + 1}_alpha" for ldx in range(n_l)]
         elif mega:
             cname_idx = ["mega_weight"]
             cname_pip = "mega_pip"
@@ -227,13 +372,26 @@ def output_weight_pip(
 
 
 def output_her(
-    result: List[core.SushieResult],
-    data: core.CleanData,
+    result: List[infer.SushieResult],
+    data: CleanData,
     output: str,
     trait: str,
     no_compress: bool,
 ) -> pd.DataFrame:
-    """Output heritability results in tsv file."""
+    """Output heritability estimation file ``*her.tsv`` (see :ref:`herfile`).
+
+    Args:
+        result: The sushie inference result.
+        data: The clean data that are used to estimate traits' heritability.
+        output: The output file prefix.
+        trait: The trait name better for post-hoc analysis index.
+        no_compress: The indicator whether to compress the output files.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*her.tsv`` file (:py:obj:`pd.DataFrame`).
+
+    """
+
     n_pop = len(data.geno)
 
     her_result = []
@@ -245,14 +403,19 @@ def output_her(
         tmp_her_result = utils.estimate_her(data.geno[idx], data.pheno[idx], tmp_covar)
         her_result.append(tmp_her_result)
 
-    est_her = pd.DataFrame(
-        data=her_result,
-        columns=["genetic_var", "h2g_w_v", "h2g_wo_v", "lrt_stats", "p_value"],
-        index=[idx + 1 for idx in range(n_pop)],
-    ).reset_index(names="ancestry")
+    est_her = (
+        pd.DataFrame(
+            data=her_result,
+            columns=["genetic_var", "h2g_w_v", "h2g_wo_v", "lrt_stats", "p_value"],
+            index=[idx + 1 for idx in range(n_pop)],
+        )
+        .reset_index(names="ancestry")
+        .assign(trait=trait)
+    )
 
     # only output h2g that has credible sets
     SNPIndex = result[0].cs.SNPIndex.values.astype(int)
+
     shared_col = [
         "s_genetic_var",
         "s_h2g_w_v",
@@ -260,29 +423,28 @@ def output_her(
         "s_lrt_stats",
         "s_p_value",
     ]
-    est_shared_her = pd.DataFrame(columns=shared_col)
+
+    est_shared_her = pd.DataFrame(
+        columns=shared_col, index=[idx + 1 for idx in range(n_pop)]
+    ).reset_index(names="ancestry")
+
     if len(SNPIndex) != 0:
-        shared_her = []
         for idx in range(n_pop):
             if data.covar is None:
                 tmp_covar = None
             else:
                 tmp_covar = data.covar[idx]
 
-            tmp_shared_her = utils.estimate_her(
+            est_shared_her.iloc[idx, 1:6] = utils.estimate_her(
                 data.geno[idx][:, SNPIndex], data.pheno[idx], tmp_covar
             )
-            shared_her.append(tmp_shared_her)
 
-        est_shared_her = pd.DataFrame(
-            data=shared_her, columns=shared_col, index=[idx + 1 for idx in range(n_pop)]
-        ).reset_index(names="ancestry")
-    est_her = pd.concat([est_her, est_shared_her], axis=1).assign(trait=trait)
+    est_her = est_her.merge(est_shared_her, how="left", on="ancestry")
 
     if est_her.shape[0] == 0:
         est_her = est_her.append({"trait": trait}, ignore_index=True)
 
-    file_name = f"{output}.h2g.tsv.gz" if not no_compress else f"{output}.h2g.tsv"
+    file_name = f"{output}.her.tsv.gz" if not no_compress else f"{output}.her.tsv"
 
     est_her.to_csv(file_name, sep="\t", index=False)
 
@@ -290,12 +452,24 @@ def output_her(
 
 
 def output_corr(
-    result: List[core.SushieResult],
+    result: List[infer.SushieResult],
     output: str,
     trait: str,
     no_compress: bool,
 ) -> pd.DataFrame:
-    """Output correlation results in tsv file."""
+    """Output effect size correlation file ``*corr.tsv`` (see :ref:`corrfile`).
+
+    Args:
+        result: The sushie inference result.
+        output: The output file prefix.
+        trait: The trait name better for post-hoc analysis index.
+        no_compress: The indicator whether to compress the output files.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*corr.tsv`` file (:py:obj:`pd.DataFrame`).
+
+    """
+
     n_pop = len(result[0].priors.resid_var)
 
     CSIndex = jnp.unique(result[0].cs.CSIndex.values.astype(int))
@@ -336,7 +510,21 @@ def output_cv(
     trait: str,
     no_compress: bool,
 ) -> pd.DataFrame:
-    """Output cross validation results in tsv file."""
+    """Output cross validation file ``*cv.tsv`` for
+        future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipline (see :ref:`cvfile`).
+
+    Args:
+        cv_res: The cross-validation result (adjusted :math:`r^2` and corresponding :math:`p` values).
+        sample_size: The sample size for the SuShiE inference.
+        output: The output file prefix.
+        trait: The trait name better for post-hoc analysis index.
+        no_compress: The indicator whether to compress the output files.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*cv.tsv`` file (:py:obj:`pd.DataFrame`).
+
+    """
+
     cv_r2 = (
         pd.DataFrame(
             data=cv_res,
@@ -357,9 +545,20 @@ def output_cv(
     return cv_r2
 
 
-def output_numpy(result: List[core.SushieResult], output: str) -> None:
-    """Output all results in npy file."""
+def output_numpy(
+    result: List[infer.SushieResult], snps: pd.DataFrame, output: str
+) -> None:
+    """Output all results in ``*.npy`` file (no compress option) (see :ref:`npyfile`).
 
-    jnp.save(f"{output}.all.results.npy", result)
+    Args:
+        result: The sushie inference result.
+        snps: The SNP information
+        output: The output file prefix.
+
+    Returns:
+        :py:obj:`None`: This function returns nothing (:py:obj:`None`:).
+
+    """
+    jnp.save(f"{output}.all.results.npy", [snps, result])
 
     return None

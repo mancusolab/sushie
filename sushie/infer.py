@@ -1,4 +1,5 @@
 import math
+from abc import ABC, abstractmethod
 from typing import List, NamedTuple, Tuple
 
 import pandas as pd
@@ -6,48 +7,199 @@ import pandas as pd
 import jax.numpy as jnp
 import jax.scipy.stats as stats
 from jax import jit, lax, nn
+from jax.tree_util import register_pytree_node, register_pytree_node_class
 
-from . import core, log, utils
+from . import log, utils
+
+__all__ = [
+    "Prior",
+    "Posterior",
+    "SushieResult",
+    "infer_sushie",
+    "make_pip",
+    "make_cs",
+]
+
+
+class Prior(NamedTuple):
+    """Define the class for the prior parameter of SuShiE model.
+
+    Attributes:
+        pi: The prior probability for one SNP to be causal.
+        resid_var: The prior residual variance for all SNPs.
+        effect_covar: The prior effect sizes covariance matrix for all SNPs.
+
+    """
+
+    pi: jnp.ndarray
+    resid_var: jnp.ndarray
+    effect_covar: jnp.ndarray
+
+
+class Posterior(NamedTuple):
+    """Define the class for the posterior parameter of SuShiE model.
+
+    Attributes:
+        alpha: Posterior probability for SNP to be causal (i.e., :math:`\\alpha` in :ref:`Model`; :math:`L \\times p`).
+        post_mean: The alpha-weighted posterior mean for each SNP (:math:`L \\times p \\times k`).
+        post_mean_sq: The alpha-weighted posterior mean square for each SNP (:math:`L \\times p \\times k \\times k`
+            , a diagonal matrix for :math:`k \\times k`).
+        weighted_sum_covar: The alpha-weighted sum of posterior effect covariance across SNPs
+            (:math:`L \\times k \\times k`).
+        kl: The Kullback–Leibler (KL) divergence for each :math:`L`.
+
+    """
+
+    alpha: jnp.ndarray
+    post_mean: jnp.ndarray
+    post_mean_sq: jnp.ndarray
+    weighted_sum_covar: jnp.ndarray
+    kl: jnp.ndarray
+
+
+class SushieResult(NamedTuple):
+    """Define the class for the SuShiE inference results.
+
+    Attributes:
+        priors: The final prior parameter for the inference.
+        posteriors: The final posterior parameter for the inference.
+        pip: The PIP for each SNP.
+        cs: The credible sets output after filtering on purity.
+        sample_size: The sample size for each ancestry in the inference.
+        elbo: The final elbo.
+        elbo_increase: A boolean to indicate whether elbo increases during the optimizations.
+
+    """
+
+    priors: Prior
+    posteriors: Posterior
+    pip: jnp.ndarray
+    cs: pd.DataFrame
+    sample_size: List[int]
+    elbo: float
+    elbo_increase: bool
+
+
+class _PriorAdjustor(NamedTuple):
+    times: jnp.ndarray
+    plus: jnp.ndarray
+
+
+@register_pytree_node_class
+class _AbstractOptFunc(ABC):
+    @abstractmethod
+    def __call__(
+        self,
+        beta_hat: jnp.ndarray,
+        shat2: utils.ArrayOrFloat,
+        priors: Prior,
+        posteriors: Posterior,
+        prior_adjustor: _PriorAdjustor,
+        l_iter: int,
+    ) -> Prior:
+        pass
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
+
+    def tree_flatten(self):
+        children = ()
+        aux = ()
+        return (children, aux)
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        return cls()
+
+
+class _LResult(NamedTuple):
+    Xs: List[jnp.ndarray]
+    ys: List[jnp.ndarray]
+    XtXs: List[jnp.ndarray]
+    priors: Prior
+    posteriors: Posterior
+    prior_adjustor: _PriorAdjustor
+    opt_v_func: _AbstractOptFunc
+
+
+class _EMOptFunc(_AbstractOptFunc):
+    def __call__(
+        self,
+        beta_hat: jnp.ndarray,
+        shat2: utils.ArrayOrFloat,
+        priors: Prior,
+        posteriors: Posterior,
+        prior_adjustor: _PriorAdjustor,
+        l_iter: int,
+    ) -> Prior:
+        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+
+        return priors
+
+
+class _NoopOptFunc(_AbstractOptFunc):
+    def __call__(
+        self,
+        beta_hat: jnp.ndarray,
+        shat2: utils.ArrayOrFloat,
+        priors: Prior,
+        posteriors: Posterior,
+        prior_adjustor: _PriorAdjustor,
+        l_iter: int,
+    ) -> Prior:
+        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+        priors = priors._replace(
+            effect_covar=priors.effect_covar.at[l_iter].set(
+                priors.effect_covar[l_iter] * prior_adjustor.times + prior_adjustor.plus
+            )
+        )
+        return priors
 
 
 def infer_sushie(
     Xs: List[jnp.ndarray],
     ys: List[jnp.ndarray],
-    covar: core.ListArrayOrNone = None,
+    covar: utils.ListArrayOrNone = None,
     L: int = 5,
     no_scale: bool = False,
     no_regress: bool = False,
     no_update: bool = False,
     pi: jnp.ndarray = None,
-    resid_var: core.ListFloatOrNone = None,
-    effect_var: core.ListFloatOrNone = None,
-    rho: core.ListFloatOrNone = None,
+    resid_var: utils.ListFloatOrNone = None,
+    effect_var: utils.ListFloatOrNone = None,
+    rho: utils.ListFloatOrNone = None,
     max_iter: int = 500,
     min_tol: float = 1e-4,
     threshold: float = 0.9,
     purity: float = 0.5,
-) -> core.SushieResult:
+) -> SushieResult:
     """The main inference function for running SuShiE.
 
     Args:
-        Xs: genotype data for multiple ancestries.
-        ys: phenotype data for multiple ancestries.
-        covar: covariate data for multiple ancestries.
-        L: inferred number of eQTLs for the gene, default is five.
-        no_scale: do not scale the genotype and phenotype, default is to scale.
-        no_regress: do not regress covariates on genotypes, default is to regress.
-        no_update: do not update the effect size prior, default is to update.
-        pi: the prob. prior for one SNP to be causal, default is 1 over the number of SNPs by specifying it as None.
-        resid_var: prior residual variance, default is 1e-3 by specifying it as None.
-        effect_var: prior effect size variance, default is 1e-3 by specifying it as None.
-        rho: prior effect size correlation, default is 0.1 by specifying it as None.
-        max_iter: the maximum iteration for optimization, default is 500.
-        min_tol: the convergence tolerance, default is 1e-5.
-        threshold: the credible set threshold, default is 0.9.
-        purity: default is 0.5.
+        Xs: Genotype data for multiple ancestries.
+        ys: Phenotype data for multiple ancestries.
+        covar: Covariate data for multiple ancestries.
+        L: Inferred number of eQTLs for the gene.
+        no_scale: Do not scale the genotype and phenotype. Default is to scale.
+        no_regress: Do not regress covariates on genotypes. Default is to regress.
+        no_update: Do not update the effect size prior. Default is to update.
+        pi: The probability prior for one SNP to be causal (:math:`\\pi` in :ref:`Model`). Default is :math:`1` over
+            the number of SNPs by specifying it as ``None``.
+        resid_var: Prior residual variance (:math:`\\sigma^2_e` in :ref:`Model`).
+            Default is :math:`0.001` by specifying it as ``None``.
+        effect_var: Prior causal effect size variance (:math:`\\sigma^2_{i,b}` in :ref:`Model`).
+            Default is :math:`0.001` by specifying it as ``None``.
+        rho: Prior effect size correlation (:math:`\\rho` in :ref:`Model`).
+            Default is :math:`0.8` by specifying it as ``None``.
+        max_iter: The maximum iteration for optimization.
+        min_tol: The convergence tolerance.
+        threshold: The credible set threshold.
+        purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
 
     Returns:
-        SuShiE result object that contains prior, posterior, cs, and pip
+        :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
+        posterior (:py:obj:`Posterior`), ``cs``, ``pip``, ``elbo``, and ``elbo_increase``.
 
     """
     if len(Xs) == len(ys):
@@ -154,7 +306,7 @@ def infer_sushie(
     exp_num_rho = math.comb(n_pop, 2)
     param_rho = rho
     if rho is None:
-        rho = [0.1] * exp_num_rho
+        rho = [0.8] * exp_num_rho
     else:
         if n_pop == 1:
             log.logger.info(
@@ -175,8 +327,8 @@ def infer_sushie(
 
     effect_covar = jnp.diag(jnp.array(effect_var))
     ct = 0
-    for row in range(1, n_pop):
-        for col in range(n_pop):
+    for col in range(n_pop):
+        for row in range(1, n_pop):
             if col < row:
                 _two_sd = jnp.sqrt(effect_var[row] * effect_var[col])
                 effect_covar = effect_covar.at[row, col].set(rho[ct] * _two_sd)
@@ -186,7 +338,7 @@ def infer_sushie(
     if no_update:
         # if we specify no_update and rho, we want to keep rho through iterations and update variance
         if param_effect_var is None and param_rho is not None and n_pop != 1:
-            prior_adjustor = core.PriorAdjustor(
+            prior_adjustor = _PriorAdjustor(
                 times=jnp.eye(n_pop),
                 plus=effect_covar - jnp.diag(jnp.diag(effect_covar)),
             )
@@ -196,7 +348,7 @@ def infer_sushie(
             )
         # if we specify no_update and effect_covar, we want to keep variance through iterations, and update rho
         elif param_effect_var is not None and param_rho is None and n_pop != 1:
-            prior_adjustor = core.PriorAdjustor(
+            prior_adjustor = _PriorAdjustor(
                 times=jnp.ones((n_pop, n_pop)) - jnp.eye(n_pop),
                 plus=effect_covar * jnp.eye(n_pop),
             )
@@ -206,25 +358,25 @@ def infer_sushie(
         # if we (do not specify effect_covar and rho) or (specify both effect_covar and rho)
         # nothing is updated through iterations
         else:
-            prior_adjustor = core.PriorAdjustor(
+            prior_adjustor = _PriorAdjustor(
                 times=jnp.zeros((n_pop, n_pop)), plus=effect_covar
             )
             log.logger.info(
                 "No updates on the prior effect size variance/covariance matrix."
             )
     else:
-        prior_adjustor = core.PriorAdjustor(
+        prior_adjustor = _PriorAdjustor(
             times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop))
         )
 
-    priors = core.Prior(
+    priors = Prior(
         pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
         resid_var=jnp.array(resid_var),
         # L x k x k
         effect_covar=jnp.array([effect_covar] * L),
     )
 
-    posteriors = core.Posterior(
+    posteriors = Posterior(
         alpha=jnp.zeros((L, n_snps)),
         post_mean=jnp.zeros((L, n_snps, n_pop)),
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
@@ -234,7 +386,7 @@ def infer_sushie(
 
     # since we use prior adjustor, this is really no need
     # opt_v_func = NoopOptFunc() would work
-    opt_v_func = EMOptFunc() if not no_update else NoopOptFunc()
+    opt_v_func = _EMOptFunc() if not no_update else _NoopOptFunc()
 
     XtXs = []
     for idx in range(n_pop):
@@ -287,20 +439,92 @@ def infer_sushie(
             )
         elbo_last = elbo_cur
 
-    pip = _get_pip(posteriors.alpha)
-    cs = _get_cs(posteriors.alpha, Xs, pip, threshold, purity)
+    pip = make_pip(posteriors.alpha)
+    cs = make_cs(posteriors.alpha, Xs, pip, threshold, purity)
+    sample_size = [X.shape[0] for X in Xs]
 
-    return core.SushieResult(priors, posteriors, pip, cs, elbo_cur, elbo_increase)
+    return SushieResult(
+        priors, posteriors, pip, cs, sample_size, elbo_cur, elbo_increase
+    )
 
 
-class _LResult(NamedTuple):
-    Xs: List[jnp.ndarray]
-    ys: List[jnp.ndarray]
-    XtXs: List[jnp.ndarray]
-    priors: core.Prior
-    posteriors: core.Posterior
-    prior_adjustor: core.PriorAdjustor
-    opt_v_func: core.AbstractOptFunc
+def make_pip(alpha: jnp.ndarray) -> jnp.ndarray:
+    """The function to calculate posterior inclusion probability (PIP).
+
+    Args:
+        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
+            (i.e., :math:`\\alpha` in :ref:`Model`).
+
+    Returns:
+        :py:obj:`jnp.ndarray`: :math:`p \\times 1` vector for the posterior inclusion probability.
+
+    """
+
+    pip = 1 - jnp.exp(jnp.sum(jnp.log1p(-alpha), axis=0))
+
+    return pip
+
+
+def make_cs(
+    alpha: jnp.ndarray,
+    Xs: List[jnp.ndarray],
+    pip: jnp.ndarray,
+    threshold: float = 0.9,
+    purity: float = 0.5,
+) -> pd.DataFrame:
+    """The function to compute the credible sets.
+
+    Args:
+        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
+            (i.e., :math:`\\alpha` in :ref:`Model`).
+        Xs: Genotype data for multiple ancestries.
+        pip: :math:`p \\times 1` vector for the posterior inclusion probability.
+        threshold: The credible set threshold.
+        purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that contains credible sets.
+
+    """
+
+    n_l, _ = alpha.shape
+    t_alpha = pd.DataFrame(alpha.T).reset_index()
+
+    # ld is always pxp, so it can be converted to jnp.array
+    ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
+    cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
+
+    for idx in range(n_l):
+        # select original index and alpha
+        tmp_pd = (
+            t_alpha[["index", idx]]
+            .sort_values(idx, ascending=False)
+            .reset_index(drop=True)
+        )
+        tmp_pd["csum"] = tmp_pd[[idx]].cumsum()
+        n_row = tmp_pd[tmp_pd.csum < threshold].shape[0]
+
+        # if select rows less than total rows, n_row + 1
+        if n_row == tmp_pd.shape[0]:
+            select_idx = jnp.arange(n_row)
+        else:
+            select_idx = jnp.arange(n_row + 1)
+        tmp_pd = (
+            tmp_pd.iloc[select_idx, :]
+            .assign(CSIndex=idx + 1)
+            .rename(columns={"csum": "c_alpha", "index": "SNPIndex", idx: "alpha"})
+        )
+
+        # check the impurity
+        snp_idx = tmp_pd.SNPIndex.values.astype("int64")
+
+        min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
+        if min_corr > purity:
+            cs = pd.concat([cs, tmp_pd], ignore_index=True)
+
+    cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
+
+    return cs
 
 
 @jit
@@ -308,11 +532,11 @@ def _update_effects(
     Xs: List[jnp.ndarray],
     ys: List[jnp.ndarray],
     XtXs: List[jnp.ndarray],
-    priors: core.Prior,
-    posteriors: core.Posterior,
-    prior_adjustor: core.PriorAdjustor,
-    opt_v_func: core.AbstractOptFunc,
-) -> Tuple[core.Prior, core.Posterior, float]:
+    priors: Prior,
+    posteriors: Posterior,
+    prior_adjustor: _PriorAdjustor,
+    opt_v_func: _AbstractOptFunc,
+) -> Tuple[Prior, Posterior, float]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
     residual = []
@@ -388,12 +612,12 @@ def _ssr(
     Xs: List[jnp.ndarray],
     ys: List[jnp.ndarray],
     XtXs: List[jnp.ndarray],
-    priors: core.Prior,
-    posteriors: core.Posterior,
-    prior_adjustor: core.PriorAdjustor,
+    priors: Prior,
+    posteriors: Posterior,
+    prior_adjustor: _PriorAdjustor,
     l_iter: int,
-    opt_v_func: core.AbstractOptFunc,
-) -> Tuple[core.Prior, core.Posterior]:
+    opt_v_func: _AbstractOptFunc,
+) -> Tuple[Prior, Posterior]:
     n_pop = len(Xs)
     _, n_snps = Xs[0].shape
 
@@ -416,11 +640,11 @@ def _ssr(
 
 def _compute_posterior(
     beta_hat: jnp.ndarray,
-    shat2: core.ArrayOrFloat,
-    priors: core.Prior,
-    posteriors: core.Posterior,
+    shat2: utils.ArrayOrFloat,
+    priors: Prior,
+    posteriors: Posterior,
     l_iter: int,
-) -> Tuple[core.Prior, core.Posterior]:
+) -> Tuple[Prior, Posterior]:
     n_snps, n_pop = beta_hat.shape
     # quick way to calculate the inverse instead of using linalg.inv
     inv_shat2 = jnp.eye(n_pop) * (
@@ -463,99 +687,13 @@ def _compute_posterior(
     return priors, posteriors
 
 
-class EMOptFunc(core.AbstractOptFunc):
-    def __call__(
-        self,
-        beta_hat: jnp.ndarray,
-        shat2: core.ArrayOrFloat,
-        priors: core.Prior,
-        posteriors: core.Posterior,
-        prior_adjustor: core.PriorAdjustor,
-        l_iter: int,
-    ) -> core.Prior:
-        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
-
-        return priors
-
-
-class NoopOptFunc(core.AbstractOptFunc):
-    def __call__(
-        self,
-        beta_hat: jnp.ndarray,
-        shat2: core.ArrayOrFloat,
-        priors: core.Prior,
-        posteriors: core.Posterior,
-        prior_adjustor: core.PriorAdjustor,
-        l_iter: int,
-    ) -> core.Prior:
-        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
-        priors = priors._replace(
-            effect_covar=priors.effect_covar.at[l_iter].set(
-                priors.effect_covar[l_iter] * prior_adjustor.times + prior_adjustor.plus
-            )
-        )
-        return priors
-
-
-def _get_pip(alpha: jnp.ndarray) -> jnp.ndarray:
-    pip = 1 - jnp.exp(jnp.sum(jnp.log1p(-alpha), axis=0))
-    return pip
-
-
-def _get_cs(
-    alpha: jnp.ndarray,
-    Xs: List[jnp.ndarray],
-    pip: jnp.ndarray,
-    threshold: float = 0.9,
-    purity: float = 0.5,
-) -> pd.DataFrame:
-    n_l, _ = alpha.shape
-    t_alpha = pd.DataFrame(alpha.T).reset_index()
-
-    # ld is always pxp, so it can be converted to jnp.array
-    ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
-    cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
-
-    for idx in range(n_l):
-        # select original index and alpha
-        tmp_pd = (
-            t_alpha[["index", idx]]
-            .sort_values(idx, ascending=False)
-            .reset_index(drop=True)
-        )
-        tmp_pd["csum"] = tmp_pd[[idx]].cumsum()
-        n_row = tmp_pd[tmp_pd.csum < threshold].shape[0]
-
-        # if select rows less than total rows, n_row + 1
-        if n_row == tmp_pd.shape[0]:
-            select_idx = jnp.arange(n_row)
-        else:
-            select_idx = jnp.arange(n_row + 1)
-        tmp_pd = (
-            tmp_pd.iloc[select_idx, :]
-            .assign(CSIndex=idx + 1)
-            .rename(columns={"csum": "c_alpha", "index": "SNPIndex", idx: "alpha"})
-        )
-
-        # check the impurity
-        snp_idx = tmp_pd.SNPIndex.values.astype("int64")
-
-        min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
-        if min_corr > purity:
-            cs = pd.concat([cs, tmp_pd], ignore_index=True)
-
-    cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
-
-    return cs
-
-
 def _eloglike(
     X: jnp.ndarray,
     y: jnp.ndarray,
     beta: jnp.ndarray,
     beta_sq: jnp.ndarray,
-    sigma_sq: core.ArrayOrFloat,
-) -> core.ArrayOrFloat:
+    sigma_sq: utils.ArrayOrFloat,
+) -> utils.ArrayOrFloat:
     n, _ = X.shape
     norm_term = -(0.5 * n) * jnp.log(2 * jnp.pi * sigma_sq)
     quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)
@@ -597,7 +735,7 @@ def _kl_mvn(
 
 def _erss(
     X: jnp.ndarray, y: jnp.ndarray, beta: jnp.ndarray, beta_sq: jnp.ndarray
-) -> core.ArrayOrFloat:
+) -> utils.ArrayOrFloat:
     mu_li = X @ beta
     mu2_li = (X ** 2) @ beta_sq
 
