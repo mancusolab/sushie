@@ -1,6 +1,6 @@
 import logging
 
-from . import cli, core, infer, io, log, utils
+from . import cli, infer, io, log, utils
 
 
 # next 4 lines taken from
@@ -13,4 +13,4 @@ def _filter_absl_cpu_warning(record):
 
 logging.getLogger("absl").addFilter(_filter_absl_cpu_warning)
 
-__all__ = ["cli", "core", "infer", "io", "log", "utils"]
+__all__ = ["cli", "infer", "io", "log", "utils"]
