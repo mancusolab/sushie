@@ -61,13 +61,16 @@ Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 Installation
 ============
 
-The easiest way to install is with ``pip``:
+..
+   The easiest way to install is with ``pip``:
 
-.. code:: bash
+   .. code:: bash
 
-    pip install sushie
+       pip install sushie
 
-Alternatively users can download the latest repository and then use ``pip``:
+   Alternatively,
+
+Users can download the latest repository and then use ``pip``:
 
 .. code:: bash
 
@@ -94,14 +97,14 @@ SuShiE software is very easy to use:
 It can perform:
 
 * SuShiE: multi-ancestry fine-mapping accounting for ancestral correlation
-* single-ancestry SuShiE
+* Single-ancestry SuShiE
 * Joint SuShiE: multi-ancestry SuShiE without accounting for correlation
-* meta SuShiE: single-ancestry SuShiE followed by meta-analysis
-* mega SuShiE: single-ancestry SuShiE on row-wise stacked data across ancestries
+* Meta SuShiE: single-ancestry SuShiE followed by meta-analysis
+* Mega SuShiE: single-ancestry SuShiE on row-wise stacked data across ancestries
 * QTL effect size correlation estimation
-* narrow-sense cis-heritability estimation
-* cross-validation for SuShiE prediction weights
-* convert prediction results to `FUSION <http://gusevlab.org/projects/fusion/>`_ format, thus can be used in `TWAS <https://www.nature.com/articles/ng.3506>`_
+* Narrow-sense cis-heritability estimation
+* Cross-validation for SuShiE prediction weights
+* Convert prediction results to `FUSION <http://gusevlab.org/projects/fusion/>`_ format, thus can be used in `TWAS <https://www.nature.com/articles/ng.3506>`_
 
 See `here <https://mancusolab.github.io/sushie/>`_ for more details on how to use SuShiE.
 
