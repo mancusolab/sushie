@@ -30,9 +30,11 @@
         :alt: Github
         :target: https://github.com/mancusolab/sushie
 
-.. image:: https://img.shields.io/github/license/nmancuso/sushie
+.. image:: https://img.shields.io/badge/License-MIT-yellow.svg
     :alt: License
-    :target: https://en.wikipedia.org/wiki/MIT_License
+    :target: https://opensource.org/licenses/MIT
+
+
 
 .. image:: https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold
     :alt: Project generated with PyScaffold

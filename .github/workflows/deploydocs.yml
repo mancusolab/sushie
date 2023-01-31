@@ -1,0 +1,42 @@
+name: deploydocs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with: {python-version: "3.10"}
+      - name: Tools for docs build
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt -r requirements_dev.txt
+          python setup.py install
+      - name: make docs
+        run: |
+          make -C docs html
+      - name: upload artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: ./docs/_build/html/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
