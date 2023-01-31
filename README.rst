@@ -65,17 +65,19 @@ Installation
 
 The easiest way to install is with ``pip``:
 
-.. code:: bash
+..
+    .. code:: bash
 
     pip install sushie
 
-Alternatively users can download the latest repository and then use ``pip``:
+.. 
+  Alternatively users can download the latest repository and then use ``pip``:
 
 .. code:: bash
 
     git clone https://github.com/mancusolab/sushie.git
     cd sushie
-    pip install
+    pip install .
 
 *We currently only support Python3.8+.*
 
