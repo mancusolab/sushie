@@ -13,7 +13,7 @@ Contents
 
    Overview <readme>
    Model <model>
-   Manual <manual>
+   Users Manual <manual>
    Files <files>
 
 

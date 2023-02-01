@@ -4,15 +4,18 @@
 Output Files
 ============
 
-The output files consist of seven types:
+The output files consist of eight types:
 
 #. ``*.log``
 #. ``*.cs.tsv``
+#. ``*.alphas.tsv``
 #. ``*.weights.tsv``
 #. ``*.corr.tsv``
 #. ``*.her.tsv``
 #. ``*.cv.tsv``
 #. ``*.all.results.npy``
+
+Users can output them as compressed files by specifying ``--compress``
 
 Logger
 -------------
@@ -20,6 +23,7 @@ Logger
 SuShiE by default has a ``*.log`` file that keep tracks of inference process.
 
 .. _csfile:
+
 Credible Set
 ------------
 
@@ -27,7 +31,7 @@ SuShiE by default outputs a ``*.cs.tsv`` file that tracks the SNPs in the credib
 
 If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it will output ``*.meta.cs.tsv`` and ``*.mega.cs.tsv``, respectively, to track the SNPs in the credible sets inferred by meta SuShiE and mega SuShiE.
 
-For ``*.meta.cs.tsv``, it will row-bind the output for single-ancestry SuShiE differed by column ``ancestry``
+For ``*.meta.cs.tsv``, it will row-bind the output for single-ancestry SuShiE differed by column ``ancestry``.
 
 .. list-table::
    :header-rows: 1
@@ -75,7 +79,78 @@ For ``*.meta.cs.tsv``, it will row-bind the output for single-ancestry SuShiE di
    * - pip
      - Float
      - 0.95
-     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`). For ``*.meta.cs.tsv``, it will have ``ancestry1_pip``, ``meta_pip`` (It will have extra columns depending on the number of ancestries.). For ``*.mega.cs.tsv``, it is ``mega_pip``.
+     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`). For ``*.meta.cs.tsv`` and ``*.mega.cs.tsv``, it will have ``meta_pip`` and  ``mega_pip``, respectively.
+   * - trait
+     - String
+     - GeneABC
+     - The trait, tissue, or gene name.
+   * - n_snps
+     - Integer
+     - 500
+     - The number of total SNPs in the inference.
+   * - ancestry
+     - String
+     - sushie, mega, ancestry_1
+     - The inference method for this credible set.
+
+.. _alphasfile:
+
+Full Credible Set with Alphas
+-----------------------------
+
+By specifying ``--alphas``, SuShiE outputs a ``*.alphas.tsv`` file that tracks all the SNPs' PIP, :math:`\alpha` (see :ref:`Model`), whether in the credible set across all :math:`L`.
+
+If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it will output ``*.meta.alphas.tsv`` and ``*.mega.alphas.tsv``, respectively, to track the information inferred by meta SuShiE and mega SuShiE.
+
+For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShiE differed by column ``ancestry``.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Column
+     - Type
+     - Examples
+     - Notes
+   * - SNPIndex
+     - Integer
+     - 1, 33, 77
+     - The SNP unique index identifier. It matches the order of entries in the original genotype data counting start from 0.
+   * - chrom
+     - Integer
+     - 1, 23
+     - The chromosome number.
+   * - snp
+     - String
+     - rs12345
+     - The SNP unique identifier (e.g., rs ID). It matches the entries in the original genotype data.
+   * - pos
+     - Integer
+     - 123456
+     - The SNP position on the chromosome. It matches the entries in the original genotype data.
+   * - a0
+     - String
+     - A
+     - The alternative allele. It matches the entries in the original genotype data.
+   * - a1
+     - String
+     - G
+     - The reference allele. It matches the entries in the original genotype data.
+   * - pip
+     - Float
+     - 0.95
+     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`). The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`). For ``*.meta.cs.tsv`` and ``*.mega.cs.tsv``, it will have ``meta_pip`` and  ``mega_pip``, respectively.
+   * - alpha_l1
+     - Float
+     - 0.8
+     - The posterior probability of SNPs to be causal in the first credible set (:math:`\alpha_{l,j}` in :ref:`Model`). Depending on ``--L``, it can have extra columns.
+   * - c_alpha_l1
+     - Float
+     - 0.95
+     - The cumulative posterior probability of SNPs to be causal in the descending order. This decides which SNPs are included in the credible sets. Depending on ``--L``, it can have extra columns.
+   * - in_cs_l1
+     - Integer
+     - 0, 1
+     - The indicator whether the SNP is in the first credible set. Depending on ``--L``, it can have extra columns.
    * - trait
      - String
      - GeneABC
@@ -93,7 +168,7 @@ For ``*.meta.cs.tsv``, it will row-bind the output for single-ancestry SuShiE di
 Prediction Weights
 ------------------
 
-SuShiE by default outputs a ``*.weights.tsv`` file that contains the prediction weights, PIPs, and :math:`\alpha` for all the :math:`L` credible sets (no matter the purity) across all the fine-mapped SNPs.
+SuShiE by default outputs a ``*.weights.tsv`` file that contains the prediction weights, PIPs, and whether in CS, across all the fine-mapped SNPs.
 
 If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it will output ``*.meta.weights.tsv`` and ``*.mega.weights.tsv``, respectively.
 
@@ -140,10 +215,6 @@ If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it 
      - Float
      - 0.95
      - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`) for all the SNPs. (``*.cs.tsv`` only contains the PIPs of SNPs that are only in the credible sets). For ``*.meta.weights.tsv``, it will have ``ancestry1_single_pip``, ``meta_pip`` (It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_pip``.
-   * - sushie_l1_alpha
-     - Float
-     - 0.8
-     - The posterior probability of SNPs to be causal in the first credible set (:math:`\alpha_{l,j}` in :ref:`Model`). For ``*.meta.weights.tsv``, it will have ``ancestry1_l1_alpha`` (It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_l1_alpha``. Depending on ``--L``, it can have extra columns.
    * - sushie_in_cs
      - Integer
      - 0, 1
@@ -191,8 +262,8 @@ By specifying ``--her``, SuShiE outputs a ``*.her.tsv`` file that tracks the her
 
 It contains two rounds of heritability estimation:
 
-#. Using all the SNPs
-#. Using the SNPs in the credible set (only if SuShiE outputs non-empty credible sets after pruning for purity)
+#. Using all the SNPs.
+#. Using the SNPs in the credible set (only if SuShiE outputs non-empty credible sets after pruning for purity).
 
 .. list-table::
    :header-rows: 1
