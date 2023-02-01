@@ -19,7 +19,7 @@
 
 
 .. image:: https://img.shields.io/badge/Docs-Available-brightgreen
-        :alt: PyPI-Server
+        :alt: Documentation-webpage
         :target: https://mancusolab.github.io/sushie/
 
 .. image:: https://img.shields.io/pypi/v/sushie.svg
@@ -33,8 +33,6 @@
 .. image:: https://img.shields.io/badge/License-MIT-yellow.svg
     :alt: License
     :target: https://opensource.org/licenses/MIT
-
-
 
 .. image:: https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold
     :alt: Project generated with PyScaffold
@@ -78,7 +76,7 @@ Users can download the latest repository and then use ``pip``:
 
     git clone https://github.com/mancusolab/sushie.git
     cd sushie
-    pip install
+    pip install .
 
 *We currently only support Python3.8+.*
 

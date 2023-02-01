@@ -432,26 +432,31 @@ def sushie_wrapper(
         result.append(tmp_result)
 
     io.output_cs(
-        result, pips, snps, output, args.trait, args.no_compress, meta=meta, mega=mega
+        result, pips, snps, output, args.trait, args.compress, meta=meta, mega=mega
     )
     io.output_weights(
-        result, pips, snps, output, args.trait, args.no_compress, meta=meta, mega=mega
+        result, pips, snps, output, args.trait, args.compress, meta=meta, mega=mega
     )
 
     if args.numpy:
         io.output_numpy(result, snps, output)
 
+    if args.alphas:
+        io.output_alphas(
+            result, pips, snps, output, args.trait, args.compress, meta=meta, mega=mega
+        )
+
     if not (mega or meta):
-        io.output_corr(result, output, args.trait, args.no_compress)
+        io.output_corr(result, output, args.trait, args.compress)
 
         if args.her:
-            io.output_her(result, data, output, args.trait, args.no_compress)
+            io.output_her(result, data, output, args.trait, args.compress)
 
         if args.cv:
             log.logger.info(f"Running {args.cv_num}-fold cross validation.")
             cv_res = _run_cv(args, cv_data)
             sample_size = [idx.shape[0] for idx in data.geno]
-            io.output_cv(cv_res, sample_size, output, args.trait, args.no_compress)
+            io.output_cv(cv_res, sample_size, output, args.trait, args.compress)
 
     return None
 
@@ -1029,6 +1034,17 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
+        "--alphas",
+        default=False,
+        action="store_true",
+        help=(
+            "Indicator to output all the cs (alphas) results before pruning for purity",
+            " including PIPs, alphas, whether in cs, across all L.",
+            " Default is False. Specify --alphas will store 'True' value and increase running time.",
+        ),
+    )
+
+    finemap.add_argument(
         "--numpy",
         default=False,
         action="store_true",
@@ -1066,13 +1082,13 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--no_compress",
+        "--compress",
         default=False,
         action="store_true",
         help=(
             "Indicator to compress all output tsv files in tsv.gz.",
-            " Default is False. Specify --no_compress will store 'True' value to save disk space.",
-            " This command will not compress npy files.",
+            " Default is False. Specify --compress will store 'True' value to save disk space.",
+            " This command will not compress *.npy files.",
         ),
     )
 
