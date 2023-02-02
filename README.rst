@@ -63,12 +63,10 @@ Installation
 
 ..
    The easiest way to install is with ``pip``:
-
-   .. code:: bash
-
+    .. code:: bash
        pip install sushie
 
-   Alternatively,
+    Alternatively,
 
 Users can download the latest repository and then use ``pip``:
 
@@ -136,7 +134,8 @@ Version History
 .. |Support| replace:: **Support**
 
 Support
-=======
+========
+
 Please report any bugs or feature requests in the `Issue Tracker <https://github.com/mancusolab/sushie/issues>`_. If users have any
 questions or comments, please contact Zeyun Lu (zeyunlu@usc.edu) and Nicholas Mancuso (nmancuso@usc.edu).
 
