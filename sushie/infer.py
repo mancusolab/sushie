@@ -523,9 +523,9 @@ def make_cs(
         )
 
         tmp_pd["in_cs"] = (tmp_pd.index.values <= jnp.max(select_idx)) * 1
-        tmp_pd = tmp_pd.rename(
+
+        tmp_pd = tmp_pd.drop(["csum"], axis=1).rename(
             columns={
-                "csum": f"c_alpha_l{idx + 1}",
                 "in_cs": f"in_cs_l{idx + 1}",
                 idx: f"alpha_l{idx + 1}",
             }

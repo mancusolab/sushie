@@ -143,10 +143,6 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - Float
      - 0.8
      - The posterior probability of SNPs to be causal in the first credible set (:math:`\alpha_{l,j}` in :ref:`Model`). Depending on ``--L``, it can have extra columns.
-   * - c_alpha_l1
-     - Float
-     - 0.95
-     - The cumulative posterior probability of SNPs to be causal in the descending order. This decides which SNPs are included in the credible sets. Depending on ``--L``, it can have extra columns.
    * - in_cs_l1
      - Integer
      - 0, 1
