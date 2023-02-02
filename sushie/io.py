@@ -183,14 +183,14 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 
     """
 
-    vcf = VCF(path)
+    vcf = VCF(path, gts012=True)
     fam = pd.DataFrame(vcf.samples).rename(columns={0: "iid"})
     bim_list = []
     bed_list = []
     for var in vcf:
+        # var.ALT is a list of alternative allele
         bim_list.append([var.CHROM, var.ID, var.POS, var.ALT[0], var.REF])
-        raw_bed = pd.DataFrame(var.gt_bases)[0].str.split("/", expand=True)
-        tmp_bed = jnp.array((raw_bed[0] == var.REF) * 1 + (raw_bed[1] == var.REF) * 1)
+        tmp_bed = 2 - var.gt_types
         bed_list.append(tmp_bed)
 
     bim = pd.DataFrame(bim_list, columns=["chrom", "snp", "pos", "a0", "a1"])
