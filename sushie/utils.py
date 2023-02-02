@@ -6,6 +6,7 @@ from numpy_sugar.linalg import economic_qs
 from scipy import stats
 
 import jax.numpy as jnp
+import jax.scipy as jsp
 
 __all__ = [
     "ListFloatOrNone",
@@ -27,7 +28,7 @@ PDOrNone = Optional[pd.DataFrame]
 
 
 def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Perform ordinary linear regression.
+    """Perform ordinary linear regression using QR Factorization.
 
     Args:
         X: :math:`n \\times p` matrix for independent variables with no intercept vector.
@@ -41,21 +42,29 @@ def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.n
             #. :math:`p` values (:py:obj:`jnp.ndarray`) for the coefficients.
 
     """
-    n_samples, n_features = X.shape
-    X_inter = jnp.append(jnp.ones((n_samples, 1)), X, axis=1)
-    n_features += 1
+
+    X_inter = jnp.append(jnp.ones((X.shape[0], 1)), X, axis=1)
     y = jnp.reshape(y, (len(y), -1))
-    XtX_inv = jnp.linalg.inv(X_inter.T @ X_inter)
-    betas = XtX_inv @ X_inter.T @ y
-    residual = y - X_inter @ betas
+    q_matrix, r_matrix = jnp.linalg.qr(X_inter, mode="reduced")
+    qty = q_matrix.T @ y
+    beta = jsp.linalg.solve_triangular(r_matrix, qty)
+    df = q_matrix.shape[0] - q_matrix.shape[1]
+    residual = y - q_matrix @ qty
     rss = jnp.sum(residual ** 2, axis=0)
-    sigma_sq = rss / (n_samples - n_features)
-    t_scores = betas / jnp.sqrt(
-        jnp.diagonal(XtX_inv)[:, jnp.newaxis] @ sigma_sq[jnp.newaxis, :]
+    sigma = jnp.sqrt(jnp.sum(residual ** 2, axis=0) / df)
+    se = (
+        jnp.sqrt(
+            jnp.diag(
+                jsp.linalg.cho_solve((r_matrix, False), jnp.eye(r_matrix.shape[0]))
+            )
+        )[:, jnp.newaxis]
+        @ sigma[jnp.newaxis, :]
     )
+    t_scores = beta / se
+    p_value = jnp.array(2 * stats.t.sf(abs(t_scores), df=df))
+
     r_sq = 1 - rss / jnp.sum((y - jnp.mean(y)) ** 2)
-    adj_r = 1 - (1 - r_sq) * (n_samples - 1) / (n_samples - n_features)
-    p_value = jnp.array(2 * stats.t.sf(abs(t_scores), df=(n_samples - n_features)))
+    adj_r = 1 - (1 - r_sq) * (q_matrix.shape[0] - 1) / df
 
     return residual, adj_r, p_value
 
@@ -77,6 +86,7 @@ def regress_covar(
             #. phenotype residual vector (:py:obj:`jnp.ndarray`) after regressing out covariates effects.
 
     """
+
     y, _, _ = ols(covar, y)
     if not no_regress:
         X, _, _ = ols(covar, X)

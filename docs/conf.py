@@ -125,11 +125,11 @@ python_apigen_default_groups = [
 python_apigen_default_order = [
     ("class:.*", -6),
     ("method:.*", -2),
-    ("classmethod:.*", -3),
-    ("property:.*", -1),
-    (r"method:.*\.__(init|new)__", -5),
-    (r"method:.*\.[A-Z][a-z]*", -5),
-    (r"method:.*\.__(str|repr)__", -4),
+    # ("classmethod:.*", -3),
+    # ("property:.*", -1),
+    # (r"method:.*\.__(init|new)__", -5),
+    # (r"method:.*\.[A-Z][a-z]*", -5),
+    # (r"method:.*\.__(str|repr)__", -4),
 ]
 
 object_description_options = [
@@ -140,7 +140,7 @@ object_description_options = [
     ("py.function", dict(include_in_toc=True)),
 ]
 
-python_apigen_order_tiebreaker = "alphabetical"
+python_apigen_order_tiebreaker = "definition_order"
 python_apigen_case_insensitive_filesystem = False
 python_apigen_show_base_classes = False
 

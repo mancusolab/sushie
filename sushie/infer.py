@@ -65,9 +65,10 @@ class SushieResult(NamedTuple):
         posteriors: The final posterior parameter for the inference.
         pip: The PIP for each SNP.
         cs: The credible sets output after filtering on purity.
+        alphas: The full credible sets before filtering on purity.
         sample_size: The sample size for each ancestry in the inference.
-        elbo: The final elbo.
-        elbo_increase: A boolean to indicate whether elbo increases during the optimizations.
+        elbo: The final ELBO.
+        elbo_increase: A boolean to indicate whether ELBO increases during the optimizations.
 
     """
 
@@ -75,6 +76,7 @@ class SushieResult(NamedTuple):
     posteriors: Posterior
     pip: jnp.ndarray
     cs: pd.DataFrame
+    alphas: pd.DataFrame
     sample_size: List[int]
     elbo: float
     elbo_increase: bool
@@ -440,11 +442,11 @@ def infer_sushie(
         elbo_last = elbo_cur
 
     pip = make_pip(posteriors.alpha)
-    cs = make_cs(posteriors.alpha, Xs, pip, threshold, purity)
+    cs, full_alphas = make_cs(posteriors.alpha, Xs, pip, threshold, purity)
     sample_size = [X.shape[0] for X in Xs]
 
     return SushieResult(
-        priors, posteriors, pip, cs, sample_size, elbo_cur, elbo_increase
+        priors, posteriors, pip, cs, full_alphas, sample_size, elbo_cur, elbo_increase
     )
 
 
@@ -471,7 +473,7 @@ def make_cs(
     pip: jnp.ndarray,
     threshold: float = 0.9,
     purity: float = 0.5,
-) -> pd.DataFrame:
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """The function to compute the credible sets.
 
     Args:
@@ -483,7 +485,9 @@ def make_cs(
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
 
     Returns:
-        :py:obj:`pd.DataFrame`: A data frame that contains credible sets.
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame]`: A tuple of
+            #. credible set (:py:obj:`pd.DataFrame`) after pruning for purity,
+            #. full credible set (:py:obj:`pd.DataFrame`) before pruning for purity.
 
     """
 
@@ -493,6 +497,8 @@ def make_cs(
     # ld is always pxp, so it can be converted to jnp.array
     ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
+    full_alphas = t_alpha[["index"]]
+    full_alphas["pip"] = pip
 
     for idx in range(n_l):
         # select original index and alpha
@@ -509,22 +515,34 @@ def make_cs(
             select_idx = jnp.arange(n_row)
         else:
             select_idx = jnp.arange(n_row + 1)
-        tmp_pd = (
+
+        tmp_cs = (
             tmp_pd.iloc[select_idx, :]
             .assign(CSIndex=idx + 1)
             .rename(columns={"csum": "c_alpha", "index": "SNPIndex", idx: "alpha"})
         )
 
+        tmp_pd["in_cs"] = (tmp_pd.index.values <= jnp.max(select_idx)) * 1
+        tmp_pd = tmp_pd.rename(
+            columns={
+                "csum": f"c_alpha_l{idx + 1}",
+                "in_cs": f"in_cs_l{idx + 1}",
+                idx: f"alpha_l{idx + 1}",
+            }
+        )
+        full_alphas = full_alphas.merge(tmp_pd, how="left", on="index")
+
         # check the impurity
-        snp_idx = tmp_pd.SNPIndex.values.astype("int64")
+        snp_idx = tmp_cs.SNPIndex.values.astype("int64")
 
         min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
         if min_corr > purity:
-            cs = pd.concat([cs, tmp_pd], ignore_index=True)
+            cs = pd.concat([cs, tmp_cs], ignore_index=True)
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
+    full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
 
-    return cs
+    return cs, full_alphas
 
 
 @jit

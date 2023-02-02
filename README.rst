@@ -19,7 +19,7 @@
 
 
 .. image:: https://img.shields.io/badge/Docs-Available-brightgreen
-        :alt: PyPI-Server
+        :alt: Documentation-webpage
         :target: https://mancusolab.github.io/sushie/
 
 .. image:: https://img.shields.io/pypi/v/sushie.svg
@@ -33,8 +33,6 @@
 .. image:: https://img.shields.io/badge/License-MIT-yellow.svg
     :alt: License
     :target: https://opensource.org/licenses/MIT
-
-
 
 .. image:: https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold
     :alt: Project generated with PyScaffold
@@ -63,15 +61,14 @@ Check `here <https://mancusolab.github.io/sushie/>`_ for full documentation.
 Installation
 ============
 
-The easiest way to install is with ``pip``:
-
 ..
+   The easiest way to install is with ``pip``:
     .. code:: bash
+       pip install sushie
 
-    pip install sushie
+    Alternatively,
 
-.. 
-  Alternatively users can download the latest repository and then use ``pip``:
+Users can download the latest repository and then use ``pip``:
 
 .. code:: bash
 
@@ -98,14 +95,14 @@ SuShiE software is very easy to use:
 It can perform:
 
 * SuShiE: multi-ancestry fine-mapping accounting for ancestral correlation
-* single-ancestry SuShiE
+* Single-ancestry SuShiE
 * Joint SuShiE: multi-ancestry SuShiE without accounting for correlation
-* meta SuShiE: single-ancestry SuShiE followed by meta-analysis
-* mega SuShiE: single-ancestry SuShiE on row-wise stacked data across ancestries
+* Meta SuShiE: single-ancestry SuShiE followed by meta-analysis
+* Mega SuShiE: single-ancestry SuShiE on row-wise stacked data across ancestries
 * QTL effect size correlation estimation
-* narrow-sense cis-heritability estimation
-* cross-validation for SuShiE prediction weights
-* convert prediction results to `FUSION <http://gusevlab.org/projects/fusion/>`_ format, thus can be used in `TWAS <https://www.nature.com/articles/ng.3506>`_
+* Narrow-sense cis-heritability estimation
+* Cross-validation for SuShiE prediction weights
+* Convert prediction results to `FUSION <http://gusevlab.org/projects/fusion/>`_ format, thus can be used in `TWAS <https://www.nature.com/articles/ng.3506>`_
 
 See `here <https://mancusolab.github.io/sushie/>`_ for more details on how to use SuShiE.
 
@@ -137,7 +134,8 @@ Version History
 .. |Support| replace:: **Support**
 
 Support
-=======
+========
+
 Please report any bugs or feature requests in the `Issue Tracker <https://github.com/mancusolab/sushie/issues>`_. If users have any
 questions or comments, please contact Zeyun Lu (zeyunlu@usc.edu) and Nicholas Mancuso (nmancuso@usc.edu).
 

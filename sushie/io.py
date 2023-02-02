@@ -22,6 +22,7 @@ __all__ = [
     "read_bgen",
     "read_vcf",
     "output_cs",
+    "output_alphas",
     "output_weights",
     "output_her",
     "output_corr",
@@ -182,14 +183,14 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 
     """
 
-    vcf = VCF(path)
+    vcf = VCF(path, gts012=True)
     fam = pd.DataFrame(vcf.samples).rename(columns={0: "iid"})
     bim_list = []
     bed_list = []
     for var in vcf:
+        # var.ALT is a list of alternative allele
         bim_list.append([var.CHROM, var.ID, var.POS, var.ALT[0], var.REF])
-        raw_bed = pd.DataFrame(var.gt_bases)[0].str.split("/", expand=True)
-        tmp_bed = jnp.array((raw_bed[0] == var.REF) * 1 + (raw_bed[1] == var.REF) * 1)
+        tmp_bed = 2 - var.gt_types
         bed_list.append(tmp_bed)
 
     bim = pd.DataFrame(bim_list, columns=["chrom", "snp", "pos", "a0", "a1"])
@@ -237,11 +238,11 @@ def output_cs(
     snps: pd.DataFrame,
     output: str,
     trait: str,
-    no_compress: bool,
+    compress: bool,
     meta: bool,
     mega: bool,
 ) -> pd.DataFrame:
-    """Output credible set file ``*cs.tsv`` (see :ref:`csfile`).
+    """Output credible set (after pruning for purity) file ``*cs.tsv`` (see :ref:`csfile`).
 
     Args:
         result: The sushie inference result.
@@ -249,7 +250,7 @@ def output_cs(
         snps: The SNP information table.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
-        no_compress: The indicator whether to compress the output files.
+        compress: The indicator whether to compress the output files.
         meta: The indicator whether the sushie inference result is meta.
         mega: The indicator whether the sushie inference result is mega.
 
@@ -261,7 +262,7 @@ def output_cs(
 
     for idx in range(len(result)):
         tmp_cs = (
-            pd.merge(snps, result[idx].cs, how="inner", on=["SNPIndex"])
+            snps.merge(result[idx].cs, how="inner", on=["SNPIndex"])
             .assign(trait=trait, n_snps=snps.shape[0])
             .sort_values(
                 by=["CSIndex", "alpha", "c_alpha"], ascending=[True, False, True]
@@ -285,11 +286,64 @@ def output_cs(
     if cs.shape[0] == 0:
         cs = cs.append({"trait": trait}, ignore_index=True)
 
-    file_name = f"{output}.cs.tsv.gz" if not no_compress else f"{output}.cs.tsv"
+    file_name = f"{output}.cs.tsv.gz" if compress else f"{output}.cs.tsv"
 
     cs.to_csv(file_name, sep="\t", index=False)
 
     return cs
+
+
+def output_alphas(
+    result: List[infer.SushieResult],
+    meta_pip: Optional[jnp.ndarray],
+    snps: pd.DataFrame,
+    output: str,
+    trait: str,
+    compress: bool,
+    meta: bool,
+    mega: bool,
+) -> pd.DataFrame:
+    """Output full credible set (before pruning for purity) file ``*alphas.tsv`` (see :ref:`alphasfile`).
+
+    Args:
+        result: The sushie inference result.
+        meta_pip: The meta-analyzed PIPs from Meta SuShiE.
+        snps: The SNP information table.
+        output: The output file prefix.
+        trait: The trait name better for post-hoc analysis index.
+        compress: The indicator whether to compress the output files.
+        meta: The indicator whether the sushie inference result is meta.
+        mega: The indicator whether the sushie inference result is mega.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (:py:obj:`pd.DataFrame`).
+
+    """
+    alphas = pd.DataFrame()
+
+    for idx in range(len(result)):
+        tmp_alphas = snps.merge(
+            result[idx].alphas, how="inner", on=["SNPIndex"]
+        ).assign(trait=trait, n_snps=snps.shape[0])
+
+        if meta_pip is not None:
+            tmp_alphas["meta_pip"] = meta_pip
+
+        if meta:
+            ancestry_idx = f"ancestry_{idx + 1}"
+        elif mega:
+            ancestry_idx = "mega"
+        else:
+            ancestry_idx = "sushie"
+
+        tmp_alphas["ancestry"] = ancestry_idx
+        alphas = pd.concat([alphas, tmp_alphas], axis=0)
+
+    file_name = f"{output}.alphas.tsv.gz" if compress else f"{output}.alphas.tsv"
+
+    alphas.to_csv(file_name, sep="\t", index=False)
+
+    return alphas
 
 
 def output_weights(
@@ -298,7 +352,7 @@ def output_weights(
     snps: pd.DataFrame,
     output: str,
     trait: str,
-    no_compress: bool,
+    compress: bool,
     meta: bool,
     mega: bool,
 ) -> pd.DataFrame:
@@ -310,7 +364,7 @@ def output_weights(
         snps: The SNP information table.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
-        no_compress: The indicator whether to compress the output files.
+        compress: The indicator whether to compress the output files.
         meta: The indicator whether the sushie inference result is meta.
         mega: The indicator whether the sushie inference result is meta.
 
@@ -320,7 +374,6 @@ def output_weights(
     """
 
     n_pop = len(result[0].priors.resid_var)
-    n_l = result[0].posteriors.alpha.shape[0]
     weights = copy.deepcopy(snps).assign(trait=trait)
 
     for idx in range(len(result)):
@@ -328,17 +381,14 @@ def output_weights(
             cname_idx = [f"ancestry{idx + 1}_single_weight"]
             cname_pip = f"ancestry{idx + 1}_single_pip"
             cname_cs = f"ancestry{idx + 1}_in_cs"
-            cname_alpha = [f"ancestry{idx + 1}_l{ldx + 1}_alpha" for ldx in range(n_l)]
         elif mega:
             cname_idx = ["mega_weight"]
             cname_pip = "mega_pip"
             cname_cs = "mega_in_cs"
-            cname_alpha = [f"mega_l{ldx + 1}_alpha" for ldx in range(n_l)]
         else:
             cname_idx = [f"ancestry{jdx + 1}_sushie_weight" for jdx in range(n_pop)]
             cname_pip = "sushie_pip"
             cname_cs = "sushie_in_cs"
-            cname_alpha = [f"sushie_l{ldx + 1}_alpha" for ldx in range(n_l)]
 
         tmp_weights = pd.DataFrame(
             data=jnp.sum(result[idx].posteriors.post_mean, axis=0),
@@ -346,7 +396,6 @@ def output_weights(
         )
 
         tmp_weights[cname_pip] = result[idx].pip
-        tmp_weights[cname_alpha] = jnp.transpose(result[idx].posteriors.alpha)
         weights = pd.concat([weights, tmp_weights], axis=1)
         weights[cname_cs] = (
             weights["SNPIndex"].isin(result[idx].cs["SNPIndex"].tolist()).astype(int)
@@ -356,15 +405,10 @@ def output_weights(
         weights["meta_pip"] = meta_pip
         tmp_cs = (weights["ancestry1_in_cs"] == 0) * 1
         for idx in range(1, len(result)):
-            tmp_cs = tmp_cs * (weights["ancestry1_in_cs"] == 0) * 1
+            tmp_cs = tmp_cs * ((weights[f"ancestry{idx + 1}_in_cs"] == 0) * 1)
         weights["meta_in_cs"] = 1 - tmp_cs
 
-    if weights.shape[0] == 0:
-        weights = weights.append({"trait": trait}, ignore_index=True)
-
-    file_name = (
-        f"{output}.weights.tsv.gz" if not no_compress else f"{output}.weights.tsv"
-    )
+    file_name = f"{output}.weights.tsv.gz" if compress else f"{output}.weights.tsv"
 
     weights.to_csv(file_name, sep="\t", index=False)
 
@@ -376,7 +420,7 @@ def output_her(
     data: CleanData,
     output: str,
     trait: str,
-    no_compress: bool,
+    compress: bool,
 ) -> pd.DataFrame:
     """Output heritability estimation file ``*her.tsv`` (see :ref:`herfile`).
 
@@ -385,7 +429,7 @@ def output_her(
         data: The clean data that are used to estimate traits' heritability.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
-        no_compress: The indicator whether to compress the output files.
+        compress: The indicator whether to compress the output files.
 
     Returns:
         :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*her.tsv`` file (:py:obj:`pd.DataFrame`).
@@ -444,7 +488,7 @@ def output_her(
     if est_her.shape[0] == 0:
         est_her = est_her.append({"trait": trait}, ignore_index=True)
 
-    file_name = f"{output}.her.tsv.gz" if not no_compress else f"{output}.her.tsv"
+    file_name = f"{output}.her.tsv.gz" if compress else f"{output}.her.tsv"
 
     est_her.to_csv(file_name, sep="\t", index=False)
 
@@ -455,7 +499,7 @@ def output_corr(
     result: List[infer.SushieResult],
     output: str,
     trait: str,
-    no_compress: bool,
+    compress: bool,
 ) -> pd.DataFrame:
     """Output effect size correlation file ``*corr.tsv`` (see :ref:`corrfile`).
 
@@ -463,7 +507,7 @@ def output_corr(
         result: The sushie inference result.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
-        no_compress: The indicator whether to compress the output files.
+        compress: The indicator whether to compress the output files.
 
     Returns:
         :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*corr.tsv`` file (:py:obj:`pd.DataFrame`).
@@ -496,7 +540,7 @@ def output_corr(
     if corr.shape[0] == 0:
         corr = corr.append({"trait": trait}, ignore_index=True)
 
-    file_name = f"{output}.corr.tsv.gz" if not no_compress else f"{output}.corr.tsv"
+    file_name = f"{output}.corr.tsv.gz" if compress else f"{output}.corr.tsv"
 
     corr.to_csv(file_name, sep="\t", index=False)
 
@@ -508,7 +552,7 @@ def output_cv(
     sample_size: List[int],
     output: str,
     trait: str,
-    no_compress: bool,
+    compress: bool,
 ) -> pd.DataFrame:
     """Output cross validation file ``*cv.tsv`` for
         future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipline (see :ref:`cvfile`).
@@ -518,7 +562,7 @@ def output_cv(
         sample_size: The sample size for the SuShiE inference.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
-        no_compress: The indicator whether to compress the output files.
+        compress: The indicator whether to compress the output files.
 
     Returns:
         :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*cv.tsv`` file (:py:obj:`pd.DataFrame`).
@@ -538,7 +582,7 @@ def output_cv(
     if cv_r2.shape[0] == 0:
         cv_r2 = cv_r2.append({"trait": trait}, ignore_index=True)
 
-    file_name = f"{output}.cv.tsv.gz" if not no_compress else f"{output}.cv.tsv"
+    file_name = f"{output}.cv.tsv.gz" if compress else f"{output}.cv.tsv"
 
     cv_r2.to_csv(file_name, sep="\t", index=False)
 

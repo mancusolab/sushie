@@ -1,7 +1,7 @@
 .. _manual:
 
 =================
-Software Manual
+Users Manual
 =================
 
 Initialize Environment
@@ -14,19 +14,22 @@ SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://
 Installation
 ============
 
-The easiest way to install is with ``pip``:
+..
+    The easiest way to install is with ``pip``:
 
-.. code:: bash
+    .. code:: bash
 
     pip install sushie
 
-Alternatively users can download the latest repository and then use ``pip``:
+    Alternatively
+
+Users can download the latest repository and then use ``pip``:
 
 .. code:: bash
 
     git clone https://github.com/mancusolab/sushie.git
     cd sushie
-    pip install
+    pip install .
 
 *We currently only support Python3.8+.*
 
@@ -348,6 +351,11 @@ Parameters
      - 1234
      - ``--seed 4321``
      - The seed to randomly cut data sets in cross validation. It has to be positive integer number.
+   * - ``--alphas``
+     - Boolean
+     - False
+     - ``--alphas # will store as True``
+     - Indicator to output all the credible set results before pruning for purity including PIPs, :math:`\alpha` (in :ref:`Model`), whether in cs, across all :math:`L`. Default is False. Specify --alphas will store 'True' value and increase running time.
    * - ``--numpy``
      - Boolean
      - False
@@ -368,11 +376,11 @@ Parameters
      - False
      - ``--verbose # will store as True``
      - Indicator to include debug information in the log. Specify ``--verbose`` will store ``True`` value.
-   * - ``--no_compress``
+   * - ``--compress``
      - Boolean
      - False
-     - ``--no_compress # will store as True``
-     - Indicator to compress all output tsv files in 'tsv.gz'. Specify ``--no_compress`` will store ``True`` value to save disk space. This command will not compress npy files.
+     - ``--compress # will store as True``
+     - Indicator to compress all output tsv files in 'tsv.gz'. Specify ``--compress`` will store ``True`` value to save disk space. This command will not compress npy files.
    * - ``--platform``
      - String choices in ``["cpu", "gpu", "tpu"]``
      - cpu
