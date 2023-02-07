@@ -538,6 +538,13 @@ def make_cs(
         min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
         if min_corr > purity:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
+            full_alphas[f"in_cs_l{idx + 1}_after"] = jnp.isin(
+                full_alphas.index.values.astype(int), tmp_cs.SNPIndex.values.astype(int)
+            )
+        else:
+            full_alphas[f"in_cs_l{idx + 1}_after"] = jnp.zeros(full_alphas.shape[0])
+
+        full_alphas[f"purity_l{idx + 1}"] = min_corr
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
