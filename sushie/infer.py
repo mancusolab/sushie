@@ -498,7 +498,7 @@ def make_cs(
     ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
-    full_alphas["pip"] = pip
+    # full_alphas["pip"] = pip
 
     for idx in range(n_l):
         # select original index and alpha
@@ -538,13 +538,15 @@ def make_cs(
         min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
         if min_corr > purity:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
-            full_alphas[f"in_cs_l{idx + 1}_after"] = jnp.isin(
-                full_alphas.index.values.astype(int), tmp_cs.SNPIndex.values.astype(int)
-            )
-        else:
-            full_alphas[f"in_cs_l{idx + 1}_after"] = jnp.zeros(full_alphas.shape[0])
 
-        full_alphas[f"purity_l{idx + 1}"] = min_corr
+        corr_pop1 = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx])[0])
+        corr_pop2 = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx])[1])
+        full_alphas[f"bothpurity_l{idx + 1}"] = jnp.minimum(corr_pop1, corr_pop2)
+        full_alphas[f"eitherpurity_l{idx + 1}"] = jnp.maximum(corr_pop1, corr_pop2)
+        total = Xs[0].shape[0] + Xs[1].shape[0]
+        full_alphas[f"averagepurity_l{idx + 1}"] = corr_pop1 * (
+            Xs[0].shape[0] / total
+        ) + corr_pop2 * (Xs[1].shape[0] / total)
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
