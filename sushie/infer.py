@@ -175,6 +175,8 @@ def infer_sushie(
     min_tol: float = 1e-4,
     threshold: float = 0.9,
     purity: float = 0.5,
+    no_kl: bool = False,
+    kl_threshold: float = 5.0,
 ) -> SushieResult:
     """The main inference function for running SuShiE.
 
@@ -198,6 +200,8 @@ def infer_sushie(
         min_tol: The convergence tolerance.
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
+        no_kl: Do not use KL Divergence as extra credible set pruning threshold.
+        kl_threshold: The minimum KL divergence to be eligible as output credible set.
 
     Returns:
         :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
@@ -242,7 +246,12 @@ def infer_sushie(
 
     if not 0 < purity < 1:
         raise ValueError(
-            f"Purity ({purity}) is not between 0 and 1. Specify a valid one."
+            f"Purity threshold ({purity}) is not between 0 and 1. Specify a valid one."
+        )
+
+    if kl_threshold < 0:
+        raise ValueError(
+            f"KL Divergence threshold ({kl_threshold}) is not positive. Specify a valid one."
         )
 
     if pi is not None and (pi >= 1 or pi <= 0):
@@ -441,9 +450,11 @@ def infer_sushie(
             )
         elbo_last = elbo_cur
 
-    pip = make_pip(posteriors.alpha)
-    cs, full_alphas = make_cs(posteriors.alpha, Xs, pip, threshold, purity)
     sample_size = [X.shape[0] for X in Xs]
+    pip = make_pip(posteriors.alpha)
+    cs, full_alphas = make_cs(
+        posteriors.alpha, Xs, pip, threshold, purity, no_kl, kl_threshold
+    )
 
     return SushieResult(
         priors, posteriors, pip, cs, full_alphas, sample_size, elbo_cur, elbo_increase
@@ -473,6 +484,8 @@ def make_cs(
     pip: jnp.ndarray,
     threshold: float = 0.9,
     purity: float = 0.5,
+    no_kl: bool = False,
+    kl_threshold: float = 5.0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """The function to compute the credible sets.
 
@@ -483,6 +496,8 @@ def make_cs(
         pip: :math:`p \\times 1` vector for the posterior inclusion probability.
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
+        no_kl: Do not use KL Divergence as extra credible set pruning threshold.
+        kl_threshold: The minimum KL divergence to be eligible as output credible set.
 
     Returns:
         :py:obj:`Tuple[pd.DataFrame, pd.DataFrame]`: A tuple of
@@ -491,14 +506,13 @@ def make_cs(
 
     """
 
-    n_l, _ = alpha.shape
+    n_l, n_snps = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
 
     # ld is always pxp, so it can be converted to jnp.array
     ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
-    # full_alphas["pip"] = pip
 
     for idx in range(n_l):
         # select original index and alpha
@@ -524,6 +538,7 @@ def make_cs(
 
         tmp_pd["in_cs"] = (tmp_pd.index.values <= jnp.max(select_idx)) * 1
 
+        # prepare alphas table's entries
         tmp_pd = tmp_pd.drop(["csum"], axis=1).rename(
             columns={
                 "in_cs": f"in_cs_l{idx + 1}",
@@ -532,21 +547,24 @@ def make_cs(
         )
         full_alphas = full_alphas.merge(tmp_pd, how="left", on="index")
 
-        # check the impurity
+        # check the purity
         snp_idx = tmp_cs.SNPIndex.values.astype("int64")
+        sample_size = jnp.array([X.shape[0] for X in Xs])
+        ss_weight = sample_size / jnp.sum(sample_size)
 
-        min_corr = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]))
-        if min_corr > purity:
+        avg_corr = 0
+        for jdx in range(len(ld)):
+            avg_corr += (
+                jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx])[jdx]) * ss_weight[jdx]
+            )
+
+        cur_kl = -jnp.inf
+        if not no_kl:
+            cur_alphas = tmp_pd[f"alpha_l{idx + 1}"].values
+            cur_kl = jnp.sum(cur_alphas * jnp.log(cur_alphas * n_snps))
+
+        if avg_corr > purity or cur_kl >= kl_threshold:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
-
-        corr_pop1 = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx])[0])
-        corr_pop2 = jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx])[1])
-        full_alphas[f"bothpurity_l{idx + 1}"] = jnp.minimum(corr_pop1, corr_pop2)
-        full_alphas[f"eitherpurity_l{idx + 1}"] = jnp.maximum(corr_pop1, corr_pop2)
-        total = Xs[0].shape[0] + Xs[1].shape[0]
-        full_alphas[f"averagepurity_l{idx + 1}"] = corr_pop1 * (
-            Xs[0].shape[0] / total
-        ) + corr_pop2 * (Xs[1].shape[0] / total)
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})

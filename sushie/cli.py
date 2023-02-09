@@ -401,6 +401,8 @@ def sushie_wrapper(
                 min_tol=args.min_tol,
                 threshold=args.threshold,
                 purity=args.purity,
+                no_kl=args.no_kl,
+                kl_threshold=args.kl_threshold,
             )
 
             pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
@@ -428,6 +430,8 @@ def sushie_wrapper(
             min_tol=args.min_tol,
             threshold=args.threshold,
             purity=args.purity,
+            no_kl=args.no_kl,
+            kl_threshold=args.kl_threshold,
         )
         result.append(tmp_result)
 
@@ -961,6 +965,27 @@ def build_finemap_parser(subp):
         help=(
             "Specify the purity threshold for credible sets to be output. Default is 0.5.",
             " It has to be a float number between 0 and 1.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--no_kl",
+        default=False,
+        action="store_true",
+        help=(
+            "Indicator to use KL divergence as alternative credible set pruning threshold in addition to purity.",
+            " Default is False. Specify --no_kl will store 'True' value and will not use KL divergence as",
+            " extra threshold. Specifying one ancestry in phenotype and genotype parameter will ignore --meta.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--kl_threshold",
+        default=5.0,
+        type=float,
+        help=(
+            "Specify the KL divergence threshold for credible sets to be output. Default is 5.",
+            " It has to be a positive number.",
         ),
     )
 
