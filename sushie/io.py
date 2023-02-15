@@ -165,7 +165,7 @@ def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
     bim = bim[["chrom", "snp", "pos", "a0", "a1"]]
     fam = fam[["iid"]]
     # we want bed file to be nxp
-    bed = bed.compute().T.astype("float64")
+    bed = jnp.array(bed.compute().T, dtype="float64")
     return bim, fam, bed
 
 
@@ -194,7 +194,7 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
         bed_list.append(tmp_bed)
 
     bim = pd.DataFrame(bim_list, columns=["chrom", "snp", "pos", "a0", "a1"])
-    bed = jnp.array(bed_list).T.astype("float64")
+    bed = jnp.array(bed_list, dtype="float64").T
 
     return bim, fam, bed
 
@@ -226,7 +226,9 @@ def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
     bim = pd.concat([bim, allele], axis=1).reset_index(drop=True)[
         ["chrom", "snp", "pos", "a0", "a1"]
     ]
-    bed = jnp.einsum("ijk,k->ij", bgen.read(), jnp.array([0, 1, 2])).astype("float64")
+    bed = jnp.array(
+        jnp.einsum("ijk,k->ij", bgen.read(), jnp.array([0, 1, 2])), dtype="float64"
+    )
 
     return bim, fam, bed
 

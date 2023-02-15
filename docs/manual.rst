@@ -115,6 +115,8 @@ For plink 1, SuShiE read in the triplet (bed, bim, and fam) prefix.
     cd ./data/
     sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --plink plink/EUR plink/AFR --output ~/test_result
 
+For bgen data, users need to make sure that the latter allele shown up in the ``allele ids`` is the reference allele.
+
 .. code:: bash
 
     cd ./data/
