@@ -135,22 +135,18 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - String
      - G
      - The reference allele. It matches the entries in the original genotype data.
-   * - pip
-     - Float
-     - 0.95
-     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`). The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`). For ``*.meta.cs.tsv`` and ``*.mega.cs.tsv``, it will have ``meta_pip`` and  ``mega_pip``, respectively.
    * - alpha_l1
      - Float
      - 0.8
      - The posterior probability of SNPs to be causal in the first credible set (:math:`\alpha_{l,j}` in :ref:`Model`). Depending on ``--L``, it can have extra columns.
-   * - c_alpha_l1
-     - Float
-     - 0.95
-     - The cumulative posterior probability of SNPs to be causal in the descending order. This decides which SNPs are included in the credible sets. Depending on ``--L``, it can have extra columns.
    * - in_cs_l1
      - Integer
      - 0, 1
      - The indicator whether the SNP is in the first credible set. Depending on ``--L``, it can have extra columns.
+   * - pass_pruning_l1
+     - Integer
+     - 0, 1
+     - The indicator whether the credible set passes the pruning threshold. Depending on ``--L``, it can have extra columns.
    * - trait
      - String
      - GeneABC
@@ -219,6 +215,10 @@ If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it 
      - Integer
      - 0, 1
      - The indicator whether the SNP is in the credible set (0 means no and 1 means yes). For ``*.meta.weights.tsv``, it will have ``ancestry1_in_cs``(It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_in_cs``.
+   * - n_snps
+     - Integer
+     - 500
+     - The number of total SNPs in the inference.
 
 .. _corrfile:
 Effect Size Correlation

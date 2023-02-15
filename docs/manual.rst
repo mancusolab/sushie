@@ -34,9 +34,23 @@ Users can download the latest repository and then use ``pip``:
 *We currently only support Python3.8+.*
 
 Data Preparation
-=================
+================
 
 SuShiE performs SNP fine-mapping on molecular data (e.g., gene expressions). Therefore, it requires at least phenotype and genotype data specified with the option to specify covariates.
+
+Although we highly recommend users to perform high-quality QC on their own genotype, phenotype, and covariate data, we implement following basic QCs in the software:
+
+#. Remove subjects with N/A values from either phenotype or covariates data.
+#. Remove SNPs that all subjects have N/A value.
+#. Impute SNPs that partial subjects have N/A value based on two times allele frequencies.
+#. Only keep subjects who have data in all the genotype, phenotype, and covariate data.
+#. Only keep SNPs that are available in all the ancestries.
+#. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
+
+See :func:`sushie.cli.process_raw` for these QCs' source codes.
+
+Testing Data
+------------
 
 We provide example data in ``./data/`` folder to test out SuShiE. All the data are in three ancestries: 489 European individuals (EUR), 639 African individuals (AFR), and 481 East Asian individuals (EAS).
 
@@ -226,7 +240,7 @@ Unless necessarily needed, we do not recommend to use 32-bit precision as it may
 .. _Param:
 
 Parameters
-=====================
+==========
 
 .. list-table::
    :header-rows: 1
@@ -321,6 +335,16 @@ Parameters
      - 0.5
      - ``--purity 0.5``
      - Specify the purity threshold for credible sets to be output. It has to be a float number between 0 and 1.
+   * - ``--no_kl``
+     - Boolean
+     - False
+     - ``--no_kl # will store as True``
+     - Indicator to use KL divergence as alternative credible set pruning threshold in addition to purity. Default is False. Specify ``--no_kl`` will store ``True`` value and will not use KL divergence as extra threshold.
+   * - ``--kl_threshold``
+     - float
+     - 5.0
+     - ``--kl_threshold 4.8``
+     - Specify the KL divergence threshold for credible sets to be output. Default is 5. It has to be a positive number.
    * - ``--meta``
      - Boolean
      - False
