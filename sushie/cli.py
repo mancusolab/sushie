@@ -163,14 +163,31 @@ def process_raw(
     n_pop = len(rawData)
 
     for idx in range(n_pop):
-        # remove NA/inf value
-        old_num = rawData[idx].fam.shape[0]
-        rawData[idx], del_num = _drop_nainf(rawData[idx])
+
+        # remove NA/inf value for subjects
+        old_subject_num = rawData[idx].fam.shape[0]
+        rawData[idx], del_num = _drop_na_subjects(rawData[idx])
 
         if del_num != 0:
             log.logger.warning(
-                f"Ancestry {idx + 1}: Drop {del_num} out of {old_num} subjects because of INF or NAN value"
-                + "in either genotype, phenotype, or covariate data."
+                f"Ancestry {idx + 1}: Drop {del_num} out of {old_subject_num} subjects because of INF or NAN value"
+                + " in either phenotype or covariate data."
+            )
+
+        old_snp_num = rawData[idx].bim.shape[0]
+        # impute genotype data even though we suggest users to impute the genotypes beforehand
+        rawData[idx], del_num, imp_num = _impute_geno(rawData[idx])
+
+        if del_num != 0:
+            log.logger.warning(
+                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because all subjects have NAN value"
+                + " in genotype data."
+            )
+
+        if imp_num != 0:
+            log.logger.warning(
+                f"Ancestry {idx + 1}: Impute {imp_num} out of {old_snp_num} SNPs with NAN value based on allele"
+                + " frequency."
             )
 
         # reset index and add index column to all dataset for future inter-ancestry or inter-dataset processing
@@ -181,8 +198,8 @@ def process_raw(
 
         if rawData[idx].fam.shape[0] == 0:
             raise ValueError(
-                f"Ancestry {idx + 1}: No common individuals across phenotype, covariates, "
-                + "genotype found. Please double check source data.",
+                f"Ancestry {idx + 1}: No common individuals across phenotype, covariates,"
+                + " genotype found. Please double check source data.",
             )
         else:
             log.logger.info(
@@ -447,7 +464,7 @@ def sushie_wrapper(
 
     if args.alphas:
         io.output_alphas(
-            result, pips, snps, output, args.trait, args.compress, meta=meta, mega=mega
+            result, snps, output, args.trait, args.compress, meta=meta, mega=mega
         )
 
     if not (mega or meta):
@@ -542,12 +559,10 @@ def _get_command_string(args):
     return base + "".join(rest_strs) + os.linesep
 
 
-def _drop_nainf(rawData: io.RawData) -> Tuple[io.RawData, int]:
+def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
     _, fam, bed, pheno, covar = rawData
 
     del_idx = jnp.array([], dtype=int)
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(bed).any(axis=1))[0])
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isinf(bed).any(axis=1))[0])
 
     val = jnp.array(pheno["pheno"])
     del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(val))[0])
@@ -573,6 +588,29 @@ def _drop_nainf(rawData: io.RawData) -> Tuple[io.RawData, int]:
     )
 
     return rawData, len(del_idx)
+
+
+def _impute_geno(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
+    bim, _, bed, _, _ = rawData
+
+    # if we observe SNPs have nan value for all participants (although not likely), drop them
+    del_idx = jnp.array([], dtype=int)
+    del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(bed).all(axis=0))[0])
+
+    bim = bim.drop(del_idx)
+    bed = jnp.delete(bed, del_idx, 1)
+
+    # if we observe SNPs that partially have nanvalue, impute them with column mean
+    col_mean = jnp.nanmean(bed, axis=0)
+    imp_idx = jnp.where(jnp.isnan(bed))
+    bed = bed.at[imp_idx].set(jnp.take(col_mean, imp_idx[1]))
+
+    rawData = rawData._replace(
+        bim=bim,
+        bed=bed,
+    )
+
+    return rawData, len(del_idx), len(jnp.unique(imp_idx[1]))
 
 
 def _reset_idx(rawData: io.RawData, idx: int) -> io.RawData:
@@ -975,7 +1013,7 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to use KL divergence as alternative credible set pruning threshold in addition to purity.",
             " Default is False. Specify --no_kl will store 'True' value and will not use KL divergence as",
-            " extra threshold. Specifying one ancestry in phenotype and genotype parameter will ignore --meta.",
+            " extra threshold.",
         ),
     )
 

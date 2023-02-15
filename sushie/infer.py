@@ -565,6 +565,9 @@ def make_cs(
 
         if avg_corr > purity or cur_kl >= kl_threshold:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
+            full_alphas[f"pass_pruning_l{idx + 1}"] = 1
+        else:
+            full_alphas[f"pass_pruning_l{idx + 1}"] = 0
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})

@@ -165,7 +165,7 @@ def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
     bim = bim[["chrom", "snp", "pos", "a0", "a1"]]
     fam = fam[["iid"]]
     # we want bed file to be nxp
-    bed = bed.compute().T
+    bed = bed.compute().T.astype("float64")
     return bim, fam, bed
 
 
@@ -194,7 +194,7 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
         bed_list.append(tmp_bed)
 
     bim = pd.DataFrame(bim_list, columns=["chrom", "snp", "pos", "a0", "a1"])
-    bed = jnp.array(bed_list).T
+    bed = jnp.array(bed_list).T.astype("float64")
 
     return bim, fam, bed
 
@@ -226,7 +226,7 @@ def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
     bim = pd.concat([bim, allele], axis=1).reset_index(drop=True)[
         ["chrom", "snp", "pos", "a0", "a1"]
     ]
-    bed = jnp.einsum("ijk,k->ij", bgen.read(), jnp.array([0, 1, 2]))
+    bed = jnp.einsum("ijk,k->ij", bgen.read(), jnp.array([0, 1, 2])).astype("float64")
 
     return bim, fam, bed
 
@@ -295,7 +295,6 @@ def output_cs(
 
 def output_alphas(
     result: List[infer.SushieResult],
-    meta_pip: Optional[jnp.ndarray],
     snps: pd.DataFrame,
     output: str,
     trait: str,
@@ -307,7 +306,6 @@ def output_alphas(
 
     Args:
         result: The sushie inference result.
-        meta_pip: The meta-analyzed PIPs from Meta SuShiE.
         snps: The SNP information table.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
@@ -325,9 +323,6 @@ def output_alphas(
         tmp_alphas = snps.merge(
             result[idx].alphas, how="inner", on=["SNPIndex"]
         ).assign(trait=trait, n_snps=snps.shape[0])
-
-        if meta_pip is not None:
-            tmp_alphas["meta_pip"] = meta_pip
 
         if meta:
             ancestry_idx = f"ancestry_{idx + 1}"
@@ -374,7 +369,7 @@ def output_weights(
     """
 
     n_pop = len(result[0].priors.resid_var)
-    weights = copy.deepcopy(snps).assign(trait=trait)
+    weights = copy.deepcopy(snps).assign(trait=trait, n_snps=snps.shape[0])
 
     for idx in range(len(result)):
         if meta:
@@ -403,9 +398,12 @@ def output_weights(
 
     if meta_pip is not None:
         weights["meta_pip"] = meta_pip
+        # if it's NOT in the credible set, make it 1
+        # multiply them across ancestries, to get the SNPs not in the credible sets for all ancestries
         tmp_cs = (weights["ancestry1_in_cs"] == 0) * 1
         for idx in range(1, len(result)):
             tmp_cs = tmp_cs * ((weights[f"ancestry{idx + 1}_in_cs"] == 0) * 1)
+        # negate it to get SNPs that are in at least one ancestries' credible sets
         weights["meta_in_cs"] = 1 - tmp_cs
 
     file_name = f"{output}.weights.tsv.gz" if compress else f"{output}.weights.tsv"
