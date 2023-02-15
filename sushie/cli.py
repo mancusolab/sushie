@@ -600,10 +600,13 @@ def _impute_geno(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
     bim = bim.drop(del_idx)
     bed = jnp.delete(bed, del_idx, 1)
 
-    # if we observe SNPs that partially have nanvalue, impute them with column mean
+    # if we observe SNPs that partially have nan value, impute them with column mean
     col_mean = jnp.nanmean(bed, axis=0)
     imp_idx = jnp.where(jnp.isnan(bed))
-    bed = bed.at[imp_idx].set(jnp.take(col_mean, imp_idx[1]))
+
+    # column is the SNP index
+    if len(imp_idx[1]) != 0:
+        bed = bed.at[imp_idx].set(jnp.take(col_mean, imp_idx[1]))
 
     rawData = rawData._replace(
         bim=bim,
