@@ -63,7 +63,7 @@ def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.n
     t_scores = beta / se
     p_value = jnp.array(2 * stats.t.sf(abs(t_scores), df=df))
 
-    r_sq = 1 - rss / jnp.sum((y - jnp.mean(y)) ** 2)
+    r_sq = 1 - rss / jnp.sum((y - jnp.mean(y, axis=0)) ** 2, axis=0)
     adj_r = 1 - (1 - r_sq) * (q_matrix.shape[0] - 1) / df
 
     return residual, adj_r, p_value
@@ -96,7 +96,7 @@ def regress_covar(
 
 def estimate_her(
     X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray = None
-) -> Tuple[float, float, float, float, float]:
+) -> Tuple[float, jnp.ndarray, float, float, float]:
     """Calculate proportion of expression variation explained by genotypes (cis-heritability; :math:`h_g^2`).
 
     Args:

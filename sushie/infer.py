@@ -584,7 +584,7 @@ def _update_effects(
     posteriors: Posterior,
     prior_adjustor: _PriorAdjustor,
     opt_v_func: _AbstractOptFunc,
-) -> Tuple[Prior, Posterior, float]:
+) -> Tuple[Prior, Posterior, jnp.ndarray]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
     ns = [X.shape[0] for X in Xs]
     residual = []
@@ -752,7 +752,7 @@ def _eloglike(
 def _kl_categorical(
     alpha: jnp.ndarray,
     pi: jnp.ndarray,
-) -> float:
+) -> jnp.ndarray:
     return jnp.nansum(alpha * (jnp.log(alpha) - jnp.log(pi)))
 
 
