@@ -744,7 +744,7 @@ def _prepare_cv(
     return cv_data
 
 
-def _run_cv(args, cv_data) -> List[List[float]]:
+def _run_cv(args, cv_data) -> List[List[jnp.ndarray]]:
     n_pop = len(cv_data[0].train_geno)
     # create a list to store future estimated y value
     est_y = [jnp.array([])] * n_pop

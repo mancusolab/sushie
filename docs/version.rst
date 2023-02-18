@@ -11,3 +11,5 @@ Version History
      - Description
    * - 0.1
      - Initial Release
+   * - 0.11
+     - Fix the bug for OLS to compute adjusted r squared.
