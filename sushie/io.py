@@ -515,19 +515,19 @@ def output_corr(
     """
 
     n_pop = len(result[0].priors.resid_var)
+    raw_corr = result[0].posteriors.weighted_sum_covar
+    n_l = len(raw_corr)
+    tmp_corr = jnp.transpose(raw_corr)
+    corr = pd.DataFrame(data={"trait": trait, "CSIndex": (jnp.arange(n_l) + 1)})
 
-    CSIndex = jnp.unique(result[0].cs.CSIndex.values.astype(int))
-    # only output after-purity CS
-    corr_cs_only = jnp.transpose(result[0].posteriors.weighted_sum_covar[CSIndex - 1])
-    corr = pd.DataFrame(data={"trait": trait, "CSIndex": CSIndex})
     for idx in range(n_pop):
-        _var = corr_cs_only[idx, idx]
+        _var = tmp_corr[idx, idx]
         tmp_pd = pd.DataFrame(data={f"ancestry{idx + 1}_est_var": _var})
         corr = pd.concat([corr, tmp_pd], axis=1)
         for jdx in range(idx + 1, n_pop):
-            _covar = corr_cs_only[idx, jdx]
-            _var1 = corr_cs_only[idx, idx]
-            _var2 = corr_cs_only[jdx, jdx]
+            _covar = tmp_corr[idx, jdx]
+            _var1 = tmp_corr[idx, idx]
+            _var2 = tmp_corr[jdx, jdx]
             _corr = _covar / jnp.sqrt(_var1 * _var2)
             tmp_pd_covar = pd.DataFrame(
                 data={f"ancestry{idx + 1}_ancestry{jdx + 1}_est_covar": _covar}
@@ -536,9 +536,6 @@ def output_corr(
                 data={f"ancestry{idx + 1}_ancestry{jdx + 1}_est_corr": _corr}
             )
             corr = pd.concat([corr, tmp_pd_covar, tmp_pd_corr], axis=1)
-
-    if corr.shape[0] == 0:
-        corr = corr.append({"trait": trait}, ignore_index=True)
 
     file_name = f"{output}.corr.tsv.gz" if compress else f"{output}.corr.tsv"
 
