@@ -195,7 +195,7 @@ def infer_sushie(
         effect_var: Prior causal effect size variance (:math:`\\sigma^2_{i,b}` in :ref:`Model`).
             Default is :math:`0.001` by specifying it as ``None``.
         rho: Prior effect size correlation (:math:`\\rho` in :ref:`Model`).
-            Default is :math:`0.8` by specifying it as ``None``.
+            Default is :math:`0.1` by specifying it as ``None``.
         max_iter: The maximum iteration for optimization.
         min_tol: The convergence tolerance.
         threshold: The credible set threshold.
@@ -317,7 +317,7 @@ def infer_sushie(
     exp_num_rho = math.comb(n_pop, 2)
     param_rho = rho
     if rho is None:
-        rho = [0.8] * exp_num_rho
+        rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
             log.logger.info(
