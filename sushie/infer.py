@@ -714,7 +714,7 @@ def _compute_posterior(
     weighted_post_mean = post_mean * alpha[:, jnp.newaxis]
     weighted_post_mean_sq = post_mean_sq * alpha[:, jnp.newaxis, jnp.newaxis]
     # this is also the prior in our E step
-    weighted_sum_covar = jnp.einsum("j,jmn->mn", alpha, post_mean_sq)
+    weighted_sum_covar = jnp.sum(weighted_post_mean_sq, axis=0)
     kl_alpha = _kl_categorical(alpha, priors.pi)
     kl_betas = alpha @ _kl_mvn(post_mean, post_covar, 0.0, prior_covar)
 
