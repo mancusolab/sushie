@@ -920,7 +920,7 @@ def build_finemap_parser(subp):
         default=None,
         type=float,
         help=(
-            "Specify the prior for the effect correlation for ancestries. Default is 0.1 for each pair of ancestries.",
+            "Specify the prior for the effect correlation for ancestries. Default is 0 for each pair of ancestries.",
             " Use 'space' to separate ancestries if more than two. Each rho has to be a float number between -1 and 1.",
             " If there are N > 2 ancestries, X = choose(N, 2) is required.",
             " The rho order has to be rho(1,2), ..., rho(1, N), rho(2,3), ..., rho(N-1. N).",
