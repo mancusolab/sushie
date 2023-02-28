@@ -317,7 +317,7 @@ def infer_sushie(
     exp_num_rho = math.comb(n_pop, 2)
     param_rho = rho
     if rho is None:
-        rho = [0.0] * exp_num_rho
+        rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
             log.logger.info(
