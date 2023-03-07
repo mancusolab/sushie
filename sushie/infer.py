@@ -610,7 +610,7 @@ def _update_effects(
     sigma2_list = []
     exp_ll = 0.0
     tr_b_s = posteriors.post_mean.T
-    tr_bsq_s = jnp.einsum("nmij,ij->nmi", posteriors.post_mean_sq, jnp.eye(n_pop)).T
+    tr_bsq_s = jnp.diagonal(posteriors.post_mean_sq, axis1=2, axis2=3).T
     for idx in range(n_pop):
         tmp_sigma2 = _erss(Xs[idx], ys[idx], tr_b_s[idx], tr_bsq_s[idx]) / ns[idx]
         sigma2_list.append(tmp_sigma2)
