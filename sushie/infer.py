@@ -77,8 +77,8 @@ class SushieResult(NamedTuple):
     pip: jnp.ndarray
     cs: pd.DataFrame
     alphas: pd.DataFrame
-    sample_size: List[int]
-    elbo: float
+    sample_size: jnp.ndarray
+    elbo: jnp.ndarray
     elbo_increase: bool
 
 
@@ -94,6 +94,7 @@ class _AbstractOptFunc(ABC):
         self,
         beta_hat: jnp.ndarray,
         shat2: utils.ArrayOrFloat,
+        inv_shat2: utils.ArrayOrFloat,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
@@ -116,9 +117,9 @@ class _AbstractOptFunc(ABC):
 
 
 class _LResult(NamedTuple):
-    Xs: List[jnp.ndarray]
-    ys: List[jnp.ndarray]
-    XtXs: List[jnp.ndarray]
+    Xs: jnp.ndarray
+    ys: jnp.ndarray
+    XtXs: jnp.ndarray
     priors: Prior
     posteriors: Posterior
     prior_adjustor: _PriorAdjustor
@@ -130,12 +131,15 @@ class _EMOptFunc(_AbstractOptFunc):
         self,
         beta_hat: jnp.ndarray,
         shat2: utils.ArrayOrFloat,
+        inv_shat2: utils.ArrayOrFloat,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
         l_iter: int,
     ) -> Prior:
-        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+        priors, _ = _compute_posterior(
+            beta_hat, shat2, inv_shat2, priors, posteriors, l_iter
+        )
 
         return priors
 
@@ -145,12 +149,15 @@ class _NoopOptFunc(_AbstractOptFunc):
         self,
         beta_hat: jnp.ndarray,
         shat2: utils.ArrayOrFloat,
+        inv_shat2: utils.ArrayOrFloat,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
         l_iter: int,
     ) -> Prior:
-        priors, _ = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
+        priors, _ = _compute_posterior(
+            beta_hat, shat2, inv_shat2, priors, posteriors, l_iter
+        )
         priors = priors._replace(
             effect_covar=priors.effect_covar.at[l_iter].set(
                 priors.effect_covar[l_iter] * prior_adjustor.times + prior_adjustor.plus
@@ -382,7 +389,7 @@ def infer_sushie(
 
     priors = Prior(
         pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
-        resid_var=jnp.array(resid_var),
+        resid_var=jnp.array(resid_var)[:, jnp.newaxis],
         # L x k x k
         effect_covar=jnp.array([effect_covar] * L),
     )
@@ -399,12 +406,20 @@ def infer_sushie(
     # opt_v_func = NoopOptFunc() would work
     opt_v_func = _EMOptFunc() if not no_update else _NoopOptFunc()
 
-    XtXs = []
+    # padding
+    ns = jnp.array([X.shape[0] for X in Xs])[:, jnp.newaxis]
+    p_max = jnp.max(ns)
     for idx in range(n_pop):
-        XtXs.append(jnp.sum(Xs[idx] ** 2, axis=0))
+        # ((a,b), (c,d)) where a means top, b means bottom, c means left, and d means right
+        Xs[idx] = jnp.pad(
+            Xs[idx], ((0, p_max - jnp.squeeze(ns[idx])), (0, 0)), "constant"
+        )
+        ys[idx] = jnp.pad(ys[idx], (0, p_max - jnp.squeeze(ns[idx])), "constant")
+    Xs = jnp.array(Xs)
+    ys = jnp.array(ys)
+    XtXs = jnp.sum(Xs ** 2, axis=1)
 
-    elbo_last = -jnp.inf
-    elbo_cur = -jnp.inf
+    elbo_tracker = jnp.array([-jnp.inf])
     elbo_increase = True
     for o_iter in range(max_iter):
         prev_priors = priors
@@ -414,11 +429,14 @@ def infer_sushie(
             Xs,
             ys,
             XtXs,
+            ns,
             priors,
             posteriors,
             prior_adjustor,
             opt_v_func,
         )
+        elbo_last = elbo_tracker[o_iter]
+        elbo_tracker = jnp.append(elbo_tracker, elbo_cur)
         elbo_increase = elbo_cur < elbo_last and (
             not jnp.isclose(elbo_cur, elbo_last, atol=1e-8)
         )
@@ -448,17 +466,217 @@ def infer_sushie(
                 f"Optimization finished after {o_iter + 1} iterations. Final ELBO score: {elbo_cur}."
                 + f" Reach maximum iteration threshold {max_iter}.",
             )
-        elbo_last = elbo_cur
 
-    sample_size = [X.shape[0] for X in Xs]
     pip = make_pip(posteriors.alpha)
     cs, full_alphas = make_cs(
-        posteriors.alpha, Xs, pip, threshold, purity, no_kl, kl_threshold
+        posteriors.alpha, Xs, ns, pip, threshold, purity, no_kl, kl_threshold
     )
 
     return SushieResult(
-        priors, posteriors, pip, cs, full_alphas, sample_size, elbo_cur, elbo_increase
+        priors, posteriors, pip, cs, full_alphas, ns, elbo_tracker, elbo_increase
     )
+
+
+@jit
+def _update_effects(
+    Xs: jnp.ndarray,
+    ys: jnp.ndarray,
+    XtXs: jnp.ndarray,
+    ns: jnp.ndarray,
+    priors: Prior,
+    posteriors: Posterior,
+    prior_adjustor: _PriorAdjustor,
+    opt_v_func: _AbstractOptFunc,
+) -> Tuple[Prior, Posterior, jnp.ndarray]:
+    l_dim, n_snps, n_pop = posteriors.post_mean.shape
+
+    post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
+
+    residual = ys - jnp.einsum("ijk,ik->ij", Xs, post_mean_lsum.T)
+    init_l_result = _LResult(
+        Xs=Xs,
+        ys=residual,
+        XtXs=XtXs,
+        priors=priors,
+        posteriors=posteriors,
+        prior_adjustor=prior_adjustor,
+        opt_v_func=opt_v_func,
+    )
+
+    l_result = lax.fori_loop(0, l_dim, _update_l, init_l_result)
+
+    _, _, _, priors, posteriors, _, _ = l_result
+
+    tr_b_s = posteriors.post_mean.T
+    tr_bsq_s = jnp.diagonal(posteriors.post_mean_sq, axis1=2, axis2=3).T
+    exp_ll = jnp.sum(_eloglike(Xs, ys, ns, tr_b_s, tr_bsq_s, priors.resid_var))
+    sigma2 = _erss(Xs, ys, tr_b_s, tr_bsq_s)[:, jnp.newaxis] / ns
+    kl_divs = jnp.sum(posteriors.kl)
+    elbo_score = exp_ll - kl_divs
+    priors = priors._replace(resid_var=sigma2)
+    return priors, posteriors, elbo_score
+
+
+def _update_l(l_iter: int, param: _LResult) -> _LResult:
+    Xs, residual, XtXs, priors, posteriors, prior_adjustor, opt_v_func = param
+
+    residual_l = residual + jnp.einsum("ijk,ik->ij", Xs, posteriors.post_mean[l_iter].T)
+
+    priors, posteriors = _ssr(
+        Xs,
+        residual_l,
+        XtXs,
+        priors,
+        posteriors,
+        prior_adjustor,
+        l_iter,
+        opt_v_func,
+    )
+
+    residual = residual_l - jnp.einsum("ijk,ik->ij", Xs, posteriors.post_mean[l_iter].T)
+
+    update_param = param._replace(
+        ys=residual,
+        priors=priors,
+        posteriors=posteriors,
+    )
+
+    return update_param
+
+
+def _ssr(
+    Xs: jnp.ndarray,
+    ys: jnp.ndarray,
+    XtXs: jnp.ndarray,
+    priors: Prior,
+    posteriors: Posterior,
+    prior_adjustor: _PriorAdjustor,
+    l_iter: int,
+    opt_v_func: _AbstractOptFunc,
+) -> Tuple[Prior, Posterior]:
+    n_pop, _, n_snps = Xs.shape
+
+    Xty = jnp.einsum("ijk,ij->ik", Xs, ys)
+    beta_hat = (Xty / XtXs).T
+    shat2 = priors.resid_var / XtXs
+
+    shat2 = jnp.eye(n_pop) * shat2.T[:, jnp.newaxis]
+
+    inv_shat2 = jnp.eye(n_pop) * (
+        1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
+    )
+
+    priors = opt_v_func(
+        beta_hat, shat2, inv_shat2, priors, posteriors, prior_adjustor, l_iter
+    )
+
+    _, posteriors = _compute_posterior(
+        beta_hat, shat2, inv_shat2, priors, posteriors, l_iter
+    )
+
+    return priors, posteriors
+
+
+def _compute_posterior(
+    beta_hat: jnp.ndarray,
+    shat2: jnp.ndarray,
+    inv_shat2: jnp.ndarray,
+    priors: Prior,
+    posteriors: Posterior,
+    l_iter: int,
+) -> Tuple[Prior, Posterior]:
+    n_snps, n_pop = beta_hat.shape
+
+    prior_covar = priors.effect_covar[l_iter]
+    post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
+    rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
+
+    post_mean = jnp.einsum("ijk,ik->ij", post_covar, rTZDinv)
+    post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
+    alpha = nn.softmax(
+        jnp.log(priors.pi)
+        - stats.multivariate_normal.logpdf(
+            jnp.zeros((n_snps, n_pop)), post_mean, post_covar
+        )
+    )
+    weighted_post_mean = post_mean * alpha[:, jnp.newaxis]
+    weighted_post_mean_sq = post_mean_sq * alpha[:, jnp.newaxis, jnp.newaxis]
+    # this is also the prior in our E step
+    weighted_sum_covar = jnp.sum(weighted_post_mean_sq, axis=0)
+    kl_alpha = _kl_categorical(alpha, priors.pi)
+    kl_betas = alpha @ _kl_mvn(post_mean, post_covar, 0.0, prior_covar)
+
+    priors = priors._replace(
+        effect_covar=priors.effect_covar.at[l_iter].set(weighted_sum_covar)
+    )
+
+    posteriors = posteriors._replace(
+        alpha=posteriors.alpha.at[l_iter].set(alpha),
+        post_mean=posteriors.post_mean.at[l_iter].set(weighted_post_mean),
+        post_mean_sq=posteriors.post_mean_sq.at[l_iter].set(weighted_post_mean_sq),
+        weighted_sum_covar=posteriors.weighted_sum_covar.at[l_iter].set(
+            weighted_sum_covar
+        ),
+        kl=posteriors.kl.at[l_iter].set(kl_alpha + kl_betas),
+    )
+
+    return priors, posteriors
+
+
+def _kl_categorical(
+    alpha: jnp.ndarray,
+    pi: jnp.ndarray,
+) -> jnp.ndarray:
+    return jnp.nansum(alpha * (jnp.log(alpha) - jnp.log(pi)))
+
+
+def _kl_mvn(
+    m0: jnp.ndarray,
+    sigma0: jnp.ndarray,
+    m1: float,
+    sigma1: jnp.ndarray,
+) -> float:
+    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
+    k, _ = sigma1.shape
+
+    p1 = (
+        jnp.trace(
+            jnp.einsum("ij,kjm->kim", jnp.linalg.inv(sigma1), sigma0), axis1=1, axis2=2
+        )
+        - k
+    )
+    p2 = jnp.einsum("ij,jm,im->i", (m1 - m0), jnp.linalg.inv(sigma1), (m1 - m0))
+
+    _, sld1 = jnp.linalg.slogdet(sigma1)
+    _, sld0 = jnp.linalg.slogdet(sigma0)
+
+    p3 = sld1 - sld0
+
+    return 0.5 * (p1 + p2 + p3)
+
+
+def _eloglike(
+    X: jnp.ndarray,
+    y: jnp.ndarray,
+    ns: jnp.ndarray,
+    beta: jnp.ndarray,
+    beta_sq: jnp.ndarray,
+    sigma_sq: jnp.ndarray,
+) -> jnp.ndarray:
+    norm_term = -(0.5 * ns) * jnp.log(2 * jnp.pi * sigma_sq)
+    quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)[:, jnp.newaxis]
+    return norm_term + quad_term
+
+
+def _erss(
+    X: jnp.ndarray, y: jnp.ndarray, beta: jnp.ndarray, beta_sq: jnp.ndarray
+) -> jnp.ndarray:
+    mu_li = jnp.einsum("ijk,ikm->ijm", X, beta)
+    mu2_li = jnp.einsum("ijk,ikm->ijm", X ** 2, beta_sq)
+
+    term_1 = jnp.sum((y - jnp.sum(mu_li, axis=2)) ** 2, axis=1)
+    term_2 = jnp.sum(mu2_li - (mu_li ** 2), axis=(1, 2))
+    return term_1 + term_2
 
 
 def make_pip(alpha: jnp.ndarray) -> jnp.ndarray:
@@ -480,7 +698,8 @@ def make_pip(alpha: jnp.ndarray) -> jnp.ndarray:
 
 def make_cs(
     alpha: jnp.ndarray,
-    Xs: List[jnp.ndarray],
+    Xs: jnp.ndarray,
+    ns: jnp.ndarray,
     pip: jnp.ndarray,
     threshold: float = 0.9,
     purity: float = 0.5,
@@ -510,7 +729,8 @@ def make_cs(
     t_alpha = pd.DataFrame(alpha.T).reset_index()
 
     # ld is always pxp, so it can be converted to jnp.array
-    ld = jnp.array([x.T @ x / x.shape[0] for x in Xs])
+    ld = jnp.einsum("ijk,ijm->ikm", Xs, Xs) / ns[:, jnp.newaxis]
+
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
 
@@ -549,19 +769,19 @@ def make_cs(
 
         # check the purity
         snp_idx = tmp_cs.SNPIndex.values.astype("int64")
-        sample_size = jnp.array([X.shape[0] for X in Xs])
-        ss_weight = sample_size / jnp.sum(sample_size)
-
-        avg_corr = 0
-        for jdx in range(len(ld)):
-            avg_corr += (
-                jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx])[jdx]) * ss_weight[jdx]
-            )
+        ss_weight = ns / jnp.sum(ns)
+        avg_corr = jnp.sum(
+            jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]), axis=(1, 2))[:, jnp.newaxis]
+            * ss_weight
+        )
 
         cur_kl = -jnp.inf
         if not no_kl:
             cur_alphas = tmp_pd[f"alpha_l{idx + 1}"].values
             cur_kl = jnp.sum(cur_alphas * jnp.log(cur_alphas * n_snps))
+
+        full_alphas[f"purity_l{idx + 1}"] = avg_corr
+        full_alphas[f"kl_l{idx + 1}"] = cur_kl
 
         if avg_corr > purity or cur_kl >= kl_threshold:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
@@ -573,221 +793,3 @@ def make_cs(
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
 
     return cs, full_alphas
-
-
-@jit
-def _update_effects(
-    Xs: List[jnp.ndarray],
-    ys: List[jnp.ndarray],
-    XtXs: List[jnp.ndarray],
-    priors: Prior,
-    posteriors: Posterior,
-    prior_adjustor: _PriorAdjustor,
-    opt_v_func: _AbstractOptFunc,
-) -> Tuple[Prior, Posterior, jnp.ndarray]:
-    l_dim, n_snps, n_pop = posteriors.post_mean.shape
-    ns = [X.shape[0] for X in Xs]
-    residual = []
-
-    post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
-    for idx in range(n_pop):
-        residual.append(ys[idx] - Xs[idx] @ post_mean_lsum[:, idx])
-
-    init_l_result = _LResult(
-        Xs=Xs,
-        ys=residual,
-        XtXs=XtXs,
-        priors=priors,
-        posteriors=posteriors,
-        prior_adjustor=prior_adjustor,
-        opt_v_func=opt_v_func,
-    )
-
-    l_result = lax.fori_loop(0, l_dim, _update_l, init_l_result)
-
-    _, _, _, priors, posteriors, _, _ = l_result
-
-    sigma2_list = []
-    exp_ll = 0.0
-    tr_b_s = posteriors.post_mean.T
-    tr_bsq_s = jnp.diagonal(posteriors.post_mean_sq, axis1=2, axis2=3).T
-    for idx in range(n_pop):
-        tmp_sigma2 = _erss(Xs[idx], ys[idx], tr_b_s[idx], tr_bsq_s[idx]) / ns[idx]
-        sigma2_list.append(tmp_sigma2)
-        exp_ll += _eloglike(Xs[idx], ys[idx], tr_b_s[idx], tr_bsq_s[idx], tmp_sigma2)
-
-    priors = priors._replace(resid_var=jnp.array(sigma2_list))
-    kl_divs = jnp.sum(posteriors.kl)
-    elbo_score = exp_ll - kl_divs
-
-    return priors, posteriors, elbo_score
-
-
-def _update_l(l_iter: int, param: _LResult) -> _LResult:
-    Xs, residual, XtXs, priors, posteriors, prior_adjustor, opt_v_func = param
-    n_pop = len(Xs)
-    residual_l = []
-
-    for idx in range(n_pop):
-        residual_l.append(
-            residual[idx] + Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
-        )
-
-    priors, posteriors = _ssr(
-        Xs,
-        residual_l,
-        XtXs,
-        priors,
-        posteriors,
-        prior_adjustor,
-        l_iter,
-        opt_v_func,
-    )
-
-    for idx in range(n_pop):
-        residual[idx] = residual_l[idx] - Xs[idx] @ posteriors.post_mean[l_iter, :, idx]
-
-    update_param = param._replace(
-        ys=residual,
-        priors=priors,
-        posteriors=posteriors,
-    )
-
-    return update_param
-
-
-def _ssr(
-    Xs: List[jnp.ndarray],
-    ys: List[jnp.ndarray],
-    XtXs: List[jnp.ndarray],
-    priors: Prior,
-    posteriors: Posterior,
-    prior_adjustor: _PriorAdjustor,
-    l_iter: int,
-    opt_v_func: _AbstractOptFunc,
-) -> Tuple[Prior, Posterior]:
-    n_pop = len(Xs)
-    _, n_snps = Xs[0].shape
-
-    beta_hat = jnp.zeros((n_snps, n_pop))
-    shat2 = jnp.zeros((n_snps, n_pop))
-
-    for idx in range(n_pop):
-        Xty = Xs[idx].T @ ys[idx]
-        beta_hat = beta_hat.at[:, idx].set(Xty / XtXs[idx])
-        shat2 = shat2.at[:, idx].set(priors.resid_var[idx] / XtXs[idx])
-
-    shat2 = jnp.eye(n_pop) * (shat2[:, jnp.newaxis])
-
-    priors = opt_v_func(beta_hat, shat2, priors, posteriors, prior_adjustor, l_iter)
-
-    _, posteriors = _compute_posterior(beta_hat, shat2, priors, posteriors, l_iter)
-
-    return priors, posteriors
-
-
-def _compute_posterior(
-    beta_hat: jnp.ndarray,
-    shat2: utils.ArrayOrFloat,
-    priors: Prior,
-    posteriors: Posterior,
-    l_iter: int,
-) -> Tuple[Prior, Posterior]:
-    n_snps, n_pop = beta_hat.shape
-    # quick way to calculate the inverse instead of using linalg.inv
-    inv_shat2 = jnp.eye(n_pop) * (
-        1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
-    )
-
-    prior_covar = priors.effect_covar[l_iter]
-    post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
-    rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
-
-    post_mean = jnp.einsum("ijk,ik->ij", post_covar, rTZDinv)
-    post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
-    alpha = nn.softmax(
-        jnp.log(priors.pi)
-        - stats.multivariate_normal.logpdf(
-            jnp.zeros((n_snps, n_pop)), post_mean, post_covar
-        )
-    )
-    weighted_post_mean = post_mean * alpha[:, jnp.newaxis]
-    weighted_post_mean_sq = post_mean_sq * alpha[:, jnp.newaxis, jnp.newaxis]
-    # this is also the prior in our E step
-    weighted_sum_covar = jnp.sum(weighted_post_mean_sq, axis=0)
-    kl_alpha = _kl_categorical(alpha, priors.pi)
-    kl_betas = alpha @ _kl_mvn(post_mean, post_covar, 0.0, prior_covar)
-
-    priors = priors._replace(
-        effect_covar=priors.effect_covar.at[l_iter].set(weighted_sum_covar)
-    )
-
-    posteriors = posteriors._replace(
-        alpha=posteriors.alpha.at[l_iter].set(alpha),
-        post_mean=posteriors.post_mean.at[l_iter].set(weighted_post_mean),
-        post_mean_sq=posteriors.post_mean_sq.at[l_iter].set(weighted_post_mean_sq),
-        weighted_sum_covar=posteriors.weighted_sum_covar.at[l_iter].set(
-            weighted_sum_covar
-        ),
-        kl=posteriors.kl.at[l_iter].set(kl_alpha + kl_betas),
-    )
-
-    return priors, posteriors
-
-
-def _eloglike(
-    X: jnp.ndarray,
-    y: jnp.ndarray,
-    beta: jnp.ndarray,
-    beta_sq: jnp.ndarray,
-    sigma_sq: utils.ArrayOrFloat,
-) -> utils.ArrayOrFloat:
-    n, _ = X.shape
-    norm_term = -(0.5 * n) * jnp.log(2 * jnp.pi * sigma_sq)
-    quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)
-
-    return norm_term + quad_term
-
-
-def _kl_categorical(
-    alpha: jnp.ndarray,
-    pi: jnp.ndarray,
-) -> jnp.ndarray:
-    return jnp.nansum(alpha * (jnp.log(alpha) - jnp.log(pi)))
-
-
-def _kl_mvn(
-    m0: jnp.ndarray,
-    sigma0: jnp.ndarray,
-    m1: float,
-    sigma1: jnp.ndarray,
-) -> float:
-    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
-    k, _ = sigma1.shape
-
-    p1 = (
-        jnp.trace(
-            jnp.einsum("ij,kjm->kim", jnp.linalg.inv(sigma1), sigma0), axis1=1, axis2=2
-        )
-        - k
-    )
-    p2 = jnp.einsum("ij,jm,im->i", (m1 - m0), jnp.linalg.inv(sigma1), (m1 - m0))
-
-    _, sld1 = jnp.linalg.slogdet(sigma1)
-    _, sld0 = jnp.linalg.slogdet(sigma0)
-
-    p3 = sld1 - sld0
-
-    return 0.5 * (p1 + p2 + p3)
-
-
-def _erss(
-    X: jnp.ndarray, y: jnp.ndarray, beta: jnp.ndarray, beta_sq: jnp.ndarray
-) -> utils.ArrayOrFloat:
-    mu_li = X @ beta
-    mu2_li = (X ** 2) @ beta_sq
-
-    term_1 = jnp.sum((y - jnp.sum(mu_li, axis=1)) ** 2)
-    term_2 = jnp.sum(mu2_li - (mu_li ** 2))
-
-    return term_1 + term_2
