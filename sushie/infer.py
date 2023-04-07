@@ -1,13 +1,14 @@
 import math
-from abc import ABC, abstractmethod
+from abc import ABCMeta, abstractmethod
 from typing import List, NamedTuple, Tuple
 
+import equinox as eqx
 import pandas as pd
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-from jax import jit, lax, nn
-from jax.tree_util import register_pytree_node, register_pytree_node_class
+from jax import Array, jit, lax, nn
+from jax.typing import ArrayLike
 
 from . import log, utils
 
@@ -31,9 +32,9 @@ class Prior(NamedTuple):
 
     """
 
-    pi: jnp.ndarray
-    resid_var: jnp.ndarray
-    effect_covar: jnp.ndarray
+    pi: Array
+    resid_var: Array
+    effect_covar: Array
 
 
 class Posterior(NamedTuple):
@@ -50,11 +51,11 @@ class Posterior(NamedTuple):
 
     """
 
-    alpha: jnp.ndarray
-    post_mean: jnp.ndarray
-    post_mean_sq: jnp.ndarray
-    weighted_sum_covar: jnp.ndarray
-    kl: jnp.ndarray
+    alpha: Array
+    post_mean: Array
+    post_mean_sq: Array
+    weighted_sum_covar: Array
+    kl: Array
 
 
 class SushieResult(NamedTuple):
@@ -74,27 +75,26 @@ class SushieResult(NamedTuple):
 
     priors: Prior
     posteriors: Posterior
-    pip: jnp.ndarray
+    pip: Array
     cs: pd.DataFrame
     alphas: pd.DataFrame
-    sample_size: jnp.ndarray
-    elbo: jnp.ndarray
+    sample_size: Array
+    elbo: Array
     elbo_increase: bool
 
 
 class _PriorAdjustor(NamedTuple):
-    times: jnp.ndarray
-    plus: jnp.ndarray
+    times: Array
+    plus: Array
 
 
-@register_pytree_node_class
-class _AbstractOptFunc(ABC):
+class _AbstractOptFunc(eqx.Module, metaclass=ABCMeta):
     @abstractmethod
     def __call__(
         self,
-        beta_hat: jnp.ndarray,
-        shat2: utils.ArrayOrFloat,
-        inv_shat2: utils.ArrayOrFloat,
+        beta_hat: ArrayLike,
+        shat2: ArrayLike,
+        inv_shat2: ArrayLike,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
@@ -102,24 +102,11 @@ class _AbstractOptFunc(ABC):
     ) -> Prior:
         pass
 
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
-
-    def tree_flatten(self):
-        children = ()
-        aux = ()
-        return (children, aux)
-
-    @classmethod
-    def tree_unflatten(cls, aux, children):
-        return cls()
-
 
 class _LResult(NamedTuple):
-    Xs: jnp.ndarray
-    ys: jnp.ndarray
-    XtXs: jnp.ndarray
+    Xs: Array
+    ys: Array
+    XtXs: Array
     priors: Prior
     posteriors: Posterior
     prior_adjustor: _PriorAdjustor
@@ -129,9 +116,9 @@ class _LResult(NamedTuple):
 class _EMOptFunc(_AbstractOptFunc):
     def __call__(
         self,
-        beta_hat: jnp.ndarray,
-        shat2: utils.ArrayOrFloat,
-        inv_shat2: utils.ArrayOrFloat,
+        beta_hat: ArrayLike,
+        shat2: ArrayLike,
+        inv_shat2: ArrayLike,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
@@ -147,9 +134,9 @@ class _EMOptFunc(_AbstractOptFunc):
 class _NoopOptFunc(_AbstractOptFunc):
     def __call__(
         self,
-        beta_hat: jnp.ndarray,
-        shat2: utils.ArrayOrFloat,
-        inv_shat2: utils.ArrayOrFloat,
+        beta_hat: ArrayLike,
+        shat2: ArrayLike,
+        inv_shat2: ArrayLike,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
@@ -167,14 +154,14 @@ class _NoopOptFunc(_AbstractOptFunc):
 
 
 def infer_sushie(
-    Xs: List[jnp.ndarray],
-    ys: List[jnp.ndarray],
+    Xs: List[ArrayLike],
+    ys: List[ArrayLike],
     covar: utils.ListArrayOrNone = None,
     L: int = 5,
     no_scale: bool = False,
     no_regress: bool = False,
     no_update: bool = False,
-    pi: jnp.ndarray = None,
+    pi: Array = None,
     resid_var: utils.ListFloatOrNone = None,
     effect_var: utils.ListFloatOrNone = None,
     rho: utils.ListFloatOrNone = None,
@@ -479,15 +466,15 @@ def infer_sushie(
 
 @jit
 def _update_effects(
-    Xs: jnp.ndarray,
-    ys: jnp.ndarray,
-    XtXs: jnp.ndarray,
-    ns: jnp.ndarray,
+    Xs: ArrayLike,
+    ys: ArrayLike,
+    XtXs: ArrayLike,
+    ns: ArrayLike,
     priors: Prior,
     posteriors: Posterior,
     prior_adjustor: _PriorAdjustor,
     opt_v_func: _AbstractOptFunc,
-) -> Tuple[Prior, Posterior, jnp.ndarray]:
+) -> Tuple[Prior, Posterior, Array]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
 
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
@@ -509,11 +496,15 @@ def _update_effects(
 
     tr_b_s = posteriors.post_mean.T
     tr_bsq_s = jnp.diagonal(posteriors.post_mean_sq, axis1=2, axis2=3).T
+
     exp_ll = jnp.sum(_eloglike(Xs, ys, ns, tr_b_s, tr_bsq_s, priors.resid_var))
     sigma2 = _erss(Xs, ys, tr_b_s, tr_bsq_s)[:, jnp.newaxis] / ns
+
     kl_divs = jnp.sum(posteriors.kl)
     elbo_score = exp_ll - kl_divs
+
     priors = priors._replace(resid_var=sigma2)
+
     return priors, posteriors, elbo_score
 
 
@@ -545,9 +536,9 @@ def _update_l(l_iter: int, param: _LResult) -> _LResult:
 
 
 def _ssr(
-    Xs: jnp.ndarray,
-    ys: jnp.ndarray,
-    XtXs: jnp.ndarray,
+    Xs: ArrayLike,
+    ys: ArrayLike,
+    XtXs: ArrayLike,
     priors: Prior,
     posteriors: Posterior,
     prior_adjustor: _PriorAdjustor,
@@ -578,9 +569,9 @@ def _ssr(
 
 
 def _compute_posterior(
-    beta_hat: jnp.ndarray,
-    shat2: jnp.ndarray,
-    inv_shat2: jnp.ndarray,
+    beta_hat: ArrayLike,
+    shat2: ArrayLike,
+    inv_shat2: ArrayLike,
     priors: Prior,
     posteriors: Posterior,
     l_iter: int,
@@ -624,28 +615,25 @@ def _compute_posterior(
 
 
 def _kl_categorical(
-    alpha: jnp.ndarray,
-    pi: jnp.ndarray,
-) -> jnp.ndarray:
+    alpha: ArrayLike,
+    pi: ArrayLike,
+) -> Array:
     return jnp.nansum(alpha * (jnp.log(alpha) - jnp.log(pi)))
 
 
 def _kl_mvn(
-    m0: jnp.ndarray,
-    sigma0: jnp.ndarray,
-    m1: float,
-    sigma1: jnp.ndarray,
+    m0: ArrayLike,
+    sigma0: ArrayLike,
+    m1: ArrayLike,
+    sigma1: ArrayLike,
 ) -> float:
     # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
     k, _ = sigma1.shape
 
-    p1 = (
-        jnp.trace(
-            jnp.einsum("ij,kjm->kim", jnp.linalg.inv(sigma1), sigma0), axis1=1, axis2=2
-        )
-        - k
-    )
-    p2 = jnp.einsum("ij,jm,im->i", (m1 - m0), jnp.linalg.inv(sigma1), (m1 - m0))
+    sigma1_inv = jnp.linalg.inv(sigma1)
+    diff = m1 - m0
+    p1 = jnp.einsum("ji,bji->b", sigma1_inv, sigma0) - k
+    p2 = jnp.einsum("ij,jm,im->i", diff, sigma1_inv, diff)
 
     _, sld1 = jnp.linalg.slogdet(sigma1)
     _, sld0 = jnp.linalg.slogdet(sigma0)
@@ -656,21 +644,19 @@ def _kl_mvn(
 
 
 def _eloglike(
-    X: jnp.ndarray,
-    y: jnp.ndarray,
-    ns: jnp.ndarray,
-    beta: jnp.ndarray,
-    beta_sq: jnp.ndarray,
-    sigma_sq: jnp.ndarray,
-) -> jnp.ndarray:
+    X: Array,
+    y: Array,
+    ns: Array,
+    beta: Array,
+    beta_sq: Array,
+    sigma_sq: Array,
+) -> Array:
     norm_term = -(0.5 * ns) * jnp.log(2 * jnp.pi * sigma_sq)
     quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)[:, jnp.newaxis]
     return norm_term + quad_term
 
 
-def _erss(
-    X: jnp.ndarray, y: jnp.ndarray, beta: jnp.ndarray, beta_sq: jnp.ndarray
-) -> jnp.ndarray:
+def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Array:
     mu_li = jnp.einsum("ijk,ikm->ijm", X, beta)
     mu2_li = jnp.einsum("ijk,ikm->ijm", X ** 2, beta_sq)
 
@@ -679,7 +665,7 @@ def _erss(
     return term_1 + term_2
 
 
-def make_pip(alpha: jnp.ndarray) -> jnp.ndarray:
+def make_pip(alpha: Array) -> Array:
     """The function to calculate posterior inclusion probability (PIP).
 
     Args:
@@ -687,7 +673,7 @@ def make_pip(alpha: jnp.ndarray) -> jnp.ndarray:
             (i.e., :math:`\\alpha` in :ref:`Model`).
 
     Returns:
-        :py:obj:`jnp.ndarray`: :math:`p \\times 1` vector for the posterior inclusion probability.
+        :py:obj:`Array`: :math:`p \\times 1` vector for the posterior inclusion probability.
 
     """
 
@@ -697,10 +683,10 @@ def make_pip(alpha: jnp.ndarray) -> jnp.ndarray:
 
 
 def make_cs(
-    alpha: jnp.ndarray,
-    Xs: jnp.ndarray,
-    ns: jnp.ndarray,
-    pip: jnp.ndarray,
+    alpha: ArrayLike,
+    Xs: ArrayLike,
+    ns: ArrayLike,
+    pip: ArrayLike,
     threshold: float = 0.9,
     purity: float = 0.5,
     no_kl: bool = False,

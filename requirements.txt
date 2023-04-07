@@ -1,5 +1,6 @@
 bgen_reader
 cyvcf2
+equinox
 glimix_core
 jax
 jaxlib
