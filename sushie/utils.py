@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import pandas as pd
 from glimix_core.lmm import LMM
@@ -7,6 +7,8 @@ from scipy import stats
 
 import jax.numpy as jnp
 import jax.scipy as jsp
+from jax import Array
+from jax.typing import ArrayLike
 
 __all__ = [
     "ListFloatOrNone",
@@ -18,16 +20,16 @@ __all__ = [
 # prior argument effect_covar, resid_covar, rho, etc.
 ListFloatOrNone = Optional[List[float]]
 # covar process data, etc.
-ListArrayOrNone = Optional[List[jnp.ndarray]]
+ListArrayOrNone = Optional[List[ArrayLike]]
 # effect_covar sushie etc.
-ArrayOrFloat = Union[jnp.ndarray, float]
+ArrayOrFloat = ArrayLike
 # covar paths
 ListStrOrNone = Optional[List[str]]
 # covar raw data
 PDOrNone = Optional[pd.DataFrame]
 
 
-def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def ols(X: ArrayLike, y: ArrayLike) -> Tuple[Array, Array, Array]:
     """Perform ordinary linear regression using QR Factorization.
 
     Args:
@@ -70,8 +72,8 @@ def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.n
 
 
 def regress_covar(
-    X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray, no_regress: bool
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    X: ArrayLike, y: ArrayLike, covar: ArrayLike, no_regress: bool
+) -> Tuple[Array, Array]:
     """Regress phenotypes and genotypes on covariates and return the residuals.
 
     Args:
@@ -95,8 +97,8 @@ def regress_covar(
 
 
 def estimate_her(
-    X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray = None
-) -> Tuple[float, jnp.ndarray, float, float, float]:
+    X: ArrayLike, y: ArrayLike, covar: ArrayLike = None
+) -> Tuple[float, Array, float, float, float]:
     """Calculate proportion of expression variation explained by genotypes (cis-heritability; :math:`h_g^2`).
 
     Args:
