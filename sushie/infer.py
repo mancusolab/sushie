@@ -479,7 +479,8 @@ def _update_effects(
 
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
 
-    residual = ys - jnp.einsum("ijk,ik->ij", Xs, post_mean_lsum.T)
+    residual = ys - jnp.einsum("ijk,ki->ij", Xs, post_mean_lsum)
+
     init_l_result = _LResult(
         Xs=Xs,
         ys=residual,
@@ -511,7 +512,7 @@ def _update_effects(
 def _update_l(l_iter: int, param: _LResult) -> _LResult:
     Xs, residual, XtXs, priors, posteriors, prior_adjustor, opt_v_func = param
 
-    residual_l = residual + jnp.einsum("ijk,ik->ij", Xs, posteriors.post_mean[l_iter].T)
+    residual_l = residual + jnp.einsum("ijk,ki->ij", Xs, posteriors.post_mean[l_iter])
 
     priors, posteriors = _ssr(
         Xs,
@@ -524,7 +525,7 @@ def _update_l(l_iter: int, param: _LResult) -> _LResult:
         opt_v_func,
     )
 
-    residual = residual_l - jnp.einsum("ijk,ik->ij", Xs, posteriors.post_mean[l_iter].T)
+    residual = residual_l - jnp.einsum("ijk,ki->ij", Xs, posteriors.post_mean[l_iter])
 
     update_param = param._replace(
         ys=residual,
