@@ -7,7 +7,7 @@ import pandas as pd
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-from jax import Array, jit, lax, nn
+from jax import Array, lax, nn
 from jax.typing import ArrayLike
 
 from . import log, utils
@@ -464,7 +464,7 @@ def infer_sushie(
     )
 
 
-@jit
+@eqx.filter_jit
 def _update_effects(
     Xs: ArrayLike,
     ys: ArrayLike,
@@ -644,12 +644,12 @@ def _kl_mvn(
 
 
 def _eloglike(
-    X: Array,
-    y: Array,
-    ns: Array,
-    beta: Array,
-    beta_sq: Array,
-    sigma_sq: Array,
+    X: ArrayLike,
+    y: ArrayLike,
+    ns: ArrayLike,
+    beta: ArrayLike,
+    beta_sq: ArrayLike,
+    sigma_sq: ArrayLike,
 ) -> Array:
     norm_term = -(0.5 * ns) * jnp.log(2 * jnp.pi * sigma_sq)
     quad_term = -(0.5 / sigma_sq) * _erss(X, y, beta, beta_sq)[:, jnp.newaxis]
@@ -665,7 +665,7 @@ def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Ar
     return term_1 + term_2
 
 
-def make_pip(alpha: Array) -> Array:
+def make_pip(alpha: ArrayLike) -> Array:
     """The function to calculate posterior inclusion probability (PIP).
 
     Args:
