@@ -85,7 +85,6 @@ class RawData(NamedTuple):
 def read_data(
     n_pop: int,
     ancestry_index: pd.DataFrame,
-    keep_subject: List[str],
     pheno_paths: List[str],
     covar_paths: utils.ListStrOrNone,
     geno_paths: List[str],
@@ -96,7 +95,6 @@ def read_data(
     Args:
         n_pop: The int to indicate the number of ancestries.
         ancestry_index: The DataFrame that contains ancestry index.
-        keep_subject: The DataFrame that contains subject ID that fine-mapping performs on.
         pheno_paths: The path for phenotype data across ancestries.
         covar_paths: The path for covariates data across ancestries.
         geno_paths: The path for genotype data across ancestries.
@@ -123,10 +121,6 @@ def read_data(
                 .rename(columns={0: "iid", 1: "pheno"})
                 .reset_index(drop=True)
             )
-            if len(keep_subject) != 0:
-                fam = fam.iloc[jnp.where(fam.iid.isin(keep_subject).values)[0], :]
-                bed = bed[jnp.where(fam.iid.isin(keep_subject).values)[0], :]
-                pheno = pheno.iloc[jnp.where(pheno.iid.isin(keep_subject).values)[0], :]
 
             if covar_paths is not None:
                 covar = (
@@ -136,14 +130,14 @@ def read_data(
                     .rename(columns={0: "iid"})
                     .reset_index(drop=True)
                 )
-                if len(keep_subject) != 0:
-                    covar = covar.iloc[
-                        jnp.where(covar.iid.isin(keep_subject).values)[0], :
-                    ]
             else:
                 covar = None
 
         tmp_bim = bim
+        tmp_bed = bed
+        tmp_fam = fam
+        tmp_pheno = pheno
+        tmp_covar = covar
         if index_file:
             tmp_pt = ancestry_index.iloc[ancestry_index[1].values == (idx + 1), :][
                 0
@@ -156,11 +150,6 @@ def read_data(
                 tmp_covar = covar.iloc[jnp.where(covar.iid.isin(tmp_pt).values)[0], :]
             else:
                 tmp_covar = None
-        else:
-            tmp_bed = bed
-            tmp_fam = fam
-            tmp_pheno = pheno
-            tmp_covar = covar
 
         if len(tmp_bim) == 0:
             raise ValueError(f"Ancestry {idx + 1}: No genotype data found.")

@@ -378,6 +378,11 @@ Parameters
      - 5.0
      - ``--divergence 4.8``
      - Specify the KL divergence threshold for credible sets to be output. Default is 5. It has to be a positive number.
+   * - ``--maf``
+     - float
+     - 0.01
+     - ``--maf 0.05``
+     - Threshold for minor allele frequency (MAF) to filter out SNPs for each ancestry. It has to be a float between 0 (exclusive) and 0.5 (inclusive).
    * - ``--meta``
      - Boolean
      - False
