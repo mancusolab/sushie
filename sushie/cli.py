@@ -467,6 +467,9 @@ def sushie_wrapper(
     effect_var = None if mega is True else args.effect_var
     rho = None if mega is True else args.rho
 
+    # padding will change the original data, make a copy for heritability
+    heri_data = copy.deepcopy(data)
+
     # keeps track of single-ancestry PIP to get meta-PIP
     pips = jnp.zeros((snps.shape[0], 1)) if meta else None
     result = []
@@ -559,7 +562,7 @@ def sushie_wrapper(
         io.output_corr(result, output, args.trait, args.compress)
 
         if args.her:
-            io.output_her(result, data, output, args.trait, args.compress)
+            io.output_her(result, heri_data, output, args.trait, args.compress)
 
         if args.cv:
             log.logger.info(f"Running {args.cv_num}-fold cross validation.")

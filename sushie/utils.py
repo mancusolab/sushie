@@ -117,13 +117,20 @@ def estimate_her(
     """
     n, p = X.shape
 
-    if covar is None:
-        covar = jnp.ones(n)
+    if covar is not None:
+        X, y = regress_covar(X, y, covar, False)
+
+    X -= jnp.mean(X, axis=0)
+    X /= jnp.std(X, axis=0)
+
+    y -= jnp.mean(y)
+    y /= jnp.std(y)
+    fit_covar = jnp.ones(n)
 
     GRM = jnp.dot(X, X.T) / p
     GRM = GRM / jnp.diag(GRM).mean()
     QS = economic_qs(GRM)
-    method = LMM(y, covar, QS, restricted=True)
+    method = LMM(y, fit_covar, QS, restricted=True)
     method.fit(verbose=False)
 
     g = method.scale * (1 - method.delta)
