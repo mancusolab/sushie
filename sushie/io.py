@@ -85,7 +85,7 @@ class RawData(NamedTuple):
 def read_data(
     n_pop: int,
     ancestry_index: pd.DataFrame,
-    keep_subject: pd.DataFrame,
+    keep_subject: List[str],
     pheno_paths: List[str],
     covar_paths: utils.ListStrOrNone,
     geno_paths: List[str],
@@ -109,8 +109,6 @@ def read_data(
 
     index_file = True if ancestry_index.shape[0] != 0 else False
     rawData = []
-    keep_list = keep_subject[0].values
-
     for idx in range(n_pop):
         if (not index_file) or (index_file and idx == 0):
             if index_file and idx == 0:
@@ -120,16 +118,15 @@ def read_data(
 
             bim, fam, bed = geno_func(geno_paths[idx])
 
-            fam = fam.iloc[jnp.where(fam.iid.isin(keep_list).values)[0], :]
-            bed = bed[jnp.where(fam.iid.isin(keep_list).values)[0], :]
-
             pheno = (
                 pd.read_csv(pheno_paths[idx], sep="\t", header=None, dtype={0: object})
                 .rename(columns={0: "iid", 1: "pheno"})
                 .reset_index(drop=True)
             )
-
-            pheno = pheno.iloc[jnp.where(pheno.iid.isin(keep_list).values)[0], :]
+            if len(keep_subject) != 0:
+                fam = fam.iloc[jnp.where(fam.iid.isin(keep_subject).values)[0], :]
+                bed = bed[jnp.where(fam.iid.isin(keep_subject).values)[0], :]
+                pheno = pheno.iloc[jnp.where(pheno.iid.isin(keep_subject).values)[0], :]
 
             if covar_paths is not None:
                 covar = (
@@ -139,7 +136,10 @@ def read_data(
                     .rename(columns={0: "iid"})
                     .reset_index(drop=True)
                 )
-                covar = covar.iloc[jnp.where(covar.iid.isin(keep_list).values)[0], :]
+                if len(keep_subject) != 0:
+                    covar = covar.iloc[
+                        jnp.where(covar.iid.isin(keep_subject).values)[0], :
+                    ]
             else:
                 covar = None
 

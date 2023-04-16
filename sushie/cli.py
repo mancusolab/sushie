@@ -32,7 +32,7 @@ __all__ = [
 
 def parameter_check(
     args,
-) -> Tuple[int, pd.DataFrame, pd.DataFrame, List[str], Callable]:
+) -> Tuple[int, pd.DataFrame, List[str], List[str], Callable]:
     """The function to process raw phenotype, genotype, covariate data across ancestries.
 
     Args:
@@ -43,7 +43,7 @@ def parameter_check(
             A tuple of
                 #. a integer to indicate how many ancestries,
                 #. a DataFrame that contains ancestry index (can be none),
-                #. a DataFrame that contains subject ID that fine-mapping performs on.
+                #. a list that contains subject ID that fine-mapping performs on.
                 #. a list of genotype data paths (:py:obj:`List[str]`),
                 #. genotype read-in function (:py:obj:`Callable`).
 
@@ -170,20 +170,24 @@ def parameter_check(
     else:
         log.logger.info("No covariates detected for this analysis.")
 
-    keep_subject = pd.DataFrame()
+    keep_subject = []
     if args.keep is not None:
-        keep_subject = pd.read_csv(args.keep[0], header=None, sep="\t")[[0]]
-        if keep_subject.shape[0] == 0:
+        log.logger.info(
+            "Detecting keep subject file. The inference only performs on the subjects listed in the file."
+        )
+        df_keep = pd.read_csv(args.keep[0], header=None, sep="\t")[[0]]
+        if df_keep.shape[0] == 0:
             raise ValueError(
                 "No subjects are listed in the keep subject file. Check your input."
             )
-        old_pt = keep_subject.shape[0]
-        keep_subject = keep_subject.drop_duplicates()
+        old_pt = df_keep.shape[0]
+        df_keep = df_keep.drop_duplicates()
 
-        if old_pt != keep_subject.shape[0]:
+        if old_pt != df_keep.shape[0]:
             log.logger.warning(
-                f"The keep subject file has {old_pt - keep_subject.shape[0]} duplicated subjects."
+                f"The keep subject file has {old_pt - df_keep.shape[0]} duplicated subjects."
             )
+        keep_subject = df_keep[0].values.tolist()
 
     if args.cv:
         if args.cv_num <= 1:
@@ -304,9 +308,9 @@ def process_raw(
         # report how many snps we removed due to independent SNPs
         for idx in range(n_pop):
             snps_num_diff = rawData[idx].bim.shape[0] - snps.shape[0]
-            log.logger.warning(
+            log.logger.info(
                 f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps.shape[0]}"
-                + " common SNPs. Will remove these independent SNPs.",
+                + " common SNPs. Inference only performs on common SNPs.",
             )
     else:
         snps = rawData[0].bim
