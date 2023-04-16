@@ -32,23 +32,67 @@ __all__ = [
 
 def parameter_check(
     args,
-) -> Tuple[List[str], Callable]:
+) -> Tuple[int, pd.DataFrame, pd.DataFrame, List[str], Callable]:
     """The function to process raw phenotype, genotype, covariate data across ancestries.
 
     Args:
         args: The command line parameter input.
 
     Returns:
-        :py:obj:`Tuple[List[str], Callable]`:
+        :py:obj:`Tuple[int, pd.DataFrame, List[str], Callable]`:
             A tuple of
+                #. a integer to indicate how many ancestries,
+                #. a DataFrame that contains ancestry index (can be none),
+                #. a DataFrame that contains subject ID that fine-mapping performs on.
                 #. a list of genotype data paths (:py:obj:`List[str]`),
                 #. genotype read-in function (:py:obj:`Callable`).
 
     """
+    if args.ancestry_index is not None:
+        log.logger.info(
+            "Reading ancestry index file to determine the number of ancestries."
+        )
 
-    n_pop = len(args.pheno)
+        ancestry_index = pd.read_csv(args.ancestry_index[0], header=None, sep="\t")
+        old_pt = ancestry_index.shape[0]
+        ancestry_index = ancestry_index.drop_duplicates()
+
+        if old_pt != ancestry_index.shape[0]:
+            log.logger.warning(
+                f"Index file has {old_pt - ancestry_index.shape[0]} duplicated subjects."
+            )
+
+        if ancestry_index[0].duplicated().sum() != 0:
+            raise ValueError(
+                "The ancestry index file contains subjects with multiple ancestry index. Check your input."
+            )
+
+        n_pop = len(ancestry_index[1].unique())
+        index_check = jnp.all(
+            jnp.array(ancestry_index[1].unique()).sort() == (jnp.arange(n_pop) + 1)
+        )
+
+        if not index_check:
+            raise ValueError(
+                "The ancestry index doesn't start from 1 continuously to the total number of ancestry."
+                + f" Check {args.ancestry_index}."
+            )
+
+        if len(args.pheno) > 1:
+            raise ValueError(
+                "Multiple phenotype files are detected. Expectation is one when --ancestry_index is specified."
+            )
+
+        log.logger.info(
+            "Detecting ancestry index file, so it expects to have single phenotype, genotype, and covariates files"
+        )
+
+    else:
+        ancestry_index = pd.DataFrame()
+        n_pop = len(args.pheno)
+
     log.logger.info(
-        f"Detecting phenotypes for {n_pop} ancestries for SuShiE fine-mapping."
+        f"Detecting phenotypes for {n_pop} ancestry(ies) for SuShiE fine-mapping."
     )
 
     n_geno = (
@@ -64,42 +108,82 @@ def parameter_check(
 
     # decide genotype data
     if args.plink is not None:
-        if len(args.plink) != n_pop:
-            raise ValueError(
-                "The numbers of ancestries in plink geno and pheno data does not match. Check your input."
-            )
+        if args.ancestry_index is not None:
+            if len(args.plink) > 1:
+                raise ValueError(
+                    "Multiple plink files are detected. Expectation is one when --ancestry_index is specified."
+                )
         else:
-            log.logger.info("Detecting genotype data in plink format.")
-            geno_path = args.plink
-            geno_func = io.read_triplet
+            if len(args.plink) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in plink geno and pheno data does not match. Check your input."
+                )
+
+        log.logger.info("Detecting genotype data in plink format.")
+        geno_path = args.plink
+        geno_func = io.read_triplet
     elif args.vcf is not None:
-        if len(args.vcf) != n_pop:
-            raise ValueError(
-                "The numbers of ancestries in vcf geno and pheno data does not match. Check your input."
-            )
+        if args.ancestry_index is not None:
+            if len(args.vcf) > 1:
+                raise ValueError(
+                    "Multiple vcf files are detected. Expectation is one when --ancestry_index is specified."
+                )
         else:
-            log.logger.info("Detecting genotype data in vcf format.")
-            geno_path = args.vcf
-            geno_func = io.read_vcf
+            if len(args.vcf) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in vcf geno and pheno data does not match. Check your input."
+                )
+        log.logger.info("Detecting genotype data in vcf format.")
+        geno_path = args.vcf
+        geno_func = io.read_vcf
     elif args.bgen is not None:
-        if len(args.bgen) != n_pop:
-            raise ValueError(
-                "The numbers of ancestries in bgen geno and pheno data does not match. Check your input."
-            )
+        if args.ancestry_index is not None:
+            if len(args.bgen) > 1:
+                raise ValueError(
+                    "Multiple bgen files are detected. Expectation is one when --ancestry_index is specified."
+                )
         else:
-            log.logger.info("Detecting genotype data in bgen format.")
-            geno_path = args.bgen
-            geno_func = io.read_bgen
+            if len(args.bgen) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in bgen geno and pheno data does not match. Check your input."
+                )
+
+        log.logger.info("Detecting genotype data in bgen format.")
+        geno_path = args.bgen
+        geno_func = io.read_bgen
     else:
         raise ValueError(
             "No genotype data specified in either plink, vcf, or bgen format. Check your input."
         )
 
     if args.covar is not None:
-        if len(args.covar) != n_pop:
-            raise ValueError("The number of covariate data does not match geno data.")
+        if args.ancestry_index is not None:
+            if len(args.covar) > 1:
+                raise ValueError(
+                    "Multiple covariate files are detected. Expectation is one when --ancestry_index is specified."
+                )
+        else:
+            if len(args.covar) != n_pop:
+                raise ValueError(
+                    "The number of covariate data does not match geno data."
+                )
     else:
         log.logger.info("No covariates detected for this analysis.")
+
+    keep_subject = pd.DataFrame()
+    if args.keep is not None:
+        keep_subject = pd.read_csv(args.keep[0], header=None, sep="\t")[[0]]
+        if keep_subject.shape[0] == 0:
+            raise ValueError(
+                "No subjects are listed in the keep subject file. Check your input."
+            )
+        old_pt = keep_subject.shape[0]
+        keep_subject = keep_subject.drop_duplicates()
+
+        if old_pt != keep_subject.shape[0]:
+            log.logger.warning(
+                f"The keep subject file has {old_pt - keep_subject.shape[0]} duplicated subjects."
+            )
 
     if args.cv:
         if args.cv_num <= 1:
@@ -123,7 +207,7 @@ def parameter_check(
             "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuShiE."
         )
 
-    return geno_path, geno_func
+    return n_pop, ancestry_index, keep_subject, geno_path, geno_func
 
 
 def process_raw(
@@ -419,7 +503,7 @@ def sushie_wrapper(
                 threshold=args.threshold,
                 purity=args.purity,
                 no_kl=args.no_kl,
-                kl_threshold=args.kl_threshold,
+                divergence=args.divergence,
             )
 
             pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
@@ -448,7 +532,7 @@ def sushie_wrapper(
             threshold=args.threshold,
             purity=args.purity,
             no_kl=args.no_kl,
-            kl_threshold=args.kl_threshold,
+            divergence=args.divergence,
         )
         result.append(tmp_result)
 
@@ -496,9 +580,19 @@ def run_finemap(args):
 
         config.update("jax_platform_name", args.platform)
 
-        geno_path, geno_func = parameter_check(args)
+        n_pop, ancestry_index, keep_subject, geno_path, geno_func = parameter_check(
+            args
+        )
 
-        rawData = io.read_data(args.pheno, args.covar, geno_path, geno_func)
+        rawData = io.read_data(
+            n_pop,
+            ancestry_index,
+            keep_subject,
+            args.pheno,
+            args.covar,
+            geno_path,
+            geno_func,
+        )
 
         snps, regular_data, mega_data, cv_data = process_raw(
             rawData, args.no_regress, args.mega, args.cv, args.cv_num, args.seed
@@ -849,6 +943,37 @@ def build_finemap_parser(subp):
 
     # fine-map general options
     finemap.add_argument(
+        "--ancestry_index",
+        nargs=1,
+        default=None,
+        type=str,
+        help=(
+            "Single file that contains subject ID and their ancestry index. Default is None."
+            " It has to be a tsv file that contains at least two columns where the",
+            " first column is the subject ID and the second column is the ancestry index",
+            " starting from 1 (e.g., 1, 2, 3 etc.). It can be a compressed file (e.g., tsv.gz).",
+            " Only the first two columns will be used. No headers.",
+            " If this file is specified, it assumes that all the phenotypes across ancestries are in one single file,",
+            " and same thing for genotypes and covariates data.",
+            " It will produce errors if multiple phenotype, genotype, and covariates are specified.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--keep",
+        nargs=1,
+        default=None,
+        type=str,
+        help=(
+            "Single file that contains subject ID across all ancestries that are used for fine-mapping."
+            " It has to be a tsv file that contains at least one columns where the",
+            " first column is the subject ID. It can be a compressed file (e.g., tsv.gz). No headers.",
+            " If this file is specified, all phenotype, genotype, and covariates data will be filtered down to",
+            " the subjects listed in it.",
+        ),
+    )
+
+    finemap.add_argument(
         "--covar",
         nargs="+",
         default=None,
@@ -1021,7 +1146,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--kl_threshold",
+        "--divergence",
         default=5.0,
         type=float,
         help=(

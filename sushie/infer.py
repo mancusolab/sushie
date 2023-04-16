@@ -170,7 +170,7 @@ def infer_sushie(
     threshold: float = 0.9,
     purity: float = 0.5,
     no_kl: bool = False,
-    kl_threshold: float = 5.0,
+    divergence: float = 5.0,
 ) -> SushieResult:
     """The main inference function for running SuShiE.
 
@@ -195,7 +195,7 @@ def infer_sushie(
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
         no_kl: Do not use KL Divergence as extra credible set pruning threshold.
-        kl_threshold: The minimum KL divergence to be eligible as output credible set.
+        divergence: The minimum KL divergence to be eligible as output credible set.
 
     Returns:
         :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
@@ -243,9 +243,9 @@ def infer_sushie(
             f"Purity threshold ({purity}) is not between 0 and 1. Specify a valid one."
         )
 
-    if kl_threshold < 0:
+    if divergence < 0:
         raise ValueError(
-            f"KL Divergence threshold ({kl_threshold}) is not positive. Specify a valid one."
+            f"KL Divergence threshold ({divergence}) is not positive. Specify a valid one."
         )
 
     if pi is not None and (pi >= 1 or pi <= 0):
@@ -456,7 +456,7 @@ def infer_sushie(
 
     pip = make_pip(posteriors.alpha)
     cs, full_alphas = make_cs(
-        posteriors.alpha, Xs, ns, pip, threshold, purity, no_kl, kl_threshold
+        posteriors.alpha, Xs, ns, pip, threshold, purity, no_kl, divergence
     )
 
     return SushieResult(
@@ -691,7 +691,7 @@ def make_cs(
     threshold: float = 0.9,
     purity: float = 0.5,
     no_kl: bool = False,
-    kl_threshold: float = 5.0,
+    divergence: float = 5.0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """The function to compute the credible sets.
 
@@ -703,7 +703,7 @@ def make_cs(
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
         no_kl: Do not use KL Divergence as extra credible set pruning threshold.
-        kl_threshold: The minimum KL divergence to be eligible as output credible set.
+        divergence: The minimum KL divergence to be eligible as output credible set.
 
     Returns:
         :py:obj:`Tuple[pd.DataFrame, pd.DataFrame]`: A tuple of
@@ -770,7 +770,7 @@ def make_cs(
         full_alphas[f"purity_l{idx + 1}"] = avg_corr
         full_alphas[f"kl_l{idx + 1}"] = cur_kl
 
-        if avg_corr > purity or cur_kl >= kl_threshold:
+        if avg_corr > purity or cur_kl >= divergence:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
             full_alphas[f"pass_pruning_l{idx + 1}"] = 1
         else:
