@@ -491,7 +491,7 @@ def sushie_wrapper(
             else:
                 covar = [data.covar[idx]]
 
-            log.logger.info(f"Running Meta SuShiE on ancestry {idx + 1}.")
+            log.logger.info(f"Running Meta SuSiE on ancestry {idx + 1}.")
 
             tmp_result = infer.infer_sushie(
                 [data.geno[idx]],
@@ -520,7 +520,7 @@ def sushie_wrapper(
         pips = 1 - jnp.prod(1 - pips, axis=1)
     else:
         if mega:
-            log.logger.info("Running Mega SuShiE.")
+            log.logger.info("Running Mega SuSiE.")
 
         tmp_result = infer.infer_sushie(
             data.geno,
@@ -604,14 +604,15 @@ def run_finemap(args):
         snps, regular_data, mega_data, cv_data = process_raw(
             rawData, args.no_regress, args.mega, args.cv, args.cv_num, args.seed
         )
-
-        sushie_wrapper(regular_data, cv_data, args, snps, meta=False, mega=False)
+        normal_data = copy.deepcopy(regular_data)
+        sushie_wrapper(normal_data, cv_data, args, snps, meta=False, mega=False)
 
         # if only one ancestry, need to run mega or meta
         n_pop = len(regular_data.geno)
         if n_pop != 1:
             if args.meta:
-                sushie_wrapper(regular_data, None, args, snps, meta=True, mega=False)
+                meta_data = copy.deepcopy(regular_data)
+                sushie_wrapper(meta_data, None, args, snps, meta=True, mega=False)
 
             if args.mega:
                 sushie_wrapper(mega_data, None, args, snps, meta=False, mega=True)
