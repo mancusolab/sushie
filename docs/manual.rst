@@ -410,9 +410,14 @@ Parameters
      - The number of fold cross validation. It has to be a positive integer number. Larger number may cause longer running time.
    * - ``--seed``
      - Integer
-     - 1234
+     - 12345
      - ``--seed 4321``
-     - The seed to randomly cut data sets in cross validation. It has to be positive integer number.
+     - The seed for randomization. It can be used to cut data sets in cross validation. It can also be used to randomly select SNPs in the credible sets to calculate the purity. Default is 12345. It has to be positive integer number.
+   * - ``--max_select``
+     - Integer
+     - 500
+     - ``--max_select 100``
+     - The maximum selected number of SNPs to calculate the purity. Default is 500. It has to be positive integer number. A larger number can unnecessarily spend much memory.
    * - ``--alphas``
      - Boolean
      - False

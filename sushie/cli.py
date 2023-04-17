@@ -189,6 +189,11 @@ def parameter_check(
             )
         keep_subject = df_keep[0].values.tolist()
 
+    if args.seed <= 0:
+        raise ValueError(
+            "The seed specified for randomization is invalid. Choose a positive integer."
+        )
+
     if args.cv:
         if args.cv_num <= 1:
             raise ValueError(
@@ -201,10 +206,6 @@ def parameter_check(
                 + " It may increase running time.",
             )
 
-        if args.seed <= 0:
-            raise ValueError(
-                "The seed specified for CV is invalid. Choose a positive integer."
-            )
     if args.maf <= 0 or args.maf > 0.5:
         raise ValueError(
             "The minor allele frequency (MAF) has to be between 0 (exclusive) and 0.5 (inclusive)."
@@ -579,6 +580,8 @@ def sushie_wrapper(
                 purity=args.purity,
                 no_kl=args.no_kl,
                 divergence=args.divergence,
+                max_select=args.max_select,
+                seed=args.seed,
             )
 
             pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
@@ -608,6 +611,8 @@ def sushie_wrapper(
             purity=args.purity,
             no_kl=args.no_kl,
             divergence=args.divergence,
+            max_select=args.max_select,
+            seed=args.seed,
         )
         result.append(tmp_result)
 
@@ -1000,6 +1005,10 @@ def _run_cv(args, cv_data) -> List[List[jnp.ndarray]]:
             min_tol=args.min_tol,
             threshold=args.threshold,
             purity=args.purity,
+            no_kl=args.no_kl,
+            divergence=args.divergence,
+            max_select=args.max_select,
+            seed=args.seed,
         )
 
         total_weight = jnp.sum(cv_result.posteriors.post_mean, axis=0)
@@ -1369,8 +1378,19 @@ def build_finemap_parser(subp):
         default=12345,
         type=int,
         help=(
-            "The seed to randomly cut data sets in cross validation. Default is 12345.",
-            " It has to be positive integer number.",
+            "The seed for randomization. It can be used to cut data sets in cross validation. ",
+            " It can also be used to randomly select SNPs in the credible sets to calculate the purity."
+            " Default is 12345. It has to be positive integer number.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--max_select",
+        default=500,
+        type=int,
+        help=(
+            "The maximum selected number of SNPs to calculate the purity. Default is 500.",
+            " It has to be positive integer number. A larger number can unnecessarily spend much memory.",
         ),
     )
 

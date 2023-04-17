@@ -7,7 +7,7 @@ import pandas as pd
 
 import jax.numpy as jnp
 import jax.scipy.stats as stats
-from jax import Array, lax, nn
+from jax import Array, lax, nn, random
 from jax.typing import ArrayLike
 
 from . import log, utils
@@ -171,6 +171,8 @@ def infer_sushie(
     purity: float = 0.5,
     no_kl: bool = False,
     divergence: float = 5.0,
+    max_select: int = 500,
+    seed: int = 12345,
 ) -> SushieResult:
     """The main inference function for running SuShiE.
 
@@ -196,6 +198,8 @@ def infer_sushie(
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
         no_kl: Do not use KL Divergence as extra credible set pruning threshold.
         divergence: The minimum KL divergence to be eligible as output credible set.
+        max_select: The maximum number of selected SNPs to compute purity.
+        seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
     Returns:
         :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
@@ -246,6 +250,16 @@ def infer_sushie(
     if divergence < 0:
         raise ValueError(
             f"KL Divergence threshold ({divergence}) is not positive. Specify a valid one."
+        )
+
+    if max_select <= 0:
+        raise ValueError(
+            "The maximum selected number of SNPs for purity is invalid. Choose a positive integer."
+        )
+
+    if max_select < 100:
+        raise ValueError(
+            "The maximum selected number of SNPs is too small thus may miss true positives. Choose a positive integer."
         )
 
     if pi is not None and (pi >= 1 or pi <= 0):
@@ -456,7 +470,16 @@ def infer_sushie(
 
     pip = make_pip(posteriors.alpha)
     cs, full_alphas = make_cs(
-        posteriors.alpha, Xs, ns, pip, threshold, purity, no_kl, divergence
+        posteriors.alpha,
+        Xs,
+        ns,
+        pip,
+        threshold,
+        purity,
+        no_kl,
+        divergence,
+        max_select,
+        seed,
     )
 
     return SushieResult(
@@ -692,6 +715,8 @@ def make_cs(
     purity: float = 0.5,
     no_kl: bool = False,
     divergence: float = 5.0,
+    max_select: int = 500,
+    seed: int = 12345,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """The function to compute the credible sets.
 
@@ -704,6 +729,8 @@ def make_cs(
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
         no_kl: Do not use KL Divergence as extra credible set pruning threshold.
         divergence: The minimum KL divergence to be eligible as output credible set.
+        max_select: The maximum number of selected SNPs to compute purity.
+        seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
     Returns:
         :py:obj:`Tuple[pd.DataFrame, pd.DataFrame]`: A tuple of
@@ -711,24 +738,21 @@ def make_cs(
             #. full credible set (:py:obj:`pd.DataFrame`) before pruning for purity.
 
     """
-
+    rng_key = random.PRNGKey(seed)
     n_l, n_snps = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
-
-    # ld is always pxp, so it can be converted to jnp.array
-    ld = jnp.einsum("ijk,ijm->ikm", Xs, Xs) / ns[:, jnp.newaxis]
 
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
 
-    for idx in range(n_l):
+    for ldx in range(n_l):
         # select original index and alpha
         tmp_pd = (
-            t_alpha[["index", idx]]
-            .sort_values(idx, ascending=False)
+            t_alpha[["index", ldx]]
+            .sort_values(ldx, ascending=False)
             .reset_index(drop=True)
         )
-        tmp_pd["csum"] = tmp_pd[[idx]].cumsum()
+        tmp_pd["csum"] = tmp_pd[[ldx]].cumsum()
         n_row = tmp_pd[tmp_pd.csum < threshold].shape[0]
 
         # if select rows less than total rows, n_row + 1
@@ -739,8 +763,8 @@ def make_cs(
 
         tmp_cs = (
             tmp_pd.iloc[select_idx, :]
-            .assign(CSIndex=idx + 1)
-            .rename(columns={"csum": "c_alpha", "index": "SNPIndex", idx: "alpha"})
+            .assign(CSIndex=ldx + 1)
+            .rename(columns={"csum": "c_alpha", "index": "SNPIndex", ldx: "alpha"})
         )
 
         tmp_pd["in_cs"] = (tmp_pd.index.values <= jnp.max(select_idx)) * 1
@@ -748,33 +772,44 @@ def make_cs(
         # prepare alphas table's entries
         tmp_pd = tmp_pd.drop(["csum"], axis=1).rename(
             columns={
-                "in_cs": f"in_cs_l{idx + 1}",
-                idx: f"alpha_l{idx + 1}",
+                "in_cs": f"in_cs_l{ldx + 1}",
+                ldx: f"alpha_l{ldx + 1}",
             }
         )
         full_alphas = full_alphas.merge(tmp_pd, how="left", on="index")
 
         # check the purity
         snp_idx = tmp_cs.SNPIndex.values.astype("int64")
+
+        # randomly select `max_select` SNPs
+        if len(snp_idx) > max_select:
+            snp_idx = random.choice(
+                rng_key, snp_idx, shape=(max_select,), replace=False
+            )
+
+        # update the genotype data and LD
+        ld_Xs = Xs[:, :, snp_idx]
+        ld = jnp.einsum("ijk,ijm->ikm", ld_Xs, ld_Xs) / ns[:, jnp.newaxis]
+
         ss_weight = ns / jnp.sum(ns)
+
         avg_corr = jnp.sum(
-            jnp.min(jnp.abs(ld[:, snp_idx][:, :, snp_idx]), axis=(1, 2))[:, jnp.newaxis]
-            * ss_weight
+            jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
         )
 
         cur_kl = -jnp.inf
         if not no_kl:
-            cur_alphas = tmp_pd[f"alpha_l{idx + 1}"].values
+            cur_alphas = tmp_pd[f"alpha_l{ldx + 1}"].values
             cur_kl = jnp.sum(cur_alphas * jnp.log(cur_alphas * n_snps))
 
-        full_alphas[f"purity_l{idx + 1}"] = avg_corr
-        full_alphas[f"kl_l{idx + 1}"] = cur_kl
+        full_alphas[f"purity_l{ldx + 1}"] = avg_corr
+        full_alphas[f"kl_l{ldx + 1}"] = cur_kl
 
         if avg_corr > purity or cur_kl >= divergence:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
-            full_alphas[f"pass_pruning_l{idx + 1}"] = 1
+            full_alphas[f"pass_pruning_l{ldx + 1}"] = 1
         else:
-            full_alphas[f"pass_pruning_l{idx + 1}"] = 0
+            full_alphas[f"pass_pruning_l{ldx + 1}"] = 0
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
