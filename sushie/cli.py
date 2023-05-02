@@ -296,7 +296,7 @@ def process_raw(
                     + " because these subjects are not listed in the subject keep file."
                 )
 
-        # remove NA/inf value for subjects
+        # remove NA/inf value for subjects across phenotype or covariate data
         old_subject_num = rawData[idx].fam.shape[0]
         rawData[idx], del_num = _drop_na_subjects(rawData[idx])
 
@@ -310,6 +310,16 @@ def process_raw(
             raise ValueError(
                 f"Ancestry {idx + 1}: All subjects have INF or NAN value in either phenotype or covariate data."
                 + " Check your source."
+            )
+
+        old_snp_num = rawData[idx].bim.shape[0]
+        # remove duplicates SNPs based on rsid even though we suggest users to do some QC on this
+        rawData[idx], del_num = _remove_dup_geno(rawData[idx])
+
+        if del_num != 0:
+            log.logger.warning(
+                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of duplicates in the rs ID"
+                + " in genotype data."
             )
 
         old_snp_num = rawData[idx].bim.shape[0]
@@ -748,10 +758,9 @@ def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
 
     # calculate maf
     snp_maf = jnp.mean(bed, axis=0) / 2
-    gt_idx = snp_maf > 0.5
-    snp_maf = snp_maf.at[gt_idx].set(1 - snp_maf[gt_idx])
+    snp_maf = jnp.where(snp_maf > 0.5, 1 - snp_maf, snp_maf)
 
-    sel_idx = jnp.where(snp_maf > maf)[0]
+    (sel_idx,) = jnp.where(snp_maf > maf)
 
     bim = bim.iloc[sel_idx, :]
     bed = bed[:, sel_idx]
@@ -774,16 +783,12 @@ def _keep_file_subjects(
     old_fam_num = fam.shape[0]
     old_pheno_num = pheno.shape[0]
 
-    triplet_sel_idx = jnp.where(fam.iid.isin(keep_subject).values)[0]
-    pheno_sel_idx = jnp.where(pheno.iid.isin(keep_subject).values)[0]
-
-    fam = fam.iloc[triplet_sel_idx, :]
-    bed = bed[triplet_sel_idx, :]
-    pheno = pheno.iloc[pheno_sel_idx, :]
+    bed = bed[fam.iid.isin(keep_subject).values, :]
+    fam = fam.loc[fam.iid.isin(keep_subject)]
+    pheno = pheno.loc[pheno.iid.isin(keep_subject)]
 
     if covar is not None:
-        covar_sel_idx = jnp.where(covar.iid.isin(keep_subject).values)[0]
-        covar = covar.iloc[covar_sel_idx, :]
+        covar = covar.loc[covar.iid.isin(keep_subject)]
 
     del_fam_num = old_fam_num - fam.shape[0]
     del_pheno_num = old_pheno_num - pheno.shape[0]
@@ -801,23 +806,23 @@ def _keep_file_subjects(
 def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
     _, fam, bed, pheno, covar = rawData
 
-    del_idx = jnp.array([], dtype=int)
-
     val = jnp.array(pheno["pheno"])
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(val))[0])
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isinf(val))[0])
+    del_idx = jnp.logical_or(jnp.isnan(val), jnp.isinf(val))
 
     if covar is not None:
         val = jnp.array(covar.drop(columns="iid"))
-        del_idx = jnp.append(del_idx, jnp.where(jnp.isinf(val).any(axis=1))[0])
-        del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(val).any(axis=1))[0])
+        covar_del = jnp.logical_or(
+            jnp.any(jnp.isinf(val), axis=1), jnp.any(jnp.isnan(val), axis=1)
+        )
+        del_idx = jnp.logical_or(del_idx, covar_del)
 
-    fam = fam.drop(del_idx)
-    pheno = pheno.drop(del_idx)
-    bed = jnp.delete(bed, del_idx, 0)
+    (drop_idx,) = jnp.where(del_idx)
+    fam = fam.drop(drop_idx)
+    pheno = pheno.drop(drop_idx)
+    bed = jnp.delete(bed, drop_idx, 0)
 
     if covar is not None:
-        covar = covar.drop(del_idx)
+        covar = covar.drop(drop_idx)
 
     rawData = rawData._replace(
         fam=fam,
@@ -826,15 +831,30 @@ def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
         covar=covar,
     )
 
-    return rawData, len(del_idx)
+    return rawData, len(drop_idx)
+
+
+def _remove_dup_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
+    bim, _, bed, _, _ = rawData
+
+    (dup_idx,) = jnp.where(bim.snp.duplicated().values)
+
+    bim = bim.drop(dup_idx)
+    bed = jnp.delete(bed, dup_idx, 1)
+
+    rawData = rawData._replace(
+        bim=bim,
+        bed=bed,
+    )
+
+    return rawData, len(dup_idx)
 
 
 def _impute_geno(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
     bim, _, bed, _, _ = rawData
 
     # if we observe SNPs have nan value for all participants (although not likely), drop them
-    del_idx = jnp.array([], dtype=int)
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(bed).all(axis=0))[0])
+    (del_idx,) = jnp.where(jnp.all(jnp.isnan(bed), axis=0))
 
     bim = bim.drop(del_idx)
     bed = jnp.delete(bed, del_idx, 1)
@@ -926,9 +946,9 @@ def _allele_check(
     flipped = jnp.array(
         ((baseA0 == compareA1) * 1) * ((baseA1 == compareA0) * 1), dtype=int
     )
-    correct_idx = jnp.where(correct == 1)[0]
-    flipped_idx = jnp.where(flipped == 1)[0]
-    wrong_idx = jnp.where((correct + flipped) == 0)[0]
+    (correct_idx,) = jnp.where(correct == 1)
+    (flipped_idx,) = jnp.where(flipped == 1)
+    (wrong_idx,) = jnp.where((correct + flipped) == 0)
 
     return correct_idx, flipped_idx, wrong_idx
 

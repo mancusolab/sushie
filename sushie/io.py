@@ -139,15 +139,13 @@ def read_data(
         tmp_pheno = pheno
         tmp_covar = covar
         if index_file:
-            tmp_pt = ancestry_index.iloc[ancestry_index[1].values == (idx + 1), :][
-                0
-            ].values
-            tmp_fam = fam.iloc[jnp.where(fam.iid.isin(tmp_pt).values)[0], :]
-            tmp_bed = bed[jnp.where(fam.iid.isin(tmp_pt).values)[0], :]
-            tmp_pheno = pheno.iloc[jnp.where(pheno.iid.isin(tmp_pt).values)[0], :]
+            tmp_pt = ancestry_index.loc[ancestry_index[1] == (idx + 1)][0]
+            tmp_fam = fam.loc[fam.iid.isin(tmp_pt)]
+            tmp_bed = bed[fam.iid.isin(tmp_pt).values, :]
+            tmp_pheno = pheno.loc[pheno.iid.isin(tmp_pt)]
 
             if covar_paths is not None:
-                tmp_covar = covar.iloc[jnp.where(covar.iid.isin(tmp_pt).values)[0], :]
+                tmp_covar = covar.loc[covar.iid.isin(tmp_pt)]
             else:
                 tmp_covar = None
 
