@@ -42,7 +42,7 @@
 ======
 SuShiE
 ======
-Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation across multiple ancestries. **The manuscript is in progress.**
+SuShiE (Sum of SHared sIngle Effect) is a Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation across multiple ancestries. **The manuscript is in progress.**
 
 .. code:: diff
 
@@ -95,10 +95,10 @@ SuShiE software is very easy to use:
 It can perform:
 
 * SuShiE: multi-ancestry fine-mapping accounting for ancestral correlation
-* Single-ancestry SuShiE
-* Joint SuShiE: multi-ancestry SuShiE without accounting for correlation
-* Meta SuShiE: single-ancestry SuShiE followed by meta-analysis
-* Mega SuShiE: single-ancestry SuShiE on row-wise stacked data across ancestries
+* Single-ancestry SuSiE (Sum of Single Effect)
+* Independent SuShiE: multi-ancestry SuShiE without accounting for correlation
+* Meta-SuSiE: single-ancestry SuSiE followed by meta-analysis
+* Mega-SuSiE: single-ancestry SuSiE on row-wise stacked data across ancestries
 * QTL effect size correlation estimation
 * Narrow-sense cis-heritability estimation
 * Cross-validation for SuShiE prediction weights
@@ -132,7 +132,9 @@ Version History
    * - 0.11
      - Fix the bug for OLS to compute adjusted r squared.
    * - 0.12
-     - Update io.corr function so that report all the correlation results no matter cs is pruned or not. Change the prior correlation parameter from 0.8 to 0.1.
+     - Update io.corr function so that report all the correlation results no matter cs is pruned or not.
+   * - 0.13
+     - Add ``--keep`` command to enable user to specify a file that contains the subjects ID SuShiE will perform on. Add  ``--ancestry_index`` command to enable user to specify a file that contains the ancestry index for fine-mapping. With this, user can input single phenotype, genotype, and covariate file that contains all the subjects across ancestries. Implement padding to increase inference time. Record elbo at each iteration and can access it in the ``infer.SuShiEResult`` object. The alphas table now outputs the average purity and KL divergence for each ``L``. Change ``--kl_threshold`` to ``--divergence``. Add ``--maf`` command to remove SNPs that less than minor allele frequency threshold within each ancestry. Add ``--max_select`` command to randomly select maximum number of SNPs to compute purity to avoid unnecessary memory spending. Add a QC function to remove duplicated SNPs.
 
 .. _Support:
 .. |Support| replace:: **Support**

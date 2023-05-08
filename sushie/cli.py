@@ -32,23 +32,67 @@ __all__ = [
 
 def parameter_check(
     args,
-) -> Tuple[List[str], Callable]:
+) -> Tuple[int, pd.DataFrame, List[str], List[str], Callable]:
     """The function to process raw phenotype, genotype, covariate data across ancestries.
 
     Args:
         args: The command line parameter input.
 
     Returns:
-        :py:obj:`Tuple[List[str], Callable]`:
+        :py:obj:`Tuple[int, pd.DataFrame, List[str], Callable]`:
             A tuple of
+                #. a integer to indicate how many ancestries,
+                #. a DataFrame that contains ancestry index (can be none),
+                #. a list that contains subject ID that fine-mapping performs on.
                 #. a list of genotype data paths (:py:obj:`List[str]`),
                 #. genotype read-in function (:py:obj:`Callable`).
 
     """
+    if args.ancestry_index is not None:
+        log.logger.info(
+            "Reading ancestry index file to determine the number of ancestries."
+        )
 
-    n_pop = len(args.pheno)
+        ancestry_index = pd.read_csv(args.ancestry_index[0], header=None, sep="\t")
+        old_pt = ancestry_index.shape[0]
+        ancestry_index = ancestry_index.drop_duplicates()
+
+        if old_pt != ancestry_index.shape[0]:
+            log.logger.warning(
+                f"Index file has {old_pt - ancestry_index.shape[0]} duplicated subjects."
+            )
+
+        if ancestry_index[0].duplicated().sum() != 0:
+            raise ValueError(
+                "The ancestry index file contains subjects with multiple ancestry index. Check your source."
+            )
+
+        n_pop = len(ancestry_index[1].unique())
+        index_check = jnp.all(
+            jnp.array(ancestry_index[1].unique()).sort() == (jnp.arange(n_pop) + 1)
+        )
+
+        if not index_check:
+            raise ValueError(
+                "The ancestry index doesn't start from 1 continuously to the total number of ancestry."
+                + f" Check {args.ancestry_index}."
+            )
+
+        if len(args.pheno) > 1:
+            raise ValueError(
+                "Multiple phenotype files are detected. Expectation is one when --ancestry_index is specified."
+            )
+
+        log.logger.info(
+            "Detecting ancestry index file, so it expects to have single phenotype, genotype, and covariates files"
+        )
+
+    else:
+        ancestry_index = pd.DataFrame()
+        n_pop = len(args.pheno)
+
     log.logger.info(
-        f"Detecting phenotypes for {n_pop} ancestries for SuShiE fine-mapping."
+        f"Detecting phenotypes for {n_pop} ancestry(ies) for SuShiE fine-mapping."
     )
 
     n_geno = (
@@ -64,42 +108,91 @@ def parameter_check(
 
     # decide genotype data
     if args.plink is not None:
-        if len(args.plink) != n_pop:
-            raise ValueError(
-                "The numbers of ancestries in plink geno and pheno data does not match. Check your input."
-            )
+        if args.ancestry_index is not None:
+            if len(args.plink) > 1:
+                raise ValueError(
+                    "Multiple plink files are detected. Expectation is one when --ancestry_index is specified."
+                )
         else:
-            log.logger.info("Detecting genotype data in plink format.")
-            geno_path = args.plink
-            geno_func = io.read_triplet
+            if len(args.plink) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in plink geno and pheno data does not match. Check your source."
+                )
+
+        log.logger.info("Detecting genotype data in plink format.")
+        geno_path = args.plink
+        geno_func = io.read_triplet
     elif args.vcf is not None:
-        if len(args.vcf) != n_pop:
-            raise ValueError(
-                "The numbers of ancestries in vcf geno and pheno data does not match. Check your input."
-            )
+        if args.ancestry_index is not None:
+            if len(args.vcf) > 1:
+                raise ValueError(
+                    "Multiple vcf files are detected. Expectation is one when --ancestry_index is specified."
+                )
         else:
-            log.logger.info("Detecting genotype data in vcf format.")
-            geno_path = args.vcf
-            geno_func = io.read_vcf
+            if len(args.vcf) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in vcf geno and pheno data does not match. Check your source."
+                )
+        log.logger.info("Detecting genotype data in vcf format.")
+        geno_path = args.vcf
+        geno_func = io.read_vcf
     elif args.bgen is not None:
-        if len(args.bgen) != n_pop:
-            raise ValueError(
-                "The numbers of ancestries in bgen geno and pheno data does not match. Check your input."
-            )
+        if args.ancestry_index is not None:
+            if len(args.bgen) > 1:
+                raise ValueError(
+                    "Multiple bgen files are detected. Expectation is one when --ancestry_index is specified."
+                )
         else:
-            log.logger.info("Detecting genotype data in bgen format.")
-            geno_path = args.bgen
-            geno_func = io.read_bgen
+            if len(args.bgen) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in bgen geno and pheno data does not match. Check your source."
+                )
+
+        log.logger.info("Detecting genotype data in bgen format.")
+        geno_path = args.bgen
+        geno_func = io.read_bgen
     else:
         raise ValueError(
-            "No genotype data specified in either plink, vcf, or bgen format. Check your input."
+            "No genotype data specified in either plink, vcf, or bgen format. Check your source."
         )
 
     if args.covar is not None:
-        if len(args.covar) != n_pop:
-            raise ValueError("The number of covariate data does not match geno data.")
+        if args.ancestry_index is not None:
+            if len(args.covar) > 1:
+                raise ValueError(
+                    "Multiple covariate files are detected. Expectation is one when --ancestry_index is specified."
+                )
+        else:
+            if len(args.covar) != n_pop:
+                raise ValueError(
+                    "The number of covariate data does not match geno data."
+                )
     else:
         log.logger.info("No covariates detected for this analysis.")
+
+    keep_subject = []
+    if args.keep is not None:
+        log.logger.info(
+            "Detecting keep subject file. The inference only performs on the subjects listed in the file."
+        )
+        df_keep = pd.read_csv(args.keep[0], header=None, sep="\t")[[0]]
+        if df_keep.shape[0] == 0:
+            raise ValueError(
+                "No subjects are listed in the keep subject file. Check your source."
+            )
+        old_pt = df_keep.shape[0]
+        df_keep = df_keep.drop_duplicates()
+
+        if old_pt != df_keep.shape[0]:
+            log.logger.warning(
+                f"The keep subject file has {old_pt - df_keep.shape[0]} duplicated subjects."
+            )
+        keep_subject = df_keep[0].values.tolist()
+
+    if args.seed <= 0:
+        raise ValueError(
+            "The seed specified for randomization is invalid. Choose a positive integer."
+        )
 
     if args.cv:
         if args.cv_num <= 1:
@@ -113,21 +206,24 @@ def parameter_check(
                 + " It may increase running time.",
             )
 
-        if args.seed <= 0:
-            raise ValueError(
-                "The seed specified for CV is invalid. Please choose a positive integer."
-            )
+    if args.maf <= 0 or args.maf > 0.5:
+        raise ValueError(
+            "The minor allele frequency (MAF) has to be between 0 (exclusive) and 0.5 (inclusive)."
+            + " Choose a valid float."
+        )
 
     if (args.meta or args.mega) and n_pop == 1:
         log.logger.warning(
-            "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuShiE."
+            "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuSiE."
         )
 
-    return geno_path, geno_func
+    return n_pop, ancestry_index, keep_subject, geno_path, geno_func
 
 
 def process_raw(
     rawData: List[io.RawData],
+    keep_subject: List[str],
+    maf: float,
     no_regress: bool,
     mega: bool,
     cv: bool,
@@ -143,6 +239,7 @@ def process_raw(
 
     Args:
         rawData: Raw data for phenotypes, genotypes, covariates across ancestries.
+        keep_subject: The DataFrame that contains subject ID that fine-mapping performs on.
         no_regress: The indicator whether to regress genotypes on covariates.
         mega: The indicator whether to prepare datasets for mega SuShiE.
         cv: The indicator whether to prepare datasets for cross-validation.
@@ -164,7 +261,42 @@ def process_raw(
 
     for idx in range(n_pop):
 
-        # remove NA/inf value for subjects
+        # remove subjects that are not in the keep file
+        if len(keep_subject) != 0:
+            old_fam_num = rawData[idx].fam.shape[0]
+            old_pheno_num = rawData[idx].pheno.shape[0]
+
+            (
+                rawData[idx],
+                del_fam_num,
+                del_pheno_num,
+            ) = _keep_file_subjects(rawData[idx], keep_subject)
+
+            if len(rawData[idx].fam) == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: No subjects in the genotype data are listed in the keep file."
+                    + " Check your source."
+                )
+
+            if len(rawData[idx].pheno) == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: No subjects in the pheno data are listed in the keep file."
+                    + " Check your source."
+                )
+
+            if del_fam_num != 0:
+                log.logger.warning(
+                    f"Ancestry {idx + 1}: Drop {del_fam_num} out of {old_fam_num} subjects in the genotype data"
+                    + " because these subjects are not listed in the subject keep file."
+                )
+
+            if del_pheno_num != 0:
+                log.logger.warning(
+                    f"Ancestry {idx + 1}: Drop {del_pheno_num} out of {old_pheno_num} subjects in the phenotype data"
+                    + " because these subjects are not listed in the subject keep file."
+                )
+
+        # remove NA/inf value for subjects across phenotype or covariate data
         old_subject_num = rawData[idx].fam.shape[0]
         rawData[idx], del_num = _drop_na_subjects(rawData[idx])
 
@@ -174,9 +306,30 @@ def process_raw(
                 + " in either phenotype or covariate data."
             )
 
+        if del_num == old_subject_num:
+            raise ValueError(
+                f"Ancestry {idx + 1}: All subjects have INF or NAN value in either phenotype or covariate data."
+                + " Check your source."
+            )
+
+        old_snp_num = rawData[idx].bim.shape[0]
+        # remove duplicates SNPs based on rsid even though we suggest users to do some QC on this
+        rawData[idx], del_num = _remove_dup_geno(rawData[idx])
+
+        if del_num != 0:
+            log.logger.warning(
+                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of duplicates in the rs ID"
+                + " in genotype data."
+            )
+
         old_snp_num = rawData[idx].bim.shape[0]
         # impute genotype data even though we suggest users to impute the genotypes beforehand
         rawData[idx], del_num, imp_num = _impute_geno(rawData[idx])
+
+        if del_num == old_snp_num:
+            raise ValueError(
+                f"Ancestry {idx + 1}: All SNPs have INF or NAN value in genotype data. Check your source."
+            )
 
         if del_num != 0:
             log.logger.warning(
@@ -185,9 +338,23 @@ def process_raw(
             )
 
         if imp_num != 0:
-            log.logger.warning(
+            log.logger.info(
                 f"Ancestry {idx + 1}: Impute {imp_num} out of {old_snp_num} SNPs with NAN value based on allele"
                 + " frequency."
+            )
+
+        old_snp_num = rawData[idx].bim.shape[0]
+        # remove SNPs that cannot pass MAF threshold
+        rawData[idx], del_num = _filter_maf(rawData[idx], maf)
+
+        if del_num == old_snp_num:
+            raise ValueError(
+                f"Ancestry {idx + 1}: All SNPs cannot pass the MAF threshold at {maf}."
+            )
+
+        if del_num != 0:
+            log.logger.warning(
+                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of maf threshold at {maf}."
             )
 
         # reset index and add index column to all dataset for future inter-ancestry or inter-dataset processing
@@ -199,7 +366,7 @@ def process_raw(
         if rawData[idx].fam.shape[0] == 0:
             raise ValueError(
                 f"Ancestry {idx + 1}: No common individuals across phenotype, covariates,"
-                + " genotype found. Please double check source data.",
+                + " genotype found. Double check source data.",
             )
         else:
             log.logger.info(
@@ -220,9 +387,9 @@ def process_raw(
         # report how many snps we removed due to independent SNPs
         for idx in range(n_pop):
             snps_num_diff = rawData[idx].bim.shape[0] - snps.shape[0]
-            log.logger.warning(
+            log.logger.info(
                 f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps.shape[0]}"
-                + " common SNPs. Will remove these independent SNPs.",
+                + " common SNPs. Inference only performs on common SNPs.",
             )
     else:
         snps = rawData[0].bim
@@ -379,6 +546,9 @@ def sushie_wrapper(
     effect_var = None if mega is True else args.effect_var
     rho = None if mega is True else args.rho
 
+    # padding will change the original data, make a copy for heritability
+    heri_data = copy.deepcopy(data)
+
     # keeps track of single-ancestry PIP to get meta-PIP
     pips = jnp.zeros((snps.shape[0], 1)) if meta else None
     result = []
@@ -400,7 +570,7 @@ def sushie_wrapper(
             else:
                 covar = [data.covar[idx]]
 
-            log.logger.info(f"Running Meta SuShiE on ancestry {idx + 1}.")
+            log.logger.info(f"Running Meta SuSiE on ancestry {idx + 1}.")
 
             tmp_result = infer.infer_sushie(
                 [data.geno[idx]],
@@ -419,7 +589,9 @@ def sushie_wrapper(
                 threshold=args.threshold,
                 purity=args.purity,
                 no_kl=args.no_kl,
-                kl_threshold=args.kl_threshold,
+                divergence=args.divergence,
+                max_select=args.max_select,
+                seed=args.seed,
             )
 
             pips = jnp.append(pips, tmp_result.pip[:, jnp.newaxis], axis=1)
@@ -429,7 +601,7 @@ def sushie_wrapper(
         pips = 1 - jnp.prod(1 - pips, axis=1)
     else:
         if mega:
-            log.logger.info("Running Mega SuShiE.")
+            log.logger.info("Running Mega SuSiE.")
 
         tmp_result = infer.infer_sushie(
             data.geno,
@@ -448,7 +620,9 @@ def sushie_wrapper(
             threshold=args.threshold,
             purity=args.purity,
             no_kl=args.no_kl,
-            kl_threshold=args.kl_threshold,
+            divergence=args.divergence,
+            max_select=args.max_select,
+            seed=args.seed,
         )
         result.append(tmp_result)
 
@@ -471,7 +645,7 @@ def sushie_wrapper(
         io.output_corr(result, output, args.trait, args.compress)
 
         if args.her:
-            io.output_her(result, data, output, args.trait, args.compress)
+            io.output_her(result, heri_data, output, args.trait, args.compress)
 
         if args.cv:
             log.logger.info(f"Running {args.cv_num}-fold cross validation.")
@@ -496,21 +670,39 @@ def run_finemap(args):
 
         config.update("jax_platform_name", args.platform)
 
-        geno_path, geno_func = parameter_check(args)
-
-        rawData = io.read_data(args.pheno, args.covar, geno_path, geno_func)
-
-        snps, regular_data, mega_data, cv_data = process_raw(
-            rawData, args.no_regress, args.mega, args.cv, args.cv_num, args.seed
+        n_pop, ancestry_index, keep_subject, geno_path, geno_func = parameter_check(
+            args
         )
 
-        sushie_wrapper(regular_data, cv_data, args, snps, meta=False, mega=False)
+        rawData = io.read_data(
+            n_pop,
+            ancestry_index,
+            args.pheno,
+            args.covar,
+            geno_path,
+            geno_func,
+        )
+
+        snps, regular_data, mega_data, cv_data = process_raw(
+            rawData,
+            keep_subject,
+            args.maf,
+            args.no_regress,
+            args.mega,
+            args.cv,
+            args.cv_num,
+            args.seed,
+        )
+
+        normal_data = copy.deepcopy(regular_data)
+        sushie_wrapper(normal_data, cv_data, args, snps, meta=False, mega=False)
 
         # if only one ancestry, need to run mega or meta
         n_pop = len(regular_data.geno)
         if n_pop != 1:
             if args.meta:
-                sushie_wrapper(regular_data, None, args, snps, meta=True, mega=False)
+                meta_data = copy.deepcopy(regular_data)
+                sushie_wrapper(meta_data, None, args, snps, meta=True, mega=False)
 
             if args.mega:
                 sushie_wrapper(mega_data, None, args, snps, meta=False, mega=True)
@@ -559,26 +751,47 @@ def _get_command_string(args):
     return base + "".join(rest_strs) + os.linesep
 
 
-def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
+def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
+    bim, _, bed, _, _ = rawData
+
+    old_num = bim.shape[0]
+
+    # calculate maf
+    snp_maf = jnp.mean(bed, axis=0) / 2
+    snp_maf = jnp.where(snp_maf > 0.5, 1 - snp_maf, snp_maf)
+
+    (sel_idx,) = jnp.where(snp_maf > maf)
+
+    bim = bim.iloc[sel_idx, :]
+    bed = bed[:, sel_idx]
+
+    rawData = rawData._replace(
+        bim=bim,
+        bed=bed,
+    )
+
+    del_num = old_num - len(sel_idx)
+
+    return rawData, del_num
+
+
+def _keep_file_subjects(
+    rawData: io.RawData, keep_subject: List[str]
+) -> Tuple[io.RawData, int, int]:
     _, fam, bed, pheno, covar = rawData
 
-    del_idx = jnp.array([], dtype=int)
+    old_fam_num = fam.shape[0]
+    old_pheno_num = pheno.shape[0]
 
-    val = jnp.array(pheno["pheno"])
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(val))[0])
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isinf(val))[0])
-
-    if covar is not None:
-        val = jnp.array(covar.drop(columns="iid"))
-        del_idx = jnp.append(del_idx, jnp.where(jnp.isinf(val).any(axis=1))[0])
-        del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(val).any(axis=1))[0])
-
-    fam = fam.drop(del_idx)
-    pheno = pheno.drop(del_idx)
-    bed = jnp.delete(bed, del_idx, 0)
+    bed = bed[fam.iid.isin(keep_subject).values, :]
+    fam = fam.loc[fam.iid.isin(keep_subject)]
+    pheno = pheno.loc[pheno.iid.isin(keep_subject)]
 
     if covar is not None:
-        covar = covar.drop(del_idx)
+        covar = covar.loc[covar.iid.isin(keep_subject)]
+
+    del_fam_num = old_fam_num - fam.shape[0]
+    del_pheno_num = old_pheno_num - pheno.shape[0]
 
     rawData = rawData._replace(
         fam=fam,
@@ -587,15 +800,61 @@ def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
         covar=covar,
     )
 
-    return rawData, len(del_idx)
+    return rawData, del_fam_num, del_pheno_num
+
+
+def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
+    _, fam, bed, pheno, covar = rawData
+
+    val = jnp.array(pheno["pheno"])
+    del_idx = jnp.logical_or(jnp.isnan(val), jnp.isinf(val))
+
+    if covar is not None:
+        val = jnp.array(covar.drop(columns="iid"))
+        covar_del = jnp.logical_or(
+            jnp.any(jnp.isinf(val), axis=1), jnp.any(jnp.isnan(val), axis=1)
+        )
+        del_idx = jnp.logical_or(del_idx, covar_del)
+
+    (drop_idx,) = jnp.where(del_idx)
+    fam = fam.drop(drop_idx)
+    pheno = pheno.drop(drop_idx)
+    bed = jnp.delete(bed, drop_idx, 0)
+
+    if covar is not None:
+        covar = covar.drop(drop_idx)
+
+    rawData = rawData._replace(
+        fam=fam,
+        pheno=pheno,
+        bed=bed,
+        covar=covar,
+    )
+
+    return rawData, len(drop_idx)
+
+
+def _remove_dup_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
+    bim, _, bed, _, _ = rawData
+
+    (dup_idx,) = jnp.where(bim.snp.duplicated().values)
+
+    bim = bim.drop(dup_idx)
+    bed = jnp.delete(bed, dup_idx, 1)
+
+    rawData = rawData._replace(
+        bim=bim,
+        bed=bed,
+    )
+
+    return rawData, len(dup_idx)
 
 
 def _impute_geno(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
     bim, _, bed, _, _ = rawData
 
     # if we observe SNPs have nan value for all participants (although not likely), drop them
-    del_idx = jnp.array([], dtype=int)
-    del_idx = jnp.append(del_idx, jnp.where(jnp.isnan(bed).all(axis=0))[0])
+    (del_idx,) = jnp.where(jnp.all(jnp.isnan(bed), axis=0))
 
     bim = bim.drop(del_idx)
     bed = jnp.delete(bed, del_idx, 1)
@@ -687,9 +946,9 @@ def _allele_check(
     flipped = jnp.array(
         ((baseA0 == compareA1) * 1) * ((baseA1 == compareA0) * 1), dtype=int
     )
-    correct_idx = jnp.where(correct == 1)[0]
-    flipped_idx = jnp.where(flipped == 1)[0]
-    wrong_idx = jnp.where((correct + flipped) == 0)[0]
+    (correct_idx,) = jnp.where(correct == 1)
+    (flipped_idx,) = jnp.where(flipped == 1)
+    (wrong_idx,) = jnp.where((correct + flipped) == 0)
 
     return correct_idx, flipped_idx, wrong_idx
 
@@ -766,6 +1025,10 @@ def _run_cv(args, cv_data) -> List[List[jnp.ndarray]]:
             min_tol=args.min_tol,
             threshold=args.threshold,
             purity=args.purity,
+            no_kl=args.no_kl,
+            divergence=args.divergence,
+            max_select=args.max_select,
+            seed=args.seed,
         )
 
         total_weight = jnp.sum(cv_result.posteriors.post_mean, axis=0)
@@ -848,6 +1111,37 @@ def build_finemap_parser(subp):
     )
 
     # fine-map general options
+    finemap.add_argument(
+        "--ancestry_index",
+        nargs=1,
+        default=None,
+        type=str,
+        help=(
+            "Single file that contains subject ID and their ancestry index. Default is None."
+            " It has to be a tsv file that contains at least two columns where the",
+            " first column is the subject ID and the second column is the ancestry index",
+            " starting from 1 (e.g., 1, 2, 3 etc.). It can be a compressed file (e.g., tsv.gz).",
+            " Only the first two columns will be used. No headers.",
+            " If this file is specified, it assumes that all the phenotypes across ancestries are in one single file,",
+            " and same thing for genotypes and covariates data.",
+            " It will produce errors if multiple phenotype, genotype, and covariates are specified.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--keep",
+        nargs=1,
+        default=None,
+        type=str,
+        help=(
+            "Single file that contains subject ID across all ancestries that are used for fine-mapping."
+            " It has to be a tsv file that contains at least one columns where the",
+            " first column is the subject ID. It can be a compressed file (e.g., tsv.gz). No headers.",
+            " If this file is specified, all phenotype, genotype, and covariates data will be filtered down to",
+            " the subjects listed in it.",
+        ),
+    )
+
     finemap.add_argument(
         "--covar",
         nargs="+",
@@ -1021,12 +1315,22 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--kl_threshold",
+        "--divergence",
         default=5.0,
         type=float,
         help=(
             "Specify the KL divergence threshold for credible sets to be output. Default is 5.",
             " It has to be a positive number.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--maf",
+        default=0.01,
+        type=float,
+        help=(
+            "Threshold for minor allele frequency (MAF) to filter out SNPs for each ancestry.",
+            " It has to be a float between 0 (exclusive) and 0.5 (inclusive).",
         ),
     )
 
@@ -1094,8 +1398,19 @@ def build_finemap_parser(subp):
         default=12345,
         type=int,
         help=(
-            "The seed to randomly cut data sets in cross validation. Default is 12345.",
-            " It has to be positive integer number.",
+            "The seed for randomization. It can be used to cut data sets in cross validation. ",
+            " It can also be used to randomly select SNPs in the credible sets to calculate the purity."
+            " Default is 12345. It has to be positive integer number.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--max_select",
+        default=500,
+        type=int,
+        help=(
+            "The maximum selected number of SNPs to calculate the purity. Default is 500.",
+            " It has to be positive integer number. A larger number can unnecessarily spend much memory.",
         ),
     )
 

@@ -143,10 +143,18 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - Integer
      - 0, 1
      - The indicator whether the SNP is in the first credible set. Depending on ``--L``, it can have extra columns.
+    * - purity_l1
+     - float
+     - 0.634
+     - The sample-size-weighted average purity across ancestries. To compare with the ``--purity``, it will decide the value in ``in_cs_l1``. Depending on ``--L``, it can have extra columns.
+    * - kl_l1
+     - float
+     - 5.3
+     - The KL-divergence between the posterior probability of SNPs to be causal in the first credible set (:math:`\alpha_{l,j}` in :ref:`Model`) and uniform distribution. It will be ``-jnp.inf`` if ``--no_kl`` is specified. Depending on ``--L``, it can have extra columns.
    * - pass_pruning_l1
      - Integer
      - 0, 1
-     - The indicator whether the credible set passes the pruning threshold. Depending on ``--L``, it can have extra columns.
+     - The indicator whether the credible set passes the pruning threshold. The criteria contain purity and divergence. Specifying ``--no_kl`` removes divergence criterion. Depending on ``--L``, it can have extra columns.
    * - trait
      - String
      - GeneABC

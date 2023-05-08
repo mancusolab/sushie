@@ -83,6 +83,8 @@ class RawData(NamedTuple):
 
 
 def read_data(
+    n_pop: int,
+    ancestry_index: pd.DataFrame,
     pheno_paths: List[str],
     covar_paths: utils.ListStrOrNone,
     geno_paths: List[str],
@@ -91,6 +93,8 @@ def read_data(
     """Read in pheno, covar, and genotype data and convert it to raw data object.
 
     Args:
+        n_pop: The int to indicate the number of ancestries.
+        ancestry_index: The DataFrame that contains ancestry index.
         pheno_paths: The path for phenotype data across ancestries.
         covar_paths: The path for covariates data across ancestries.
         geno_paths: The path for genotype data across ancestries.
@@ -100,43 +104,62 @@ def read_data(
         :py:obj:`List[RawData]`: A list of Raw data object (:py:obj:`RawData`).
 
     """
-    n_pop = len(pheno_paths)
 
+    index_file = True if ancestry_index.shape[0] != 0 else False
     rawData = []
-
     for idx in range(n_pop):
-        log.logger.info(f"Ancestry {idx + 1}: Reading in genotype data.")
+        if (not index_file) or (index_file and idx == 0):
+            if index_file and idx == 0:
+                log.logger.info("Reading in data for all ancestries.")
+            else:
+                log.logger.info(f"Ancestry {idx + 1}: Reading in data.")
 
-        tmp_bim, tmp_fam, tmp_bed = geno_func(geno_paths[idx])
+            bim, fam, bed = geno_func(geno_paths[idx])
 
-        if len(tmp_bim) == 0:
-            raise ValueError(
-                f"Ancestry {idx + 1}: No genotype data found for ancestry at {geno_paths[idx]}."
-            )
-        if len(tmp_fam) == 0:
-            raise ValueError(
-                f"Ancestry {idx + 1}: No fam data found for ancestry at {geno_paths[idx]}."
-            )
-
-        tmp_pheno = (
-            pd.read_csv(pheno_paths[idx], sep="\t", header=None, dtype={0: object})
-            .rename(columns={0: "iid", 1: "pheno"})
-            .reset_index(drop=True)
-        )
-
-        if len(tmp_pheno) == 0:
-            raise ValueError(
-                f"Ancestry {idx + 1}: No pheno data found for ancestry at {pheno_paths[idx]}."
-            )
-
-        if covar_paths is not None:
-            tmp_covar = (
-                pd.read_csv(covar_paths[idx], sep="\t", header=None, dtype={0: object})
-                .rename(columns={0: "iid"})
+            pheno = (
+                pd.read_csv(pheno_paths[idx], sep="\t", header=None, dtype={0: object})
+                .rename(columns={0: "iid", 1: "pheno"})
                 .reset_index(drop=True)
             )
-        else:
-            tmp_covar = None
+
+            if covar_paths is not None:
+                covar = (
+                    pd.read_csv(
+                        covar_paths[idx], sep="\t", header=None, dtype={0: object}
+                    )
+                    .rename(columns={0: "iid"})
+                    .reset_index(drop=True)
+                )
+            else:
+                covar = None
+
+        tmp_bim = bim
+        tmp_bed = bed
+        tmp_fam = fam
+        tmp_pheno = pheno
+        tmp_covar = covar
+        if index_file:
+            tmp_pt = ancestry_index.loc[ancestry_index[1] == (idx + 1)][0]
+            tmp_fam = fam.loc[fam.iid.isin(tmp_pt)]
+            tmp_bed = bed[fam.iid.isin(tmp_pt).values, :]
+            tmp_pheno = pheno.loc[pheno.iid.isin(tmp_pt)]
+
+            if covar_paths is not None:
+                tmp_covar = covar.loc[covar.iid.isin(tmp_pt)]
+            else:
+                tmp_covar = None
+
+        if len(tmp_bim) == 0:
+            raise ValueError(f"Ancestry {idx + 1}: No genotype data found.")
+
+        if len(tmp_fam) == 0:
+            raise ValueError(f"Ancestry {idx + 1}: No fam data found.")
+
+        if len(tmp_pheno) == 0:
+            raise ValueError(f"Ancestry {idx + 1}: No pheno data found.")
+
+        if covar_paths is not None and len(tmp_covar) == 0:
+            raise ValueError(f"Ancestry {idx + 1}: No covar data found.")
 
         rawData.append(
             RawData(
