@@ -64,7 +64,7 @@ def parameter_check(
 
         if ancestry_index[0].duplicated().sum() != 0:
             raise ValueError(
-                "The ancestry index file contains subjects with multiple ancestry index. Check your source."
+                "The ancestry index file contains subjects with multiple ancestry index. Check the source."
             )
 
         n_pop = len(ancestry_index[1].unique())
@@ -116,7 +116,7 @@ def parameter_check(
         else:
             if len(args.plink) != n_pop:
                 raise ValueError(
-                    "The numbers of ancestries in plink geno and pheno data does not match. Check your source."
+                    "The numbers of ancestries in plink geno and pheno data does not match. Check the source."
                 )
 
         log.logger.info("Detecting genotype data in plink format.")
@@ -131,7 +131,7 @@ def parameter_check(
         else:
             if len(args.vcf) != n_pop:
                 raise ValueError(
-                    "The numbers of ancestries in vcf geno and pheno data does not match. Check your source."
+                    "The numbers of ancestries in vcf geno and pheno data does not match. Check the source."
                 )
         log.logger.info("Detecting genotype data in vcf format.")
         geno_path = args.vcf
@@ -145,7 +145,7 @@ def parameter_check(
         else:
             if len(args.bgen) != n_pop:
                 raise ValueError(
-                    "The numbers of ancestries in bgen geno and pheno data does not match. Check your source."
+                    "The numbers of ancestries in bgen geno and pheno data does not match. Check the source."
                 )
 
         log.logger.info("Detecting genotype data in bgen format.")
@@ -153,7 +153,7 @@ def parameter_check(
         geno_func = io.read_bgen
     else:
         raise ValueError(
-            "No genotype data specified in either plink, vcf, or bgen format. Check your source."
+            "No genotype data specified in either plink, vcf, or bgen format. Check the source."
         )
 
     if args.covar is not None:
@@ -178,7 +178,7 @@ def parameter_check(
         df_keep = pd.read_csv(args.keep[0], header=None, sep="\t")[[0]]
         if df_keep.shape[0] == 0:
             raise ValueError(
-                "No subjects are listed in the keep subject file. Check your source."
+                "No subjects are listed in the keep subject file. Check the source."
             )
         old_pt = df_keep.shape[0]
         df_keep = df_keep.drop_duplicates()
@@ -275,13 +275,13 @@ def process_raw(
             if len(rawData[idx].fam) == 0:
                 raise ValueError(
                     f"Ancestry {idx + 1}: No subjects in the genotype data are listed in the keep file."
-                    + " Check your source."
+                    + " Check the source."
                 )
 
             if len(rawData[idx].pheno) == 0:
                 raise ValueError(
                     f"Ancestry {idx + 1}: No subjects in the pheno data are listed in the keep file."
-                    + " Check your source."
+                    + " Check the source."
                 )
 
             if del_fam_num != 0:
@@ -309,7 +309,7 @@ def process_raw(
         if del_num == old_subject_num:
             raise ValueError(
                 f"Ancestry {idx + 1}: All subjects have INF or NAN value in either phenotype or covariate data."
-                + " Check your source."
+                + " Check the source."
             )
 
         old_snp_num = rawData[idx].bim.shape[0]
@@ -328,7 +328,7 @@ def process_raw(
 
         if del_num == old_snp_num:
             raise ValueError(
-                f"Ancestry {idx + 1}: All SNPs have INF or NAN value in genotype data. Check your source."
+                f"Ancestry {idx + 1}: All SNPs have INF or NAN value in genotype data. Check the source."
             )
 
         if del_num != 0:
@@ -357,6 +357,11 @@ def process_raw(
                 f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of maf threshold at {maf}."
             )
 
+        if rawData[idx].bim.shape[0] == 0:
+            raise ValueError(
+                f"Ancestry {idx + 1}: no SNPs left after QC. Check the source."
+            )
+
         # reset index and add index column to all dataset for future inter-ancestry or inter-dataset processing
         rawData[idx] = _reset_idx(rawData[idx], idx)
 
@@ -366,7 +371,7 @@ def process_raw(
         if rawData[idx].fam.shape[0] == 0:
             raise ValueError(
                 f"Ancestry {idx + 1}: No common individuals across phenotype, covariates,"
-                + " genotype found. Double check source data.",
+                + " genotype found. Check the source.",
             )
         else:
             log.logger.info(
@@ -383,7 +388,8 @@ def process_raw(
             snps = pd.merge(
                 snps, rawData[idx + 2].bim, how="inner", on=["chrom", "snp"]
             )
-
+        if snps.shape[0] == 0:
+            raise ValueError("Ancestries have no common SNPs. Check the source.")
         # report how many snps we removed due to independent SNPs
         for idx in range(n_pop):
             snps_num_diff = rawData[idx].bim.shape[0] - snps.shape[0]
@@ -421,7 +427,7 @@ def process_raw(
 
             if snps.shape[0] == 0:
                 raise ValueError(
-                    f"Ancestry {idx + 1} has none of correct or flippable SNPs from ancestry 1. Check your source.",
+                    f"Ancestry {idx + 1} has none of correct or flippable SNPs from ancestry 1. Check the source.",
                 )
             # drop unused columns
             snps = snps.drop(
