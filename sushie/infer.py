@@ -701,7 +701,7 @@ def make_pip(alpha: ArrayLike) -> Array:
 
     """
 
-    pip = 1 - jnp.exp(jnp.sum(jnp.log1p(-alpha), axis=0))
+    pip = -jnp.expm1(jnp.sum(jnp.log1p(-alpha), axis=0))
 
     return pip
 
