@@ -127,7 +127,11 @@ def estimate_her(
         covar = jnp.ones(n)
 
     GRM = jnp.dot(X, X.T) / p
-    GRM = GRM / jnp.diag(GRM).mean()
+    # normalize the covariance matrix as suggested by Limix
+    # https://horta-limix.readthedocs.io/en/api/_modules/limix/her/_estimate.html#estimate
+    # and https://horta-limix.readthedocs.io/en/api/_modules/limix/qc/kinship.html#normalise_covariance
+    c_scaler = (GRM.shape[0] - 1) / (jnp.trace(GRM) - jnp.sum(jnp.mean(GRM, axis=0)))
+    GRM *= c_scaler
     QS = economic_qs(GRM)
     method = LMM(y, covar, QS, restricted=True)
     method.fit(verbose=False)
@@ -143,6 +147,7 @@ def estimate_her(
     method.fit(verbose=False)
     null_lk = method.lml()
     lrt_stats = -2 * (null_lk - alt_lk)
+    # https://en.wikipedia.org/wiki/Wilks%27_theorem
     p_value = stats.chi2.sf(lrt_stats, 1) / 2
 
     return g, h2g_w_v, h2g_wo_v, lrt_stats, p_value
