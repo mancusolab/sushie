@@ -651,7 +651,7 @@ def sushie_wrapper(
         io.output_corr(result, output, args.trait, args.compress)
 
         if args.her:
-            io.output_her(result, heri_data, output, args.trait, args.compress)
+            io.output_her(heri_data, output, args.trait, args.compress)
 
         if args.cv:
             log.logger.info(f"Running {args.cv_num}-fold cross validation.")
@@ -673,6 +673,7 @@ def run_finemap(args):
     try:
         if args.jax_precision == 64:
             config.update("jax_enable_x64", True)
+            config.update("jax_default_matmul_precision", "highest")
 
         config.update("jax_platform_name", args.platform)
 

@@ -288,14 +288,10 @@ It contains two rounds of heritability estimation:
      - Flat
      - 1.32
      - The variance of genetic components contributing to the complex traits. ``s_genetic_var``, which is estimated only from the SNPs in the credible sets, will be appended if credible sets are not empty after pruning for purity.
-   * - h2g_w_v
+   * - h2g
      - Flat
      - 0.23
-     - The narrow-sense cis-heritability of the traits based on `limix <https://github.com/limix/limix>`_ definition. This include the variance of the fixed effects. ``s_h2g_w_v``, which is estimated only from the SNPs in the credible sets, will be appended if credible sets are not empty after pruning for purity.
-   * - h2g_w0_v
-     - Flat
-     - 0.23
-     - The narrow-sense cis-heritability of the traits based on `gcta <https://yanglab.westlake.edu.cn/software/gcta/#Overview>`_ definition. This does not include the variance of the fixed effects. ``s_h2g_w0_v``, which is estimated only from the SNPs in the credible sets, will be appended if credible sets are not empty after pruning for purity.
+     - The narrow-sense cis-heritability of the traits based on `limix <https://github.com/limix/limix>`_ definition. This include the variance of the fixed effects.
    * - lrt_stats
      - Flat
      - -123.23

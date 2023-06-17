@@ -97,33 +97,36 @@ def regress_covar(
 
 
 def estimate_her(
-    X: ArrayLike, y: ArrayLike, covar: ArrayLike = None
-) -> Tuple[float, Array, float, float, float]:
+    X: ArrayLike,
+    y: ArrayLike,
+    covar: ArrayLike = None,
+    normalize: bool = True,
+) -> Tuple[float, Array, float, float]:
     """Calculate proportion of expression variation explained by genotypes (cis-heritability; :math:`h_g^2`).
 
     Args:
         X: :math:`n \\times p` matrix for independent variables with no intercept vector.
         y: :math:`n \\times 1` vector for gene expression.
         covar: :math:`n \\times m` matrix for covariates.
+        normalize: Boolean value to indicate whether normalize X and y
 
     Returns:
         :py:obj:`Tuple[float, float, float, float, float]`: A tuple of
             #. genetic variance (:py:obj:`float`) of the complex trait,
             #. :math:`h_g^2` (:py:obj:`float`) from `limix <https://github.com/limix/limix>`_ definition,
-            #. :math:`h_g^2` (:py:obj:`float`) from `gcta <https://yanglab.westlake.edu.cn/software/gcta/>`_ definition,
             #. LRT test statistics (:py:obj:`float`) for :math:`h_g^2`,
             #. LRT :math:`p` value (:py:obj:`float`) for :math:`h_g^2`.
 
     """
     n, p = X.shape
 
-    X -= jnp.mean(X, axis=0)
-    X /= jnp.std(X, axis=0)
+    if normalize:
+        X -= jnp.mean(X, axis=0)
+        X /= jnp.std(X, axis=0)
+        y -= jnp.mean(y)
+        y /= jnp.std(y)
 
-    y -= jnp.mean(y)
-    y /= jnp.std(y)
-
-    if covar is not None:
+    if covar is None:
         covar = jnp.ones(n)
 
     GRM = jnp.dot(X, X.T) / p
@@ -134,20 +137,19 @@ def estimate_her(
     GRM *= c_scaler
     QS = economic_qs(GRM)
     method = LMM(y, covar, QS, restricted=True)
-    method.fit(verbose=False)
+    method.fit(verbose=False)  # alternative
 
     g = method.scale * (1 - method.delta)
     e = method.scale * method.delta
     v = jnp.var(method.mean())
-    h2g_w_v = g / (v + g + e)
-    h2g_wo_v = g / (g + e)
+    h2g = g / (v + g + e)
     alt_lk = method.lml()
     method.delta = 1
     method.fix("delta")
-    method.fit(verbose=False)
+    method.fit(verbose=False)  # null
     null_lk = method.lml()
     lrt_stats = -2 * (null_lk - alt_lk)
     # https://en.wikipedia.org/wiki/Wilks%27_theorem
     p_value = stats.chi2.sf(lrt_stats, 1) / 2
 
-    return g, h2g_w_v, h2g_wo_v, lrt_stats, p_value
+    return g, h2g, lrt_stats, p_value

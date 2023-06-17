@@ -439,7 +439,6 @@ def output_weights(
 
 
 def output_her(
-    result: List[infer.SushieResult],
     data: CleanData,
     output: str,
     trait: str,
@@ -448,7 +447,6 @@ def output_her(
     """Output heritability estimation file ``*her.tsv`` (see :ref:`herfile`).
 
     Args:
-        result: The sushie inference result.
         data: The clean data that are used to estimate traits' heritability.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
@@ -479,34 +477,6 @@ def output_her(
         .reset_index(names="ancestry")
         .assign(trait=trait)
     )
-
-    # only output h2g that has credible sets
-    SNPIndex = result[0].cs.SNPIndex.values.astype(int)
-
-    shared_col = [
-        "s_genetic_var",
-        "s_h2g_w_v",
-        "s_h2g_wo_v",
-        "s_lrt_stats",
-        "s_p_value",
-    ]
-
-    est_shared_her = pd.DataFrame(
-        columns=shared_col, index=[idx + 1 for idx in range(n_pop)]
-    ).reset_index(names="ancestry")
-
-    if len(SNPIndex) != 0:
-        for idx in range(n_pop):
-            if data.covar is None:
-                tmp_covar = None
-            else:
-                tmp_covar = data.covar[idx]
-
-            est_shared_her.iloc[idx, 1:6] = utils.estimate_her(
-                data.geno[idx][:, SNPIndex], data.pheno[idx], tmp_covar
-            )
-
-    est_her = est_her.merge(est_shared_her, how="left", on="ancestry")
 
     if est_her.shape[0] == 0:
         est_her = est_her.append({"trait": trait}, ignore_index=True)
