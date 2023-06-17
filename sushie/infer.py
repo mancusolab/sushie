@@ -444,7 +444,7 @@ def infer_sushie(
 
         if elbo_increase or jnp.isnan(elbo_cur):
             log.logger.warning(
-                f"Optimization finished after {o_iter + 1} iterations."
+                f"Optimization concludes after {o_iter + 1} iterations."
                 + f" ELBO decreases. Final ELBO score: {elbo_cur}. Return last iteration's results."
                 + " It can be precision issue,"
                 + " and adding 'import jax; jax.config.update('jax_enable_x64', True)' may fix it."
@@ -455,16 +455,18 @@ def infer_sushie(
             elbo_increase = False
             break
 
+        decimal_digit = len(str(min_tol)) - str(min_tol).find(".") - 1
+
         if jnp.abs(elbo_cur - elbo_last) < min_tol:
             log.logger.info(
-                f"Optimization finished after {o_iter + 1} iterations. Final ELBO score: {elbo_cur}."
+                f"Optimization concludes after {o_iter + 1} iterations. Final ELBO score: {elbo_cur:.{decimal_digit}f}."
                 + f" Reach minimum tolerance threshold {min_tol}.",
             )
             break
 
         if o_iter + 1 == max_iter:
             log.logger.info(
-                f"Optimization finished after {o_iter + 1} iterations. Final ELBO score: {elbo_cur}."
+                f"Optimization concludes after {o_iter + 1} iterations. Final ELBO score: {elbo_cur:.{decimal_digit}f}."
                 + f" Reach maximum iteration threshold {max_iter}.",
             )
 
@@ -813,5 +815,9 @@ def make_cs(
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
+
+    log.logger.info(
+        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets pass pruning. For detailed results, specify --alphas."
+    )
 
     return cs, full_alphas

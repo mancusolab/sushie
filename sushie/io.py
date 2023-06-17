@@ -11,7 +11,7 @@ with warnings.catch_warnings():
     from bgen_reader import open_bgen
     import jax.numpy as jnp
 
-from . import infer, log, utils
+from . import infer, utils
 
 __all__ = [
     "CVData",
@@ -108,12 +108,9 @@ def read_data(
     index_file = True if ancestry_index.shape[0] != 0 else False
     rawData = []
     for idx in range(n_pop):
+        # if there is no index file, we read in the data ancestry by ancestry
+        # if there is index file, we just need to read in the data once at first
         if (not index_file) or (index_file and idx == 0):
-            if index_file and idx == 0:
-                log.logger.info("Reading in data for all ancestries.")
-            else:
-                log.logger.info(f"Ancestry {idx + 1}: Reading in data.")
-
             bim, fam, bed = geno_func(geno_paths[idx])
 
             pheno = (
@@ -132,7 +129,9 @@ def read_data(
                 )
             else:
                 covar = None
-
+        # it has some warnings. It's okay to ingore them.
+        # I couldn't think of a way to remove these warnings other than pre-specify them before for loops
+        # but the codes will look silly
         tmp_bim = bim
         tmp_bed = bed
         tmp_fam = fam
@@ -471,7 +470,7 @@ def output_her(
     est_her = (
         pd.DataFrame(
             data=her_result,
-            columns=["genetic_var", "h2g_w_v", "h2g_wo_v", "lrt_stats", "p_value"],
+            columns=["genetic_var", "h2g", "lrt_stats", "p_value"],
             index=[idx + 1 for idx in range(n_pop)],
         )
         .reset_index(names="ancestry")
