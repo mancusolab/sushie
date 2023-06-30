@@ -809,15 +809,16 @@ def make_cs(
 
         if avg_corr > purity or cur_kl >= divergence:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
-            full_alphas[f"pass_pruning_l{ldx + 1}"] = 1
+            full_alphas[f"pruned_l{ldx + 1}"] = 1
         else:
-            full_alphas[f"pass_pruning_l{ldx + 1}"] = 0
+            full_alphas[f"pruned_l{ldx + 1}"] = 0
 
     cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
 
     log.logger.info(
-        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets pass pruning. For detailed results, specify --alphas."
+        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets remain after pruning."
+        + " For detailed results, specify --alphas."
     )
 
     return cs, full_alphas

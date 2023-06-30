@@ -577,7 +577,8 @@ def sushie_wrapper(
                 covar = [data.covar[idx]]
 
             log.logger.info(
-                f"Start fine-mapping using SuSiE on ancestry {idx + 1} because --meta is specified."
+                f"Start fine-mapping using SuSiE on ancestry {idx + 1} with {args.L} effects"
+                + " because --meta is specified."
             )
 
             tmp_result = infer.infer_sushie(
@@ -610,10 +611,10 @@ def sushie_wrapper(
     else:
         if mega:
             log.logger.info(
-                "Start fine-mapping using Mega SuSiE because --mega is specified."
+                f"Start fine-mapping using Mega SuSiE with {args.L} effects because --mega is specified."
             )
         else:
-            log.logger.info("Start fine-mapping using SuShiE.")
+            log.logger.info(f"Start fine-mapping using SuShiE with {args.L} effects.")
 
         tmp_result = infer.infer_sushie(
             data.geno,
