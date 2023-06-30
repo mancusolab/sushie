@@ -160,7 +160,7 @@ We define the mega SuShiE as running single-ancestry SuShiE on genotype and phen
 6. Let's estimate heritability, run CV, and make FUSION files!
 --------------------------------------------------------------
 
-SuShiE incorporates codes in `limix <https://github.com/limix/limix>`_ to estimate the narrow-sense cis-heritability (:math:`h_g^2`) based on either limix or `gcta <https://yanglab.westlake.edu.cn/software/gcta/#Overview>`_ definition (whether to include fixed-effects variance) by specifying ``--her``.
+SuShiE incorporates codes in `limix <https://github.com/limix/limix>`_ to estimate the narrow-sense cis-heritability (:math:`h_g^2`) by specifying ``--her``.
 
 SuShiE also has a function (``--cv``) to perform :math:`X`-fold cross-validation (CV; ``--cv_num X``) on the ancestry-specific prediction weights to compute the out-of-sample :math:`r^2` between predicted and measured expressions with its corresponding :math:`p`-value.
 
@@ -397,7 +397,7 @@ Parameters
      - Boolean
      - False
      - ``--her # will store as True``
-     - Indicator to perform heritability (:math:`h_g^2`) analysis using limix. Specify ``--her`` will store ``True`` value and increase running time. It estimates :math:`h_g^2` with two definitions. One is with variance of fixed terms (original `limix <https://github.com/limix/limix>`_), and the other is without variance of fixed terms (`gcta <https://yanglab.westlake.edu.cn/software/gcta/#Overview>`_). It also estimates these two definitions' :math:`h_g^2` using using all genotypes and using only SNPs in the credible sets.
+     - Indicator to perform heritability (:math:`h_g^2`) analysis using limix. Specify ``--her`` will store ``True`` value and increase running time. It estimates :math:`h_g^2` using codes in `limix <https://github.com/limix/limix>`_.
    * - ``--cv``
      - Boolean
      - False

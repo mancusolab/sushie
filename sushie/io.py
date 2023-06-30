@@ -11,7 +11,7 @@ with warnings.catch_warnings():
     from bgen_reader import open_bgen
     import jax.numpy as jnp
 
-from . import infer, log, utils
+from . import infer, utils
 
 __all__ = [
     "CVData",
@@ -108,12 +108,9 @@ def read_data(
     index_file = True if ancestry_index.shape[0] != 0 else False
     rawData = []
     for idx in range(n_pop):
+        # if there is no index file, we read in the data ancestry by ancestry
+        # if there is index file, we just need to read in the data once at first
         if (not index_file) or (index_file and idx == 0):
-            if index_file and idx == 0:
-                log.logger.info("Reading in data for all ancestries.")
-            else:
-                log.logger.info(f"Ancestry {idx + 1}: Reading in data.")
-
             bim, fam, bed = geno_func(geno_paths[idx])
 
             pheno = (
@@ -132,7 +129,9 @@ def read_data(
                 )
             else:
                 covar = None
-
+        # it has some warnings. It's okay to ingore them.
+        # I couldn't think of a way to remove these warnings other than pre-specify them before for loops
+        # but the codes will look silly
         tmp_bim = bim
         tmp_bed = bed
         tmp_fam = fam
@@ -439,7 +438,6 @@ def output_weights(
 
 
 def output_her(
-    result: List[infer.SushieResult],
     data: CleanData,
     output: str,
     trait: str,
@@ -448,7 +446,6 @@ def output_her(
     """Output heritability estimation file ``*her.tsv`` (see :ref:`herfile`).
 
     Args:
-        result: The sushie inference result.
         data: The clean data that are used to estimate traits' heritability.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
@@ -473,40 +470,12 @@ def output_her(
     est_her = (
         pd.DataFrame(
             data=her_result,
-            columns=["genetic_var", "h2g_w_v", "h2g_wo_v", "lrt_stats", "p_value"],
+            columns=["genetic_var", "h2g", "lrt_stats", "p_value"],
             index=[idx + 1 for idx in range(n_pop)],
         )
         .reset_index(names="ancestry")
         .assign(trait=trait)
     )
-
-    # only output h2g that has credible sets
-    SNPIndex = result[0].cs.SNPIndex.values.astype(int)
-
-    shared_col = [
-        "s_genetic_var",
-        "s_h2g_w_v",
-        "s_h2g_wo_v",
-        "s_lrt_stats",
-        "s_p_value",
-    ]
-
-    est_shared_her = pd.DataFrame(
-        columns=shared_col, index=[idx + 1 for idx in range(n_pop)]
-    ).reset_index(names="ancestry")
-
-    if len(SNPIndex) != 0:
-        for idx in range(n_pop):
-            if data.covar is None:
-                tmp_covar = None
-            else:
-                tmp_covar = data.covar[idx]
-
-            est_shared_her.iloc[idx, 1:6] = utils.estimate_her(
-                data.geno[idx][:, SNPIndex], data.pheno[idx], tmp_covar
-            )
-
-    est_her = est_her.merge(est_shared_her, how="left", on="ancestry")
 
     if est_her.shape[0] == 0:
         est_her = est_her.append({"trait": trait}, ignore_index=True)
