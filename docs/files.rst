@@ -291,7 +291,7 @@ It contains two rounds of heritability estimation:
    * - h2g
      - Flat
      - 0.23
-     - The narrow-sense cis-heritability of the traits based on `limix <https://github.com/limix/limix>`_ definition. This include the variance of the fixed effects.
+     - The narrow-sense cis-heritability of the traits based on `limix <https://github.com/limix/limix>`_ definition. This includes the variance of the fixed effects.
    * - lrt_stats
      - Flat
      - -123.23
