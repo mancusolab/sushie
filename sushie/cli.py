@@ -784,7 +784,7 @@ def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
     snp_maf = jnp.mean(bed, axis=0) / 2
     snp_maf = jnp.where(snp_maf > 0.5, 1 - snp_maf, snp_maf)
 
-    (sel_idx,) = jnp.where(snp_maf > maf)
+    (sel_idx,) = jnp.where(snp_maf >= maf)
 
     bim = bim.iloc[sel_idx, :]
     bed = bed[:, sel_idx]
