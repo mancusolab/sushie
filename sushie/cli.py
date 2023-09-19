@@ -751,30 +751,6 @@ def run_finemap(args):
     return 0
 
 
-def _get_command_string(args):
-    base = f"sushie {args[0]}{os.linesep}"
-    rest = args[1:]
-    rest_strs = []
-    needs_tab = True
-    for cmd in rest:
-        if "-" == cmd[0]:
-            if cmd in ["--quiet", "-q", "--verbose", "-v"]:
-                rest_strs.append(f"\t{cmd}{os.linesep}")
-                needs_tab = True
-            else:
-                rest_strs.append(f"\t{cmd}")
-                needs_tab = False
-        else:
-            if needs_tab:
-                rest_strs.append(f"\t{cmd}{os.linesep}")
-                needs_tab = True
-            else:
-                rest_strs.append(f" {cmd}{os.linesep}")
-                needs_tab = True
-
-    return base + "".join(rest_strs) + os.linesep
-
-
 def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
     bim, _, bed, _, _ = rawData
 
@@ -1136,7 +1112,7 @@ def build_finemap_parser(subp):
 
     # fine-map general options
     finemap.add_argument(
-        "--ancestry_index",
+        "--ancestry-index",
         nargs=1,
         default=None,
         type=str,
@@ -1205,7 +1181,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--resid_var",
+        "--resid-var",
         nargs="+",
         default=None,
         type=float,
@@ -1216,7 +1192,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--effect_var",
+        "--effect-var",
         nargs="+",
         default=None,
         type=float,
@@ -1253,7 +1229,7 @@ def build_finemap_parser(subp):
 
     # fine-map inference options
     finemap.add_argument(
-        "--no_scale",
+        "--no-scale",
         default=False,
         action="store_true",
         help=(
@@ -1264,7 +1240,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--no_regress",
+        "--no-regress",
         default=False,
         action="store_true",
         help=(
@@ -1275,7 +1251,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--no_update",
+        "--no-update",
         default=False,
         action="store_true",
         help=(
@@ -1288,7 +1264,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--max_iter",
+        "--max-iter",
         default=500,
         type=int,
         help=(
@@ -1298,11 +1274,11 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--min_tol",
-        default=1e-4,
+        "--min-tol",
+        default=1e-3,
         type=float,
         help=(
-            "Minimum tolerance for the convergence. Default is 1e-5.",
+            "Minimum tolerance for the convergence. Default is 1e-3.",
             " Smaller number may slow the inference while larger may cause different inference.",
         ),
     )
@@ -1328,6 +1304,16 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
+        "--prune",
+        default="spectral",
+        type=str,
+        choices=["spectral", "purity", "spectral"],
+        help=(
+            "Indicator for the JAX platform. It has to be 'cpu', 'gpu', or 'tpu'. Default is cpu.",
+        ),
+    )
+
+    finemap.add_argument(
         "--no_kl",
         default=False,
         action="store_true",
@@ -1335,16 +1321,6 @@ def build_finemap_parser(subp):
             "Indicator to use KL divergence as alternative credible set pruning threshold in addition to purity.",
             " Default is False. Specify --no_kl will store 'True' value and will not use KL divergence as",
             " extra threshold.",
-        ),
-    )
-
-    finemap.add_argument(
-        "--divergence",
-        default=5.0,
-        type=float,
-        help=(
-            "Specify the KL divergence threshold for credible sets to be output. Default is 5.",
-            " It has to be a positive number.",
         ),
     )
 
@@ -1408,7 +1384,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--cv_num",
+        "--cv-num",
         default=5,
         type=int,
         help=(
@@ -1429,7 +1405,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--max_select",
+        "--max-select",
         default=500,
         type=int,
         help=(
@@ -1476,6 +1452,7 @@ def build_finemap_parser(subp):
         action="store_true",
         help="Indicator to not print message to console. Default is False. Specify --numpy will store 'True' value.",
     )
+
     finemap.add_argument(
         "--verbose",
         default=False,
@@ -1525,6 +1502,43 @@ def build_finemap_parser(subp):
     )
 
     return finemap
+
+
+def _get_command_string(args):
+    base = f"sushie {args[0]}{os.linesep}"
+    rest = args[1:]
+    rest_strs = []
+    needs_tab = True
+    for cmd in rest:
+        if "-" == cmd[0]:
+            if cmd in [
+                "--quiet",
+                "--verbose",
+                "--compress",
+                "--numpy",
+                "--no-scale",
+                "--no-regress",
+                "--no-update",
+                "--meta",
+                "--mega",
+                "--her",
+                "--cv",
+                "--alphas",
+            ]:
+                rest_strs.append(f"\t{cmd}{os.linesep}")
+                needs_tab = True
+            else:
+                rest_strs.append(f"\t{cmd}")
+                needs_tab = False
+        else:
+            if needs_tab:
+                rest_strs.append(f"\t{cmd}{os.linesep}")
+                needs_tab = True
+            else:
+                rest_strs.append(f" {cmd}{os.linesep}")
+                needs_tab = True
+
+    return base + "".join(rest_strs) + os.linesep
 
 
 def _main(argsv):
