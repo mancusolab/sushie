@@ -17,7 +17,6 @@ __all__ = [
     "Posterior",
     "SushieResult",
     "infer_sushie",
-    "make_pip",
     "make_cs",
 ]
 
@@ -64,7 +63,8 @@ class SushieResult(NamedTuple):
     Attributes:
         priors: The final prior parameter for the inference.
         posteriors: The final posterior parameter for the inference.
-        pip: The PIP for each SNP.
+        pip_all: The PIP for each SNP across :math:`L` credible sets.
+        pip_cs:  The PIP across credible sets that are not pruned.
         cs: The credible sets output after filtering on purity.
         alphas: The full credible sets before filtering on purity.
         sample_size: The sample size for each ancestry in the inference.
@@ -75,7 +75,8 @@ class SushieResult(NamedTuple):
 
     priors: Prior
     posteriors: Posterior
-    pip: Array
+    pip_all: Array
+    pip_cs: Array
     cs: pd.DataFrame
     alphas: pd.DataFrame
     sample_size: Array
@@ -168,9 +169,9 @@ def infer_sushie(
     max_iter: int = 500,
     min_tol: float = 1e-4,
     threshold: float = 0.9,
+    prune: str = "both",
     purity: float = 0.5,
-    no_kl: bool = False,
-    divergence: float = 5.0,
+    spectral: float = 0.1,
     max_select: int = 500,
     seed: int = 12345,
 ) -> SushieResult:
@@ -195,9 +196,9 @@ def infer_sushie(
         max_iter: The maximum iteration for optimization.
         min_tol: The convergence tolerance.
         threshold: The credible set threshold.
+        prune: The method to prune the credible set.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-        no_kl: Do not use KL Divergence as extra credible set pruning threshold.
-        divergence: The minimum KL divergence to be eligible as output credible set.
+        spectral: The minimum threshold to keep the credible sets whose covariance prior matrix spectral norm.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -247,9 +248,9 @@ def infer_sushie(
             f"Purity threshold ({purity}) is not between 0 and 1. Specify a valid one."
         )
 
-    if divergence < 0:
+    if spectral < 0:
         raise ValueError(
-            f"KL Divergence threshold ({divergence}) is not positive. Specify a valid one."
+            f"Spectral threshold ({spectral}) is not positive. Specify a valid one."
         )
 
     if max_select <= 0:
@@ -470,22 +471,29 @@ def infer_sushie(
                 + f" Reach maximum iteration threshold {max_iter}.",
             )
 
-    pip = make_pip(posteriors.alpha)
-    cs, full_alphas = make_cs(
+    cs, full_alphas, pip_all, pip_cs = make_cs(
         posteriors.alpha,
+        posteriors.weighted_sum_covar,
         Xs,
         ns,
-        pip,
         threshold,
+        prune,
         purity,
-        no_kl,
-        divergence,
+        spectral,
         max_select,
         seed,
     )
 
     return SushieResult(
-        priors, posteriors, pip, cs, full_alphas, ns, elbo_tracker, elbo_increase
+        priors,
+        posteriors,
+        pip_all,
+        pip_cs,
+        cs,
+        full_alphas,
+        ns,
+        elbo_tracker,
+        elbo_increase,
     )
 
 
@@ -691,46 +699,30 @@ def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Ar
     return term_1 + term_2
 
 
-def make_pip(alpha: ArrayLike) -> Array:
-    """The function to calculate posterior inclusion probability (PIP).
-
-    Args:
-        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
-            (i.e., :math:`\\alpha` in :ref:`Model`).
-
-    Returns:
-        :py:obj:`Array`: :math:`p \\times 1` vector for the posterior inclusion probability.
-
-    """
-
-    pip = -jnp.expm1(jnp.sum(jnp.log1p(-alpha), axis=0))
-
-    return pip
-
-
 def make_cs(
     alpha: ArrayLike,
+    prior_covar: ArrayLike,
     Xs: ArrayLike,
     ns: ArrayLike,
-    pip: ArrayLike,
     threshold: float = 0.9,
+    prune: str = "both",
     purity: float = 0.5,
-    no_kl: bool = False,
-    divergence: float = 5.0,
+    spectral: float = 0.1,
     max_select: int = 500,
     seed: int = 12345,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, Array, Array]:
     """The function to compute the credible sets.
 
     Args:
         alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
             (i.e., :math:`\\alpha` in :ref:`Model`).
+        prior_covar: :math:`L \\times k \\times k` matrix that contains prior covariance for each credible set
+            (i.e., :math:`C` in :ref:`Model`).
         Xs: Genotype data for multiple ancestries.
-        pip: :math:`p \\times 1` vector for the posterior inclusion probability.
         threshold: The credible set threshold.
+        prune: The method to prune the credible set.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-        no_kl: Do not use KL Divergence as extra credible set pruning threshold.
-        divergence: The minimum KL divergence to be eligible as output credible set.
+        spectral: The minimum threshold to keep the credible sets whose covariance prior matrix spectral norm.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -738,16 +730,27 @@ def make_cs(
         :py:obj:`Tuple[pd.DataFrame, pd.DataFrame]`: A tuple of
             #. credible set (:py:obj:`pd.DataFrame`) after pruning for purity,
             #. full credible set (:py:obj:`pd.DataFrame`) before pruning for purity.
+            #. PIPs (:py:obj:`Array`) across :math:`L` credible sets.
+            #. PIPs (:py:obj:`Array`) across credible sets that are not pruned. An array of zero if all credible sets
+                are pruned.
 
     """
     rng_key = random.PRNGKey(seed)
     n_l, n_snps = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
+    spectral_norm = jnp.max(jnp.linalg.svd(prior_covar, compute_uv=False), axis=1)
+
+    # we want to reorder them based on the spectral norm
+    new_order = jnp.argsort(-spectral_norm)
 
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
 
-    for ldx in range(n_l):
+    # new CS index name
+    new_ldx = 0
+    for ldx in new_order.tolist():
+        new_ldx += 1
+
         # select original index and alpha
         tmp_pd = (
             t_alpha[["index", ldx]]
@@ -765,7 +768,7 @@ def make_cs(
 
         tmp_cs = (
             tmp_pd.iloc[select_idx, :]
-            .assign(CSIndex=ldx + 1)
+            .assign(CSIndex=new_ldx)
             .rename(columns={"csum": "c_alpha", "index": "SNPIndex", ldx: "alpha"})
         )
 
@@ -774,10 +777,11 @@ def make_cs(
         # prepare alphas table's entries
         tmp_pd = tmp_pd.drop(["csum"], axis=1).rename(
             columns={
-                "in_cs": f"in_cs_l{ldx + 1}",
-                ldx: f"alpha_l{ldx + 1}",
+                "in_cs": f"in_cs_l{new_ldx}",
+                ldx: f"alpha_l{new_ldx}",
             }
         )
+
         full_alphas = full_alphas.merge(tmp_pd, how="left", on="index")
 
         # check the purity
@@ -799,26 +803,42 @@ def make_cs(
             jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
         )
 
-        cur_kl = -jnp.inf
-        if not no_kl:
-            cur_alphas = tmp_pd[f"alpha_l{ldx + 1}"].values
-            cur_kl = jnp.sum(cur_alphas * jnp.log(cur_alphas * n_snps))
+        tmp_norm = spectral_norm[ldx]
 
-        full_alphas[f"purity_l{ldx + 1}"] = avg_corr
-        full_alphas[f"kl_l{ldx + 1}"] = cur_kl
+        full_alphas[f"purity_l{new_ldx}"] = avg_corr
+        full_alphas[f"spectral_l{new_ldx}"] = tmp_norm
 
-        if avg_corr > purity or cur_kl >= divergence:
-            cs = pd.concat([cs, tmp_cs], ignore_index=True)
-            full_alphas[f"pruned_l{ldx + 1}"] = 1
+        if prune == "purity":
+            if avg_corr > purity:
+                cs = pd.concat([cs, tmp_cs], ignore_index=True)
+                full_alphas[f"kept_l{new_ldx}"] = 1
+        elif prune == "spectral":
+            if tmp_norm > spectral:
+                cs = pd.concat([cs, tmp_cs], ignore_index=True)
+                full_alphas[f"kept_l{new_ldx}"] = 1
         else:
-            full_alphas[f"pruned_l{ldx + 1}"] = 0
+            if avg_corr > purity and tmp_norm > spectral:
+                cs = pd.concat([cs, tmp_cs], ignore_index=True)
+                full_alphas[f"kept_l{new_ldx}"] = 1
 
-    cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
+    pip_all = utils.make_pip(alpha)
+    pip_cs = utils.make_pip(
+        alpha[new_order][
+            (cs.CSIndex.unique().astype(int) - 1),
+        ]
+    )
+
+    cs["pip_all"] = pip_all[cs.SNPIndex.values.astype(int)]
+    cs["pip_cs"] = pip_cs[cs.SNPIndex.values.astype(int)]
+
+    full_alphas["pip_all"] = pip_all
+    full_alphas["pip_cs"] = pip_cs
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
 
+    prune_name = "spectral and purity" if prune == "both" else prune
     log.logger.info(
-        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets remain after pruning."
+        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets remain after pruning based on {prune_name}."
         + " For detailed results, specify --alphas."
     )
 
-    return cs, full_alphas
+    return cs, full_alphas, pip_all, pip_cs

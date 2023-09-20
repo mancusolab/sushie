@@ -11,6 +11,8 @@ from jax import Array
 from jax.typing import ArrayLike
 
 __all__ = [
+    "make_pip",
+    "rint",
     "ListFloatOrNone",
     "ols",
     "estimate_her",
@@ -29,6 +31,41 @@ ListStrOrNone = Optional[List[str]]
 PDOrNone = Optional[pd.DataFrame]
 
 
+def make_pip(alpha: ArrayLike) -> Array:
+    """The function to calculate posterior inclusion probability (PIP).
+
+    Args:
+        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
+            (i.e., :math:`\\alpha` in :ref:`Model`).
+
+    Returns:
+        :py:obj:`Array`: :math:`p \\times 1` vector for the posterior inclusion probability.
+
+    """
+
+    pip = -jnp.expm1(jnp.sum(jnp.log1p(-alpha), axis=0))
+
+    return pip
+
+
+def rint(y_val: ArrayLike) -> Array:
+    """Perform rank inverse normalization transformation.
+
+    Args:
+        y_val: :math:`n \\times 1` vector for dependent variables.
+
+    Returns:
+        :py:obj:`Array`: A array of transformed value.
+
+    """
+
+    n_pt = y_val.shape[0]
+    r_y = stats.rankdata(y_val)
+    q_y = stats.norm.ppf(r_y / (n_pt + 1))
+
+    return q_y
+
+
 def ols(X: ArrayLike, y: ArrayLike) -> Tuple[Array, Array, Array]:
     """Perform ordinary linear regression using QR Factorization.
 
@@ -38,10 +75,10 @@ def ols(X: ArrayLike, y: ArrayLike) -> Tuple[Array, Array, Array]:
             perform :math:`m` ordinary regression in parallel.
 
     Returns:
-        :py:obj:`Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]`: A tuple of
-            #. contains residuals (:py:obj:`jnp.ndarray`),
-            #. adjusted :math:`r^2` (:py:obj:`jnp.ndarray`) for of the regression,
-            #. :math:`p` values (:py:obj:`jnp.ndarray`) for the coefficients.
+        :py:obj:`Tuple[Array, Array, Array]`: A tuple of
+            #. contains residuals (:py:obj:`Array`),
+            #. adjusted :math:`r^2` (:py:obj:`Array`) for of the regression,
+            #. :math:`p` values (:py:obj:`Array`) for the coefficients.
 
     """
 
@@ -83,9 +120,9 @@ def regress_covar(
         no_regress: boolean indicator whether to regress genotypes on covariates.
 
     Returns:
-        :py:obj:`Tuple[jnp.ndarray, jnp.ndarray]`: A tuple of
-            #. genotype residual matrix after regressing out covariates effects (:py:obj:`jnp.ndarray`),
-            #. phenotype residual vector (:py:obj:`jnp.ndarray`) after regressing out covariates effects.
+        :py:obj:`Tuple[Array, Array]`: A tuple of
+            #. genotype residual matrix after regressing out covariates effects (:py:obj:`Array`),
+            #. phenotype residual vector (:py:obj:`Array`) after regressing out covariates effects.
 
     """
 
