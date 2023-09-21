@@ -169,9 +169,7 @@ def infer_sushie(
     max_iter: int = 500,
     min_tol: float = 1e-4,
     threshold: float = 0.9,
-    prune: str = "both",
     purity: float = 0.5,
-    spectral: float = 0.1,
     max_select: int = 500,
     seed: int = 12345,
 ) -> SushieResult:
@@ -196,9 +194,7 @@ def infer_sushie(
         max_iter: The maximum iteration for optimization.
         min_tol: The convergence tolerance.
         threshold: The credible set threshold.
-        prune: The method to prune the credible set.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-        spectral: The minimum threshold to keep the credible sets whose covariance prior matrix spectral norm.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -246,11 +242,6 @@ def infer_sushie(
     if not 0 < purity < 1:
         raise ValueError(
             f"Purity threshold ({purity}) is not between 0 and 1. Specify a valid one."
-        )
-
-    if spectral < 0:
-        raise ValueError(
-            f"Spectral threshold ({spectral}) is not positive. Specify a valid one."
         )
 
     if max_select <= 0:
@@ -477,9 +468,7 @@ def infer_sushie(
         Xs,
         ns,
         threshold,
-        prune,
         purity,
-        spectral,
         max_select,
         seed,
     )
@@ -705,9 +694,7 @@ def make_cs(
     Xs: ArrayLike,
     ns: ArrayLike,
     threshold: float = 0.9,
-    prune: str = "both",
     purity: float = 0.5,
-    spectral: float = 0.1,
     max_select: int = 500,
     seed: int = 12345,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Array, Array]:
@@ -719,10 +706,9 @@ def make_cs(
         prior_covar: :math:`L \\times k \\times k` matrix that contains prior covariance for each credible set
             (i.e., :math:`C` in :ref:`Model`).
         Xs: Genotype data for multiple ancestries.
+        ns: Sample size for each ancestry.
         threshold: The credible set threshold.
-        prune: The method to prune the credible set.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-        spectral: The minimum threshold to keep the credible sets whose covariance prior matrix spectral norm.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -738,10 +724,10 @@ def make_cs(
     rng_key = random.PRNGKey(seed)
     n_l, n_snps = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
-    spectral_norm = jnp.max(jnp.linalg.svd(prior_covar, compute_uv=False), axis=1)
+    frob_norm = jnp.sum(jnp.linalg.svd(prior_covar, compute_uv=False), axis=1)
 
-    # we want to reorder them based on the spectral norm
-    new_order = jnp.argsort(-spectral_norm)
+    # we want to reorder them based on the Frobenius norm
+    new_order = jnp.argsort(-frob_norm)
 
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
@@ -803,23 +789,11 @@ def make_cs(
             jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
         )
 
-        tmp_norm = spectral_norm[ldx]
-
         full_alphas[f"purity_l{new_ldx}"] = avg_corr
-        full_alphas[f"spectral_l{new_ldx}"] = tmp_norm
 
-        if prune == "purity":
-            if avg_corr > purity:
-                cs = pd.concat([cs, tmp_cs], ignore_index=True)
-                full_alphas[f"kept_l{new_ldx}"] = 1
-        elif prune == "spectral":
-            if tmp_norm > spectral:
-                cs = pd.concat([cs, tmp_cs], ignore_index=True)
-                full_alphas[f"kept_l{new_ldx}"] = 1
-        else:
-            if avg_corr > purity and tmp_norm > spectral:
-                cs = pd.concat([cs, tmp_cs], ignore_index=True)
-                full_alphas[f"kept_l{new_ldx}"] = 1
+        if avg_corr > purity:
+            cs = pd.concat([cs, tmp_cs], ignore_index=True)
+            full_alphas[f"kept_l{new_ldx}"] = 1
 
     pip_all = utils.make_pip(alpha)
     pip_cs = utils.make_pip(
@@ -835,9 +809,8 @@ def make_cs(
     full_alphas["pip_cs"] = pip_cs
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
 
-    prune_name = "spectral and purity" if prune == "both" else prune
     log.logger.info(
-        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets remain after pruning based on {prune_name}."
+        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets remain after pruning based on purity ({purity})."
         + " For detailed results, specify --alphas."
     )
 

@@ -305,9 +305,7 @@ def _run_cv(args, cv_data) -> List[List[jnp.ndarray]]:
             max_iter=args.max_iter,
             min_tol=args.min_tol,
             threshold=args.threshold,
-            prune=args.prune,
             purity=args.purity,
-            spectral=args.spectral,
             max_select=args.max_select,
             seed=args.seed,
         )
@@ -909,9 +907,7 @@ def sushie_wrapper(
                 max_iter=args.max_iter,
                 min_tol=args.min_tol,
                 threshold=args.threshold,
-                prune=args.prune,
                 purity=args.purity,
-                spectral=args.spectral,
                 max_select=args.max_select,
                 seed=args.seed,
             )
@@ -944,9 +940,7 @@ def sushie_wrapper(
             max_iter=args.max_iter,
             min_tol=args.min_tol,
             threshold=args.threshold,
-            prune=args.prune,
             purity=args.purity,
-            spectral=args.spectral,
             max_select=args.max_select,
             seed=args.seed,
         )
@@ -977,9 +971,7 @@ def sushie_wrapper(
             args.trait,
             args.compress,
             method_type,
-            args.prune,
             args.purity,
-            args.spectral,
         )
 
     if not (mega or meta):
@@ -1184,7 +1176,7 @@ def build_finemap_parser(subp):
 
     finemap.add_argument(
         "--L",
-        default=5,
+        default=10,
         type=int,
         help=(
             "Integer number of shared effects pre-specified.",
@@ -1318,29 +1310,11 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--prune",
-        default="both",
-        type=str,
-        choices=["spectral", "purity", "both"],
-        help=("Indicator for prune method.",),
-    )
-
-    finemap.add_argument(
         "--purity",
         default=0.5,
         type=float,
         help=(
             "Specify the purity threshold for credible sets to be output. Default is 0.5.",
-            " It has to be a float number between 0 and 1.",
-        ),
-    )
-
-    finemap.add_argument(
-        "--spectral",
-        default=0.1,
-        type=float,
-        help=(
-            "Specify the spectral threshold for credible sets to be output. Default is 0.1.",
             " It has to be a float number between 0 and 1.",
         ),
     )
@@ -1561,6 +1535,7 @@ def _get_command_string(args):
                 "--her",
                 "--cv",
                 "--alphas",
+                "--rint",
             ]:
                 rest_strs.append(f"\t{cmd}{os.linesep}")
                 needs_tab = True

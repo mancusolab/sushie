@@ -399,9 +399,7 @@ def output_alphas(
     trait: str,
     compress: bool,
     method_type: str,
-    prune: str,
     purity: float,
-    spectral: float,
 ) -> pd.DataFrame:
     """Output full credible set (before pruning for purity) file ``*alphas.tsv`` (see :ref:`alphasfile`).
 
@@ -412,9 +410,7 @@ def output_alphas(
         trait: The trait name better for post-hoc analysis index.
         compress: The indicator whether to compress the output files.
         method_type: Which method the result belongs to: sushie, mega, or meta.
-        prune: The credible set pruning method.
         purity: The purity threshold.
-        spectral: The spectral norm threshold
 
     Returns:
         :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (:py:obj:`pd.DataFrame`).
@@ -427,9 +423,7 @@ def output_alphas(
         ).assign(
             trait=trait,
             n_snps=snps.shape[0],
-            prune_method=prune,
             purity_threshold=purity,
-            spectral_threshold=spectral,
         )
 
         if method_type == "meta":
