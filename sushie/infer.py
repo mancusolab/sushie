@@ -380,17 +380,29 @@ def infer_sushie(
             times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop))
         )
 
+    # define:
+    # k is ancestry
+    # n is sample size
+    # p is SNP
+    # l is the number of effects
+
     priors = Prior(
+        # p x 1
         pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
+        # k x 1
         resid_var=jnp.array(resid_var)[:, jnp.newaxis],
-        # L x k x k
+        # l x k x k
         effect_covar=jnp.array([effect_covar] * L),
     )
 
     posteriors = Posterior(
+        # l x p
         alpha=jnp.zeros((L, n_snps)),
+        # l x p x k
         post_mean=jnp.zeros((L, n_snps, n_pop)),
+        # l x p x k x k
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
+        # l x n x n
         weighted_sum_covar=jnp.zeros((L, n_pop, n_pop)),
         kl=jnp.zeros((L,)),
     )
@@ -408,7 +420,9 @@ def infer_sushie(
             Xs[idx], ((0, p_max - jnp.squeeze(ns[idx])), (0, 0)), "constant"
         )
         ys[idx] = jnp.pad(ys[idx], (0, p_max - jnp.squeeze(ns[idx])), "constant")
+    # k x n x p
     Xs = jnp.array(Xs)
+    # k x n
     ys = jnp.array(ys)
     XtXs = jnp.sum(Xs ** 2, axis=1)
 
@@ -499,9 +513,10 @@ def _update_effects(
 ) -> Tuple[Prior, Posterior, Array]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
 
+    # reduce from lxpxk to pxk
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
 
-    residual = ys - jnp.einsum("ijk,ki->ij", Xs, post_mean_lsum)
+    residual = ys - jnp.einsum("knp,pk->kn", Xs, post_mean_lsum)
 
     init_l_result = _LResult(
         Xs=Xs,
@@ -517,7 +532,9 @@ def _update_effects(
 
     _, _, _, priors, posteriors, _, _ = l_result
 
+    # from lxpxk to kxpxl
     tr_b_s = posteriors.post_mean.T
+    # from lxpxkxk to lxpxk (get the diagonal), then become kxpxl
     tr_bsq_s = jnp.diagonal(posteriors.post_mean_sq, axis1=2, axis2=3).T
 
     exp_ll = jnp.sum(_eloglike(Xs, ys, ns, tr_b_s, tr_bsq_s, priors.resid_var))
@@ -533,8 +550,7 @@ def _update_effects(
 
 def _update_l(l_iter: int, param: _LResult) -> _LResult:
     Xs, residual, XtXs, priors, posteriors, prior_adjustor, opt_v_func = param
-
-    residual_l = residual + jnp.einsum("ijk,ki->ij", Xs, posteriors.post_mean[l_iter])
+    residual_l = residual + jnp.einsum("knp,kp->kn", Xs, posteriors.post_mean[l_iter].T)
 
     priors, posteriors = _ssr(
         Xs,
@@ -547,7 +563,7 @@ def _update_l(l_iter: int, param: _LResult) -> _LResult:
         opt_v_func,
     )
 
-    residual = residual_l - jnp.einsum("ijk,ki->ij", Xs, posteriors.post_mean[l_iter])
+    residual = residual_l - jnp.einsum("knp,kp->kn", Xs, posteriors.post_mean[l_iter].T)
 
     update_param = param._replace(
         ys=residual,
@@ -570,15 +586,18 @@ def _ssr(
 ) -> Tuple[Prior, Posterior]:
     n_pop, _, n_snps = Xs.shape
 
-    Xty = jnp.einsum("ijk,ij->ik", Xs, ys)
+    Xty = jnp.einsum("knp,kn->kp", Xs, ys)
+    # beta_hat is pxk
     beta_hat = (Xty / XtXs).T
-    shat2 = priors.resid_var / XtXs
 
-    shat2 = jnp.eye(n_pop) * shat2.T[:, jnp.newaxis]
+    # priors.resid_var is kx1, XtXs is kxp, and the result is kxp, and inverse is pxk
+    shat2 = (priors.resid_var / XtXs).T
+    # also pxk
+    inv_shat2 = 1 / shat2
 
-    inv_shat2 = jnp.eye(n_pop) * (
-        1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
-    )
+    # expand it to diag matrix, so they're pxkxk
+    shat2 = jnp.eye(n_pop) * shat2[:, jnp.newaxis]
+    inv_shat2 = jnp.eye(n_pop) * inv_shat2[:, jnp.newaxis]
 
     priors = opt_v_func(
         beta_hat, shat2, inv_shat2, priors, posteriors, prior_adjustor, l_iter
@@ -601,12 +620,17 @@ def _compute_posterior(
 ) -> Tuple[Prior, Posterior]:
     n_snps, n_pop = beta_hat.shape
 
+    # prior_covar is kxk
     prior_covar = priors.effect_covar[l_iter]
+    # post_covar is pxkxk
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
+    # pxk
     rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
-    post_mean = jnp.einsum("ijk,ik->ij", post_covar, rTZDinv)
-    post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
+    # dim m = dim k for the next two lines
+    post_mean = jnp.einsum("pkm,pm->pk", post_covar, rTZDinv)
+    post_mean_sq = post_covar + jnp.einsum("pk,pm->pkm", post_mean, post_mean)
+
     alpha = nn.softmax(
         jnp.log(priors.pi)
         - stats.multivariate_normal.logpdf(
@@ -650,13 +674,22 @@ def _kl_mvn(
     m1: ArrayLike,
     sigma1: ArrayLike,
 ) -> float:
-    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
+    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence#Multivariate_normal_distributions
     k, _ = sigma1.shape
 
     sigma1_inv = jnp.linalg.inv(sigma1)
+    # m1 and sigma1 is the prior
+    # m0 and sigma0 is the posterior
+    # m0 is pxk and m1 is 0, so diff is pxk
     diff = m1 - m0
-    p1 = jnp.einsum("ji,bji->b", sigma1_inv, sigma0) - k
-    p2 = jnp.einsum("ij,jm,im->i", diff, sigma1_inv, diff)
+
+    # sigma1_inv is prior, so it's kxk, sigma0 is pxkxk
+    # we want to multiply within each p
+    # to calculate trace using einsum, e.g.: jnp.einsum("ii",A) where A is a 2x2 matrix
+    p1 = jnp.einsum("km,pmk->p", sigma1_inv, sigma0) - k
+
+    # diff is pxk, sigma1_inv is kxk, we want to multiply within each p
+    p2 = jnp.einsum("pk,km,pm->p", diff, sigma1_inv, diff)
 
     _, sld1 = jnp.linalg.slogdet(sigma1)
     _, sld0 = jnp.linalg.slogdet(sigma0)
@@ -680,10 +713,12 @@ def _eloglike(
 
 
 def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Array:
-    mu_li = jnp.einsum("ijk,ikm->ijm", X, beta)
-    mu2_li = jnp.einsum("ijk,ikm->ijm", X ** 2, beta_sq)
+    mu_li = jnp.einsum("knp,kpl->knl", X, beta)
+    mu2_li = jnp.einsum("knp,kpl->knl", X ** 2, beta_sq)
 
+    # jnp.sum(mu_li, axis=2) sum across l, get kxn, then sum across n, term_1 is kx1
     term_1 = jnp.sum((y - jnp.sum(mu_li, axis=2)) ** 2, axis=1)
+    # sum across n and l, then term_2 is kx1
     term_2 = jnp.sum(mu2_li - (mu_li ** 2), axis=(1, 2))
     return term_1 + term_2
 
