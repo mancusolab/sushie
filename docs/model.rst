@@ -4,7 +4,7 @@
 Model Description
 =================
 
-The SUm of SIngle sHared Effect (SuShiE) extends the Sum of SIngle Effect (SuSiE) [1]_ model by introducing a prior correlation estimator to account for the ancestral quantitative trait loci (QTL) effect size similarity. Specifically, for :math:`i^{\text{th}}` of total :math:`k \in \mathbb{N}` ancestries, we model the molecular data :math:`g_i \in \mathbb{R}^{n_i \times 1}` for :math:`n_i \in \mathbb{N}` individuals as a linear combination of standardized genotype matrix :math:`X_i \in \mathbb{R}^{n_i \times p}` for :math:`p \in \mathbb{N}` SNPs as
+The sum of single shared effect (SuShiE) extends the sum of single effect (SuSiE) [1]_ model by introducing a prior correlation estimator to account for the ancestral quantitative trait loci (QTL) effect size similarity. Specifically, for :math:`i^{\text{th}}` of total :math:`k \in \mathbb{N}` ancestries, we model the molecular data :math:`g_i \in \mathbb{R}^{n_i \times 1}` for :math:`n_i \in \mathbb{N}` individuals as a linear combination of standardized genotype matrix :math:`X_i \in \mathbb{R}^{n_i \times p}` for :math:`p \in \mathbb{N}` SNPs as
 
 .. math::
    :nowrap:

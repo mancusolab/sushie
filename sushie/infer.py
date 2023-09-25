@@ -17,7 +17,6 @@ __all__ = [
     "Posterior",
     "SushieResult",
     "infer_sushie",
-    "make_pip",
     "make_cs",
 ]
 
@@ -64,7 +63,8 @@ class SushieResult(NamedTuple):
     Attributes:
         priors: The final prior parameter for the inference.
         posteriors: The final posterior parameter for the inference.
-        pip: The PIP for each SNP.
+        pip_all: The PIP for each SNP across :math:`L` credible sets.
+        pip_cs:  The PIP across credible sets that are not pruned.
         cs: The credible sets output after filtering on purity.
         alphas: The full credible sets before filtering on purity.
         sample_size: The sample size for each ancestry in the inference.
@@ -75,7 +75,8 @@ class SushieResult(NamedTuple):
 
     priors: Prior
     posteriors: Posterior
-    pip: Array
+    pip_all: Array
+    pip_cs: Array
     cs: pd.DataFrame
     alphas: pd.DataFrame
     sample_size: Array
@@ -169,8 +170,6 @@ def infer_sushie(
     min_tol: float = 1e-4,
     threshold: float = 0.9,
     purity: float = 0.5,
-    no_kl: bool = False,
-    divergence: float = 5.0,
     max_select: int = 500,
     seed: int = 12345,
 ) -> SushieResult:
@@ -196,8 +195,6 @@ def infer_sushie(
         min_tol: The convergence tolerance.
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-        no_kl: Do not use KL Divergence as extra credible set pruning threshold.
-        divergence: The minimum KL divergence to be eligible as output credible set.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -245,11 +242,6 @@ def infer_sushie(
     if not 0 < purity < 1:
         raise ValueError(
             f"Purity threshold ({purity}) is not between 0 and 1. Specify a valid one."
-        )
-
-    if divergence < 0:
-        raise ValueError(
-            f"KL Divergence threshold ({divergence}) is not positive. Specify a valid one."
         )
 
     if max_select <= 0:
@@ -388,17 +380,29 @@ def infer_sushie(
             times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop))
         )
 
+    # define:
+    # k is ancestry
+    # n is sample size
+    # p is SNP
+    # l is the number of effects
+
     priors = Prior(
+        # p x 1
         pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
+        # k x 1
         resid_var=jnp.array(resid_var)[:, jnp.newaxis],
-        # L x k x k
+        # l x k x k
         effect_covar=jnp.array([effect_covar] * L),
     )
 
     posteriors = Posterior(
+        # l x p
         alpha=jnp.zeros((L, n_snps)),
+        # l x p x k
         post_mean=jnp.zeros((L, n_snps, n_pop)),
+        # l x p x k x k
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
+        # l x n x n
         weighted_sum_covar=jnp.zeros((L, n_pop, n_pop)),
         kl=jnp.zeros((L,)),
     )
@@ -416,7 +420,9 @@ def infer_sushie(
             Xs[idx], ((0, p_max - jnp.squeeze(ns[idx])), (0, 0)), "constant"
         )
         ys[idx] = jnp.pad(ys[idx], (0, p_max - jnp.squeeze(ns[idx])), "constant")
+    # k x n x p
     Xs = jnp.array(Xs)
+    # k x n
     ys = jnp.array(ys)
     XtXs = jnp.sum(Xs ** 2, axis=1)
 
@@ -470,22 +476,27 @@ def infer_sushie(
                 + f" Reach maximum iteration threshold {max_iter}.",
             )
 
-    pip = make_pip(posteriors.alpha)
-    cs, full_alphas = make_cs(
+    cs, full_alphas, pip_all, pip_cs = make_cs(
         posteriors.alpha,
+        posteriors.weighted_sum_covar,
         Xs,
         ns,
-        pip,
         threshold,
         purity,
-        no_kl,
-        divergence,
         max_select,
         seed,
     )
 
     return SushieResult(
-        priors, posteriors, pip, cs, full_alphas, ns, elbo_tracker, elbo_increase
+        priors,
+        posteriors,
+        pip_all,
+        pip_cs,
+        cs,
+        full_alphas,
+        ns,
+        elbo_tracker,
+        elbo_increase,
     )
 
 
@@ -502,9 +513,10 @@ def _update_effects(
 ) -> Tuple[Prior, Posterior, Array]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
 
+    # reduce from lxpxk to pxk
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
 
-    residual = ys - jnp.einsum("ijk,ki->ij", Xs, post_mean_lsum)
+    residual = ys - jnp.einsum("knp,pk->kn", Xs, post_mean_lsum)
 
     init_l_result = _LResult(
         Xs=Xs,
@@ -520,7 +532,9 @@ def _update_effects(
 
     _, _, _, priors, posteriors, _, _ = l_result
 
+    # from lxpxk to kxpxl
     tr_b_s = posteriors.post_mean.T
+    # from lxpxkxk to lxpxk (get the diagonal), then become kxpxl
     tr_bsq_s = jnp.diagonal(posteriors.post_mean_sq, axis1=2, axis2=3).T
 
     exp_ll = jnp.sum(_eloglike(Xs, ys, ns, tr_b_s, tr_bsq_s, priors.resid_var))
@@ -536,8 +550,7 @@ def _update_effects(
 
 def _update_l(l_iter: int, param: _LResult) -> _LResult:
     Xs, residual, XtXs, priors, posteriors, prior_adjustor, opt_v_func = param
-
-    residual_l = residual + jnp.einsum("ijk,ki->ij", Xs, posteriors.post_mean[l_iter])
+    residual_l = residual + jnp.einsum("knp,kp->kn", Xs, posteriors.post_mean[l_iter].T)
 
     priors, posteriors = _ssr(
         Xs,
@@ -550,7 +563,7 @@ def _update_l(l_iter: int, param: _LResult) -> _LResult:
         opt_v_func,
     )
 
-    residual = residual_l - jnp.einsum("ijk,ki->ij", Xs, posteriors.post_mean[l_iter])
+    residual = residual_l - jnp.einsum("knp,kp->kn", Xs, posteriors.post_mean[l_iter].T)
 
     update_param = param._replace(
         ys=residual,
@@ -573,15 +586,18 @@ def _ssr(
 ) -> Tuple[Prior, Posterior]:
     n_pop, _, n_snps = Xs.shape
 
-    Xty = jnp.einsum("ijk,ij->ik", Xs, ys)
+    Xty = jnp.einsum("knp,kn->kp", Xs, ys)
+    # beta_hat is pxk
     beta_hat = (Xty / XtXs).T
-    shat2 = priors.resid_var / XtXs
 
-    shat2 = jnp.eye(n_pop) * shat2.T[:, jnp.newaxis]
+    # priors.resid_var is kx1, XtXs is kxp, and the result is kxp, and inverse is pxk
+    shat2 = (priors.resid_var / XtXs).T
+    # also pxk
+    inv_shat2 = 1 / shat2
 
-    inv_shat2 = jnp.eye(n_pop) * (
-        1 / jnp.diagonal(shat2, axis1=1, axis2=2)[:, jnp.newaxis]
-    )
+    # expand it to diag matrix, so they're pxkxk
+    shat2 = jnp.eye(n_pop) * shat2[:, jnp.newaxis]
+    inv_shat2 = jnp.eye(n_pop) * inv_shat2[:, jnp.newaxis]
 
     priors = opt_v_func(
         beta_hat, shat2, inv_shat2, priors, posteriors, prior_adjustor, l_iter
@@ -604,12 +620,17 @@ def _compute_posterior(
 ) -> Tuple[Prior, Posterior]:
     n_snps, n_pop = beta_hat.shape
 
+    # prior_covar is kxk
     prior_covar = priors.effect_covar[l_iter]
+    # post_covar is pxkxk
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
+    # pxk
     rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
-    post_mean = jnp.einsum("ijk,ik->ij", post_covar, rTZDinv)
-    post_mean_sq = post_covar + jnp.einsum("ij,im->ijm", post_mean, post_mean)
+    # dim m = dim k for the next two lines
+    post_mean = jnp.einsum("pkm,pm->pk", post_covar, rTZDinv)
+    post_mean_sq = post_covar + jnp.einsum("pk,pm->pkm", post_mean, post_mean)
+
     alpha = nn.softmax(
         jnp.log(priors.pi)
         - stats.multivariate_normal.logpdf(
@@ -653,13 +674,22 @@ def _kl_mvn(
     m1: ArrayLike,
     sigma1: ArrayLike,
 ) -> float:
-    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence
+    # https://en.wikipedia.org/wiki/Kullback%E2%80%93Leibler_divergence#Multivariate_normal_distributions
     k, _ = sigma1.shape
 
     sigma1_inv = jnp.linalg.inv(sigma1)
+    # m1 and sigma1 is the prior
+    # m0 and sigma0 is the posterior
+    # m0 is pxk and m1 is 0, so diff is pxk
     diff = m1 - m0
-    p1 = jnp.einsum("ji,bji->b", sigma1_inv, sigma0) - k
-    p2 = jnp.einsum("ij,jm,im->i", diff, sigma1_inv, diff)
+
+    # sigma1_inv is prior, so it's kxk, sigma0 is pxkxk
+    # we want to multiply within each p
+    # to calculate trace using einsum, e.g.: jnp.einsum("ii",A) where A is a 2x2 matrix
+    p1 = jnp.einsum("km,pmk->p", sigma1_inv, sigma0) - k
+
+    # diff is pxk, sigma1_inv is kxk, we want to multiply within each p
+    p2 = jnp.einsum("pk,km,pm->p", diff, sigma1_inv, diff)
 
     _, sld1 = jnp.linalg.slogdet(sigma1)
     _, sld0 = jnp.linalg.slogdet(sigma0)
@@ -683,54 +713,37 @@ def _eloglike(
 
 
 def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Array:
-    mu_li = jnp.einsum("ijk,ikm->ijm", X, beta)
-    mu2_li = jnp.einsum("ijk,ikm->ijm", X ** 2, beta_sq)
+    mu_li = jnp.einsum("knp,kpl->knl", X, beta)
+    mu2_li = jnp.einsum("knp,kpl->knl", X ** 2, beta_sq)
 
+    # jnp.sum(mu_li, axis=2) sum across l, get kxn, then sum across n, term_1 is kx1
     term_1 = jnp.sum((y - jnp.sum(mu_li, axis=2)) ** 2, axis=1)
+    # sum across n and l, then term_2 is kx1
     term_2 = jnp.sum(mu2_li - (mu_li ** 2), axis=(1, 2))
     return term_1 + term_2
 
 
-def make_pip(alpha: ArrayLike) -> Array:
-    """The function to calculate posterior inclusion probability (PIP).
-
-    Args:
-        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
-            (i.e., :math:`\\alpha` in :ref:`Model`).
-
-    Returns:
-        :py:obj:`Array`: :math:`p \\times 1` vector for the posterior inclusion probability.
-
-    """
-
-    pip = -jnp.expm1(jnp.sum(jnp.log1p(-alpha), axis=0))
-
-    return pip
-
-
 def make_cs(
     alpha: ArrayLike,
+    prior_covar: ArrayLike,
     Xs: ArrayLike,
     ns: ArrayLike,
-    pip: ArrayLike,
     threshold: float = 0.9,
     purity: float = 0.5,
-    no_kl: bool = False,
-    divergence: float = 5.0,
     max_select: int = 500,
     seed: int = 12345,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, Array, Array]:
     """The function to compute the credible sets.
 
     Args:
         alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
             (i.e., :math:`\\alpha` in :ref:`Model`).
+        prior_covar: :math:`L \\times k \\times k` matrix that contains prior covariance for each credible set
+            (i.e., :math:`C` in :ref:`Model`).
         Xs: Genotype data for multiple ancestries.
-        pip: :math:`p \\times 1` vector for the posterior inclusion probability.
+        ns: Sample size for each ancestry.
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-        no_kl: Do not use KL Divergence as extra credible set pruning threshold.
-        divergence: The minimum KL divergence to be eligible as output credible set.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -738,16 +751,27 @@ def make_cs(
         :py:obj:`Tuple[pd.DataFrame, pd.DataFrame]`: A tuple of
             #. credible set (:py:obj:`pd.DataFrame`) after pruning for purity,
             #. full credible set (:py:obj:`pd.DataFrame`) before pruning for purity.
+            #. PIPs (:py:obj:`Array`) across :math:`L` credible sets.
+            #. PIPs (:py:obj:`Array`) across credible sets that are not pruned. An array of zero if all credible sets
+                are pruned.
 
     """
     rng_key = random.PRNGKey(seed)
     n_l, n_snps = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
+    frob_norm = jnp.sum(jnp.linalg.svd(prior_covar, compute_uv=False), axis=1)
+
+    # we want to reorder them based on the Frobenius norm
+    new_order = jnp.argsort(-frob_norm)
 
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
 
-    for ldx in range(n_l):
+    # new CS index name
+    new_ldx = 0
+    for ldx in new_order.tolist():
+        new_ldx += 1
+
         # select original index and alpha
         tmp_pd = (
             t_alpha[["index", ldx]]
@@ -765,7 +789,7 @@ def make_cs(
 
         tmp_cs = (
             tmp_pd.iloc[select_idx, :]
-            .assign(CSIndex=ldx + 1)
+            .assign(CSIndex=new_ldx)
             .rename(columns={"csum": "c_alpha", "index": "SNPIndex", ldx: "alpha"})
         )
 
@@ -774,10 +798,11 @@ def make_cs(
         # prepare alphas table's entries
         tmp_pd = tmp_pd.drop(["csum"], axis=1).rename(
             columns={
-                "in_cs": f"in_cs_l{ldx + 1}",
-                ldx: f"alpha_l{ldx + 1}",
+                "in_cs": f"in_cs_l{new_ldx}",
+                ldx: f"alpha_l{new_ldx}",
             }
         )
+
         full_alphas = full_alphas.merge(tmp_pd, how="left", on="index")
 
         # check the purity
@@ -799,26 +824,29 @@ def make_cs(
             jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
         )
 
-        cur_kl = -jnp.inf
-        if not no_kl:
-            cur_alphas = tmp_pd[f"alpha_l{ldx + 1}"].values
-            cur_kl = jnp.sum(cur_alphas * jnp.log(cur_alphas * n_snps))
+        full_alphas[f"purity_l{new_ldx}"] = avg_corr
 
-        full_alphas[f"purity_l{ldx + 1}"] = avg_corr
-        full_alphas[f"kl_l{ldx + 1}"] = cur_kl
-
-        if avg_corr > purity or cur_kl >= divergence:
+        if avg_corr > purity:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
-            full_alphas[f"pruned_l{ldx + 1}"] = 1
-        else:
-            full_alphas[f"pruned_l{ldx + 1}"] = 0
+            full_alphas[f"kept_l{new_ldx}"] = 1
 
-    cs["pip"] = pip[cs.SNPIndex.values.astype(int)]
+    pip_all = utils.make_pip(alpha)
+    pip_cs = utils.make_pip(
+        alpha[new_order][
+            (cs.CSIndex.unique().astype(int) - 1),
+        ]
+    )
+
+    cs["pip_all"] = pip_all[cs.SNPIndex.values.astype(int)]
+    cs["pip_cs"] = pip_cs[cs.SNPIndex.values.astype(int)]
+
+    full_alphas["pip_all"] = pip_all
+    full_alphas["pip_cs"] = pip_cs
     full_alphas = full_alphas.rename(columns={"index": "SNPIndex"})
 
     log.logger.info(
-        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets remain after pruning."
+        f"{len(cs.CSIndex.unique())} out of {n_l} credible sets remain after pruning based on purity ({purity})."
         + " For detailed results, specify --alphas."
     )
 
-    return cs, full_alphas
+    return cs, full_alphas, pip_all, pip_cs

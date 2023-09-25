@@ -114,11 +114,6 @@ python_apigen_default_groups = [
     (r"class:sushie.infer.*", "Infer Classes"),
     (r".*:sushie.io.*", "IO Public-members"),
     (r"class:sushie.io.*", "IO Classes"),
-    # (r"method:.*\.__(str|repr)__", "String representation"),
-    # ("method:.*", "Methods"),
-    # ("classmethod:.*", "Class methods"),
-    # (r"method:.*\.__(init|new)__", "Constructors"),
-    # (r"method:.*\.[A-Z][a-z]*", "Constructors"),
 ]
 
 python_apigen_default_order = [

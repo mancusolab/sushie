@@ -76,10 +76,14 @@ For ``*.meta.cs.tsv``, it will row-bind the output for single-ancestry SuShiE di
      - Float
      - 0.95
      - The cumulative posterior probability of SNPs to be causal in the descending order. This decides which SNPs are included in the credible sets.
-   * - pip
+   * - pip_all
      - Float
      - 0.95
-     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`). For ``*.meta.cs.tsv`` and ``*.mega.cs.tsv``, it will have ``meta_pip`` and  ``mega_pip``, respectively.
+     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`) calculated across :math:`L` credible sets. For ``*.meta.cs.tsv``, it will have additional column called ``meta_pip_all`` .
+   * - pip_cs
+     - Float
+     - 0.95
+     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`) calculated across credible sets that are kept after pruning based on purity. For ``*.meta.cs.tsv``, it will have additional column called ``meta_pip_cs``.
    * - trait
      - String
      - GeneABC
@@ -147,14 +151,10 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - float
      - 0.634
      - The sample-size-weighted average purity across ancestries. To compare with the ``--purity``, it will decide the value in ``in_cs_l1``. Depending on ``--L``, it can have extra columns.
-    * - kl_l1
-     - float
-     - 5.3
-     - The KL-divergence between the posterior probability of SNPs to be causal in the first credible set (:math:`\alpha_{l,j}` in :ref:`Model`) and uniform distribution. It will be ``-jnp.inf`` if ``--no_kl`` is specified. Depending on ``--L``, it can have extra columns.
-   * - pass_pruning_l1
+   * - kept_l1
      - Integer
      - 0, 1
-     - The indicator whether the credible set passes the pruning threshold. The criteria contain purity and divergence. Specifying ``--no_kl`` removes divergence criterion. Depending on ``--L``, it can have extra columns.
+     - The indicator whether the credible set is kept after pruning based on purity threshold. Depending on ``--L``, it can have extra columns.
    * - trait
      - String
      - GeneABC
@@ -163,6 +163,10 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - Integer
      - 500
      - The number of total SNPs in the inference.
+   * - purity_threshold
+     - float
+     - 0.5
+     - The purity threshold to prune the credible sets.
    * - ancestry
      - String
      - sushie, mega, ancestry_1
@@ -215,14 +219,18 @@ If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it 
      - Float
      - 1.3
      - The ancestry-specific SNP prediction weights inferred by SuShiE. For ``*.meta.weights.tsv``, it will have ``ancestry1_single_weight`` (It will have extra columns depending on the number of ancestries). If ``--mega``, it will have ``mega_weight`` for all ancestries.
-   * - sushie_pip
+   * - sushie_pip_all
      - Float
      - 0.95
-     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`) for all the SNPs. (``*.cs.tsv`` only contains the PIPs of SNPs that are only in the credible sets). For ``*.meta.weights.tsv``, it will have ``ancestry1_single_pip``, ``meta_pip`` (It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_pip``.
-   * - sushie_in_cs
+     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`) for all the SNPs calculated across :math:`L` credible sets. (``*.cs.tsv`` only contains the PIPs of SNPs that are only in the credible sets). For ``*.meta.weights.tsv``, it will have ``ancestry1_single_pip``, ``meta_pip_all`` (It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_pip_all``.
+   * - sushie_pip_cs
+     - Float
+     - 0.95
+     - The posterior inclusion probability (:math:`\text{PIP}_j` in :ref:`Model`) for all the SNPs calculated across credible sets that are kept after purning based on purity. (``*.cs.tsv`` only contains the PIPs of SNPs that are only in the credible sets). For ``*.meta.weights.tsv``, it will have ``ancestry1_single_pip``, ``meta_pip_cs`` (It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_pip_cs``.
+   * - sushie_cs_index
      - Integer
-     - 0, 1
-     - The indicator whether the SNP is in the credible set (0 means no and 1 means yes). For ``*.meta.weights.tsv``, it will have ``ancestry1_in_cs``(It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_in_cs``.
+     - 0, 1, ..., :math:`L`
+     - The credible set index where the SNPs fall into. 0 means no credible sets contain this SNP. For ``*.meta.weights.tsv``, it will have ``ancestry1_cs_index``(It will have extra columns depending on the number of ancestries). For ``*.mega.weights.tsv``, it will have ``mega_cs_index``.
    * - n_snps
      - Integer
      - 500

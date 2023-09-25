@@ -4,6 +4,8 @@ from typing import Callable, List, NamedTuple, Optional, Tuple
 
 import pandas as pd
 
+from jax import Array
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     from pandas_plink import read_plink
@@ -42,10 +44,10 @@ class CVData(NamedTuple):
 
     """
 
-    train_geno: List[jnp.ndarray]
-    train_pheno: List[jnp.ndarray]
-    valid_geno: List[jnp.ndarray]
-    valid_pheno: List[jnp.ndarray]
+    train_geno: List[Array]
+    train_pheno: List[Array]
+    valid_geno: List[Array]
+    valid_pheno: List[Array]
 
 
 class CleanData(NamedTuple):
@@ -58,8 +60,8 @@ class CleanData(NamedTuple):
 
     """
 
-    geno: List[jnp.ndarray]
-    pheno: List[jnp.ndarray]
+    geno: List[Array]
+    pheno: List[Array]
     covar: utils.ListArrayOrNone
 
 
@@ -77,7 +79,7 @@ class RawData(NamedTuple):
 
     bim: pd.DataFrame
     fam: pd.DataFrame
-    bed: jnp.ndarray
+    bed: Array
     pheno: pd.DataFrame
     covar: utils.PDOrNone
 
@@ -169,17 +171,17 @@ def read_data(
     return rawData
 
 
-def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
+def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     """Read in genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format.
 
     Args:
         path: The path for plink genotype data (suffix only).
 
     Returns:
-        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]`: A tuple of
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array]`: A tuple of
             #. SNP information (bim; :py:obj:`pd.DataFrame`),
             #. individuals information (fam; :py:obj:`pd.DataFrame`),
-            #. genotype matrix (bed; :py:obj:`jnp.ndarray`).
+            #. genotype matrix (bed; :py:obj:`Array`).
 
     """
 
@@ -191,17 +193,17 @@ def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
     return bim, fam, bed
 
 
-def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
+def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     """Read in genotype data in `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_ format.
 
     Args:
         path: The path for vcf genotype data (full file name).
 
     Returns:
-        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]`: A tuple of
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array]`: A tuple of
             #. SNP information (bim; :py:obj:`pd.DataFrame`),
             #. participants information (fam; :py:obj:`pd.DataFrame`),
-            #. genotype matrix (bed; :py:obj:`jnp.ndarray`).
+            #. genotype matrix (bed; :py:obj:`Array`).
 
     """
 
@@ -221,17 +223,17 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
     return bim, fam, bed
 
 
-def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
+def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     """Read in genotype data in `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
 
     Args:
         path: The path for bgen genotype data (full file name).
 
     Returns:
-        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]`: A tuple of
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array]`: A tuple of
             #. SNP information (bim; :py:obj:`pd.DataFrame`),
             #. individuals information (fam; :py:obj:`pd.DataFrame`),
-            #. genotype matrix (bed; :py:obj:`jnp.ndarray`).
+            #. genotype matrix (bed; :py:obj:`Array`).
 
     """
 
@@ -258,13 +260,12 @@ def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, jnp.ndarray]:
 # output functions
 def output_cs(
     result: List[infer.SushieResult],
-    meta_pip: Optional[jnp.ndarray],
+    meta_pip: Optional[List[Array]],
     snps: pd.DataFrame,
     output: str,
     trait: str,
     compress: bool,
-    meta: bool,
-    mega: bool,
+    method_type: str,
 ) -> pd.DataFrame:
     """Output credible set (after pruning for purity) file ``*cs.tsv`` (see :ref:`csfile`).
 
@@ -275,14 +276,13 @@ def output_cs(
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
         compress: The indicator whether to compress the output files.
-        meta: The indicator whether the sushie inference result is meta.
-        mega: The indicator whether the sushie inference result is mega.
+        method_type: Which method the result belongs to: sushie, mega, or meta.
 
     Returns:
         :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*cs.tsv`` file (:py:obj:`pd.DataFrame`).
 
     """
-    cs = pd.DataFrame()
+    cs = []
 
     for idx in range(len(result)):
         tmp_cs = (
@@ -294,17 +294,19 @@ def output_cs(
         )
 
         if meta_pip is not None:
-            tmp_cs["meta_pip"] = meta_pip[tmp_cs.SNPIndex.values.astype(int)]
+            tmp_cs["meta_pip_all"] = meta_pip[0][tmp_cs.SNPIndex.values.astype(int)]
+            tmp_cs["meta_pip_cs"] = meta_pip[1][tmp_cs.SNPIndex.values.astype(int)]
 
-        if meta:
+        if method_type == "meta":
             ancestry_idx = f"ancestry_{idx + 1}"
-        elif mega:
+        elif method_type == "mega":
             ancestry_idx = "mega"
         else:
             ancestry_idx = "sushie"
 
         tmp_cs["ancestry"] = ancestry_idx
-        cs = pd.concat([cs, tmp_cs], axis=0)
+        cs.append(tmp_cs)
+    cs = pd.concat(cs)
 
     # add a placeholder better for post-hoc analysis
     if cs.shape[0] == 0:
@@ -317,63 +319,14 @@ def output_cs(
     return cs
 
 
-def output_alphas(
-    result: List[infer.SushieResult],
-    snps: pd.DataFrame,
-    output: str,
-    trait: str,
-    compress: bool,
-    meta: bool,
-    mega: bool,
-) -> pd.DataFrame:
-    """Output full credible set (before pruning for purity) file ``*alphas.tsv`` (see :ref:`alphasfile`).
-
-    Args:
-        result: The sushie inference result.
-        snps: The SNP information table.
-        output: The output file prefix.
-        trait: The trait name better for post-hoc analysis index.
-        compress: The indicator whether to compress the output files.
-        meta: The indicator whether the sushie inference result is meta.
-        mega: The indicator whether the sushie inference result is mega.
-
-    Returns:
-        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (:py:obj:`pd.DataFrame`).
-
-    """
-    alphas = pd.DataFrame()
-
-    for idx in range(len(result)):
-        tmp_alphas = snps.merge(
-            result[idx].alphas, how="inner", on=["SNPIndex"]
-        ).assign(trait=trait, n_snps=snps.shape[0])
-
-        if meta:
-            ancestry_idx = f"ancestry_{idx + 1}"
-        elif mega:
-            ancestry_idx = "mega"
-        else:
-            ancestry_idx = "sushie"
-
-        tmp_alphas["ancestry"] = ancestry_idx
-        alphas = pd.concat([alphas, tmp_alphas], axis=0)
-
-    file_name = f"{output}.alphas.tsv.gz" if compress else f"{output}.alphas.tsv"
-
-    alphas.to_csv(file_name, sep="\t", index=False)
-
-    return alphas
-
-
 def output_weights(
     result: List[infer.SushieResult],
-    meta_pip: Optional[jnp.ndarray],
+    meta_pip: Optional[List[Array]],
     snps: pd.DataFrame,
     output: str,
     trait: str,
     compress: bool,
-    meta: bool,
-    mega: bool,
+    method_type: str,
 ) -> pd.DataFrame:
     """Output prediction weights file ``*weights.tsv`` (see :ref:`weightsfile`).
 
@@ -384,8 +337,7 @@ def output_weights(
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
         compress: The indicator whether to compress the output files.
-        meta: The indicator whether the sushie inference result is meta.
-        mega: The indicator whether the sushie inference result is meta.
+        method_type: Which method the result belongs to: sushie, mega, or meta.
 
     Returns:
         :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*weights.tsv`` file (:py:obj:`pd.DataFrame`).
@@ -396,45 +348,101 @@ def output_weights(
     weights = copy.deepcopy(snps).assign(trait=trait, n_snps=snps.shape[0])
 
     for idx in range(len(result)):
-        if meta:
+        if method_type == "meta":
             cname_idx = [f"ancestry{idx + 1}_single_weight"]
-            cname_pip = f"ancestry{idx + 1}_single_pip"
-            cname_cs = f"ancestry{idx + 1}_in_cs"
-        elif mega:
+            cname_pip_all = f"ancestry{idx + 1}_single_pip_all"
+            cname_pip_cs = f"ancestry{idx + 1}_single_pip_cs"
+            cname_cs = f"ancestry{idx + 1}_cs_index"
+        elif method_type == "mega":
             cname_idx = ["mega_weight"]
-            cname_pip = "mega_pip"
-            cname_cs = "mega_in_cs"
+            cname_pip_all = "mega_pip_all"
+            cname_pip_cs = "mega_pip_cs"
+            cname_cs = "mega_cs_index"
         else:
             cname_idx = [f"ancestry{jdx + 1}_sushie_weight" for jdx in range(n_pop)]
-            cname_pip = "sushie_pip"
-            cname_cs = "sushie_in_cs"
+            cname_pip_all = "sushie_pip_all"
+            cname_pip_cs = "sushie_pip_cs"
+            cname_cs = "sushie_cs_index"
 
         tmp_weights = pd.DataFrame(
             data=jnp.sum(result[idx].posteriors.post_mean, axis=0),
             columns=cname_idx,
         )
 
-        tmp_weights[cname_pip] = result[idx].pip
+        tmp_weights[cname_pip_all] = result[idx].pip_all
+        tmp_weights[cname_pip_cs] = result[idx].pip_cs
         weights = pd.concat([weights, tmp_weights], axis=1)
-        weights[cname_cs] = (
-            weights["SNPIndex"].isin(result[idx].cs["SNPIndex"].tolist()).astype(int)
+        tmp_cs = (
+            weights[["SNPIndex"]]
+            .merge(result[idx].cs[["SNPIndex", "CSIndex"]], on="SNPIndex", how="left")
+            .fillna(0)
+        )
+        weights = weights.merge(
+            tmp_cs.rename(columns={"CSIndex": cname_cs}), on="SNPIndex"
         )
 
     if meta_pip is not None:
-        weights["meta_pip"] = meta_pip
-        # if it's NOT in the credible set, make it 1
-        # multiply them across ancestries, to get the SNPs not in the credible sets for all ancestries
-        tmp_cs = (weights["ancestry1_in_cs"] == 0) * 1
-        for idx in range(1, len(result)):
-            tmp_cs = tmp_cs * ((weights[f"ancestry{idx + 1}_in_cs"] == 0) * 1)
-        # negate it to get SNPs that are in at least one ancestries' credible sets
-        weights["meta_in_cs"] = 1 - tmp_cs
+        weights["meta_pip_all"] = meta_pip[0]
+        weights["meta_pip_cs"] = meta_pip[1]
 
     file_name = f"{output}.weights.tsv.gz" if compress else f"{output}.weights.tsv"
 
     weights.to_csv(file_name, sep="\t", index=False)
 
     return weights
+
+
+def output_alphas(
+    result: List[infer.SushieResult],
+    snps: pd.DataFrame,
+    output: str,
+    trait: str,
+    compress: bool,
+    method_type: str,
+    purity: float,
+) -> pd.DataFrame:
+    """Output full credible set (before pruning for purity) file ``*alphas.tsv`` (see :ref:`alphasfile`).
+
+    Args:
+        result: The sushie inference result.
+        snps: The SNP information table.
+        output: The output file prefix.
+        trait: The trait name better for post-hoc analysis index.
+        compress: The indicator whether to compress the output files.
+        method_type: Which method the result belongs to: sushie, mega, or meta.
+        purity: The purity threshold.
+
+    Returns:
+        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (:py:obj:`pd.DataFrame`).
+
+    """
+    alphas = []
+    for idx in range(len(result)):
+        tmp_alphas = snps.merge(
+            result[idx].alphas, how="inner", on=["SNPIndex"]
+        ).assign(
+            trait=trait,
+            n_snps=snps.shape[0],
+            purity_threshold=purity,
+        )
+
+        if method_type == "meta":
+            ancestry_idx = f"ancestry_{idx + 1}"
+        elif method_type == "mega":
+            ancestry_idx = "mega"
+        else:
+            ancestry_idx = "sushie"
+
+        tmp_alphas["ancestry"] = ancestry_idx
+        alphas.append(tmp_alphas)
+
+    alphas = pd.concat(alphas, axis=0)
+
+    file_name = f"{output}.alphas.tsv.gz" if compress else f"{output}.alphas.tsv"
+
+    alphas.to_csv(file_name, sep="\t", index=False)
+
+    return alphas
 
 
 def output_her(
