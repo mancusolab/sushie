@@ -1320,6 +1320,16 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
+        "--max-select",
+        default=250,
+        type=int,
+        help=(
+            "The maximum selected number of SNPs to calculate the purity. Default is 250.",
+            " It has to be positive integer number. A larger number can unnecessarily spend much memory.",
+        ),
+    )
+
+    finemap.add_argument(
         "--maf",
         default=0.01,
         type=float,
@@ -1337,8 +1347,7 @@ def build_finemap_parser(subp):
             "Indicator to perform rank inverse normalization transformation (rint) for each phenotype data.",
             " Default is False (do not transform).",
             " Specify --rint will store 'True' value.",
-            " We suggest users to do this step before running the software,",
-            " but we add this feature in case you forget.",
+            " We suggest users to do this QC during data preparation.",
         ),
     )
 
@@ -1414,16 +1423,6 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--max-select",
-        default=500,
-        type=int,
-        help=(
-            "The maximum selected number of SNPs to calculate the purity. Default is 500.",
-            " It has to be positive integer number. A larger number can unnecessarily spend much memory.",
-        ),
-    )
-
-    finemap.add_argument(
         "--alphas",
         default=False,
         action="store_true",
@@ -1494,7 +1493,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--jax_precision",
+        "--jax-precision",
         default=64,
         type=int,
         choices=[32, 64],

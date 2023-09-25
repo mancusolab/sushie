@@ -1,12 +1,14 @@
 library(tidyverse)
 
 args <- commandArgs(TRUE)
-pref <- args[1]
-out <- args[2]
+weight_path <- args[1]
+heri_path <- args[2]
+cvr2_path <- args[3]
+out_path <- args[4]
 
-weight <- read_tsv(paste0(pref, ".sushie.weights.tsv"))
-heri <- read_tsv(paste0(pref, ".sushie.her.tsv"))
-cvr2 <- read_tsv(paste0(pref, ".sushie.cv.tsv"))
+weight <- read_tsv(weight_path)
+heri <- read_tsv(heri_path)
+cvr2 <- read_tsv(cvr2_path)
 
 n_pop <- nrow(heri)
 
@@ -22,7 +24,7 @@ for (idx in 1:n_pop){
   hsq <- c(as.numeric(heri[idx, 3]), NA)
 
   # hsq.pv
-  hsq.pv <- NA
+  hsq.pv <- heri[idx,5]
 
   # N.tot
   N.tot <- as.numeric(cvr2[idx, 4])
@@ -39,5 +41,5 @@ for (idx in 1:n_pop){
   colnames(wgt.matrix) <- "sushie"
 
   save(cv.performance, hsq, hsq.pv, N.tot, snps, wgt.matrix,
-    file = paste0(out, ".ancestry", idx, ".sushie.fusion.RData"))
+    file = paste0(out_path, ".ancestry", idx, ".sushie.fusion.RData"))
 }
