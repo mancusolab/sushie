@@ -102,11 +102,12 @@ For ``*.meta.cs.tsv``, it will row-bind the output for single-ancestry SuShiE di
 Full Credible Set with Alphas
 -----------------------------
 
-By specifying ``--alphas``, SuShiE outputs a ``*.alphas.tsv`` file that tracks all the SNPs' PIP, :math:`\alpha` (see :ref:`Model`), whether in the credible set across all :math:`L`.
+By specifying ``--alphas``, SuShiE outputs a ``*.alphas.tsv`` file that tracks all the SNPs' PIP, :math:`\alpha` (see :ref:`Model`), and purity across all :math:`L`.
 
 If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it will output ``*.meta.alphas.tsv`` and ``*.mega.alphas.tsv``, respectively, to track the information inferred by meta SuShiE and mega SuShiE.
 
 For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShiE differed by column ``ancestry``.
+
 
 .. list-table::
    :header-rows: 1
@@ -147,7 +148,7 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - Integer
      - 0, 1
      - The indicator whether the SNP is in the first credible set. Depending on ``--L``, it can have extra columns.
-    * - purity_l1
+   * - purity_l1
      - float
      - 0.634
      - The sample-size-weighted average purity across ancestries. To compare with the ``--purity``, it will decide the value in ``in_cs_l1``. Depending on ``--L``, it can have extra columns.
@@ -171,6 +172,7 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - String
      - sushie, mega, ancestry_1
      - The inference method for this credible set.
+
 
 .. _weightsfile:
 Prediction Weights
