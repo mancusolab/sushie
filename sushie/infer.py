@@ -171,6 +171,7 @@ def infer_sushie(
     threshold: float = 0.9,
     purity: float = 0.5,
     max_select: int = 500,
+    min_snps: int = 100,
     seed: int = 12345,
 ) -> SushieResult:
     """The main inference function for running SuShiE.
@@ -196,6 +197,7 @@ def infer_sushie(
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
         max_select: The maximum number of selected SNPs to compute purity.
+        min_snps: The minimum number of SNPs to fine-map.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
     Returns:
@@ -249,6 +251,11 @@ def infer_sushie(
             "The maximum selected number of SNPs for purity is invalid. Choose a positive integer."
         )
 
+    if max_select <= 0:
+        raise ValueError(
+            "The minimum number of SNPs to fine-map is invalid. Choose a positive integer."
+        )
+
     if max_select < 100:
         raise ValueError(
             "The maximum selected number of SNPs is too small thus may miss true positives. Choose a positive integer."
@@ -294,10 +301,17 @@ def infer_sushie(
 
     _, n_snps = Xs[0].shape
 
-    if n_snps < L:
+    if min_snps < L:
         raise ValueError(
-            f"The number of common SNPs across ancestries ({n_snps}) is less than inferred L ({L})."
-            + "Please choose a smaller L or expand the genomic window."
+            f"The number of minimum common SNPs across ancestries ({min_snps}) is less than inferred L ({L})."
+            + "Please choose a smaller L or increase the minimum threshold for SNPs to fine-map with --min-snps."
+        )
+
+    if n_snps < min_snps:
+        raise ValueError(
+            f"The number of common SNPs across ancestries ({n_snps}) is less than minimum common "
+            + "number of SNPs specified. Please expand the genomic window."
+            + "We do not recommend to set --min-snps less than 50 as it may give weird results."
         )
 
     param_effect_var = effect_var
@@ -839,8 +853,17 @@ def make_cs(
         ]
     )
 
-    cs["pip_all"] = pip_all[cs.SNPIndex.values.astype(int)]
-    cs["pip_cs"] = pip_cs[cs.SNPIndex.values.astype(int)]
+    n_snp_cs = cs.SNPIndex.values.astype(int)
+    n_snp_cs_unique = jnp.unique(cs.SNPIndex.values.astype(int))
+
+    if len(n_snp_cs) != len(n_snp_cs_unique):
+        log.logger.warning(
+            "Same SNPs appear in different credible set."
+            + " This is considered weired results. It may be due to not enough SNPs to fine-map."
+        )
+
+    cs["pip_all"] = jnp.array([pip_all[idx] for idx in cs.SNPIndex.values.astype(int)])
+    cs["pip_cs"] = jnp.array([pip_cs[idx] for idx in cs.SNPIndex.values.astype(int)])
 
     full_alphas["pip_all"] = pip_all
     full_alphas["pip_cs"] = pip_cs

@@ -909,6 +909,7 @@ def sushie_wrapper(
                 threshold=args.threshold,
                 purity=args.purity,
                 max_select=args.max_select,
+                min_snps=args.min_snps,
                 seed=args.seed,
             )
             pips_all.append(tmp_result.pip_all[:, jnp.newaxis])
@@ -942,6 +943,7 @@ def sushie_wrapper(
             threshold=args.threshold,
             purity=args.purity,
             max_select=args.max_select,
+            min_snps=args.min_snps,
             seed=args.seed,
         )
         result.append(tmp_result)
@@ -1326,6 +1328,16 @@ def build_finemap_parser(subp):
         help=(
             "The maximum selected number of SNPs to calculate the purity. Default is 250.",
             " It has to be positive integer number. A larger number can unnecessarily spend much memory.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--min-snps",
+        default=100,
+        type=int,
+        help=(
+            "The minimum number of SNPs to fine-map. Default is 100.",
+            " It has to be positive integer number. A smaller number may produce weird results.",
         ),
     )
 

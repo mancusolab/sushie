@@ -375,6 +375,11 @@ Parameters
      - 250
      - ``--max-select 100``
      - The maximum selected number of SNPs to calculate the purity. Default is 250. It has to be positive integer number. A larger number can unnecessarily spend much memory.
+   * - ``--min-snps``
+     - Integer
+     - 100
+     - ``--min-snps 50``
+     - The minimum number of SNPs to fine-map. Default is 100. It has to be positive integer number. A smaller number may produce weird results.
    * - ``--maf``
      - float
      - 0.01
