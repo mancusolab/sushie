@@ -829,6 +829,8 @@ def make_cs(
         if avg_corr > purity:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
             full_alphas[f"kept_l{new_ldx}"] = 1
+        else:
+            full_alphas[f"kept_l{new_ldx}"] = 0
 
     pip_all = utils.make_pip(alpha)
     pip_cs = utils.make_pip(
