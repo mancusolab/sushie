@@ -46,6 +46,8 @@ Although we highly recommend users to perform high-quality QC on their own genot
 #. Only keep subjects who have data in all the genotype, phenotype, and covariate data.
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
+#. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf`).
+#. For single ancestry SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
 
 See :func:`sushie.cli.process_raw` for these QCs' source codes.
 
@@ -122,8 +124,19 @@ For bgen data, users need to make sure that the latter allele shown up in the ``
     cd ./data/
     sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --bgen bgen/EUR.bgen bgen/AFR.bgen --output ~/test_result
 
+.. _index:
+4. My data contains all the participants and I do not want to separate them
+------------------------------------------------------------------------------
+
+No problem! If all the subjects are in single phenotype, genotype, and covariate files. Users just need to use ``--ancestry-index`` command to specify a file that subject ID on the first column, and the ancestry index on the second column. The ancestry index has to start from 1 continuously to the total number of ancestry.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --pheno all.pheno.tsv --plink plink/all --ancestry-index all.ancestry.index.tsv --output ~/test_result
+
 .. _meta:
-4. How about mega or meta SuShiE?
+5. How about mega or meta SuShiE?
 ---------------------------------
 
 The software employs the function to run meta SuShiE and mega SuShiE by adding the parameter ``--meta`` or ``--mega``.
@@ -146,12 +159,12 @@ We define the mega SuShiE as running single-ancestry SuShiE on genotype and phen
     sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --mega --output ~/test_result
 
 .. _cv:
-5. Let's estimate heritability, run CV, and make FUSION files!
+6. Let's estimate heritability, run CV, and make FUSION files!
 --------------------------------------------------------------
 
-SuShiE incorporates codes in `limix <https://github.com/limix/limix>`_ to estimate the narrow-sense cis-heritability (:math:`h_g^2`) based on either limix or `gcta <https://yanglab.westlake.edu.cn/software/gcta/#Overview>`_ definition (whether to include fixed-effects variance) by specifying ``--her``.
+SuShiE incorporates codes in `limix <https://github.com/limix/limix>`_ to estimate the narrow-sense cis-heritability (:math:`h_g^2`) by specifying ``--her``.
 
-SuShiE also has a function (``--cv``) to perform :math:`X`-fold cross-validation (CV; ``--cv_num X``) on the ancestry-specific prediction weights to compute the out-of-sample :math:`r^2` between predicted and measured expressions with its corresponding :math:`p`-value.
+SuShiE also has a function (``--cv``) to perform :math:`X`-fold cross-validation (CV; ``--cv-num X``) on the ancestry-specific prediction weights to compute the out-of-sample :math:`r^2` between predicted and measured expressions with its corresponding :math:`p`-value.
 
 Specifically, we randomly (``--seed [YOUR SEED]``) and equally divide the dataset into ``X`` portions. We regard each portion as validation dataset and the rest four portions as training dataset. Then, we perform SuShiE on the training datasets for ``X`` times, and predict the expressions on the corresponding validation dataset. Last, we row-wise stack all ``X`` predicted expressions and compute the :math:`r^2` with row-wise stacked and matched validation dataset.
 
@@ -164,18 +177,18 @@ With these two information (:math:`h_g^2` and CV), we prepare R codes ``./misc/m
     Rscript ./misc/make_FUSION.R ~/test_result ~
 
 
-6. I don't want to scale my phenotype by its standard deviation
+7. I don't want to scale my phenotype by its standard deviation
 ---------------------------------------------------------------
 
-Fine-mapping inference sometimes can be sensitive to whether scaling the phenotypes and genotypes. SuShiE by default scales the phenotypes and genotypes by their respective standard deviations. However, if users want to disable it, simply add ``--no_scale`` to the command.
+Fine-mapping inference sometimes can be sensitive to whether scaling the phenotypes and genotypes. SuShiE by default scales the phenotypes and genotypes by their respective standard deviations. However, if users want to disable it, simply add ``--no-scale`` to the command.
 
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --no_scale --output ~/test_result
+    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --no-scale --output ~/test_result
 
-7. I have my own initial values for the hyperparameters
+8. I have my own initial values for the hyperparameters
 -------------------------------------------------------
 
 SuShiE has three hyperparameters (:ref:`Model`): the residual variance (:math:`\sigma^2_e`) prior, the QTL effect size variance (:math:`\sigma^2_{i,b}`) prior, and the ancestral effect size correlation (:math:`\rho`) prior. SuShiE by default initializes them as ``0.001``, ``0.001``, and ``0.8``. If users have their own initial values, simply specify them with ``--resid_var``, ``--effect_var``, and ``--rho``. Make sure the ancestry order has to match the phenotype file order.
@@ -183,28 +196,28 @@ SuShiE has three hyperparameters (:ref:`Model`): the residual variance (:math:`\
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --resid_var 2.2 2.2 --effect_var 1.2 3.4 --rho 0.2 --output ~/test_result
+    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --resid-var 2.2 2.2 --effect-var 1.2 3.4 --rho 0.2 --output ~/test_result
 
-By default, SuShiE will update :math:`\sigma^2_{i,b}` and :math:`\rho` during the optimization. If users want to disable it, add ``--no_update`` to the command line.
+By default, SuShiE will update :math:`\sigma^2_{i,b}` and :math:`\rho` during the optimization. If users want to disable it, add ``--no-update`` to the command line.
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --resid_var 2.2 2.2 --effect_var 1.2 3.4 --rho 0.2 --no_update --output ~/test_result
+    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --resid_var 2.2 2.2 --effect_var 1.2 3.4 --rho 0.2 --no-update --output ~/test_result
 
-In addition, with ``--no_update``, if users only specify ``--effect_var`` but not for ``--rho``, ``--effect_var`` will be fixed during the optimizations while ``--rho`` will get updated, vice versa. In other words, if users want to fix both priors, they have to specify both at the same time or specify neither of them (in the latter case, fixing the default values 0.001 and 0.8 as the priors).
+In addition, with ``--no-update``, if users only specify ``--effect-var`` but not for ``--rho``, ``--effect-var`` will be fixed during the optimizations while ``--rho`` will get updated, vice versa. In other words, if users want to fix both priors, they have to specify both at the same time or specify neither of them (in the latter case, fixing the default values 0.001 and 0.2 as the priors).
 
-8. What if I assume no correlation across ancestries?
+9. What if I assume no correlation across ancestries?
 -----------------------------------------------------
 
-SuShiE features that it accounts for ancestral quantitative trait loci (QTL) effect size correlation (:math:`\rho` in :ref:`Model`) in the inference, which is different from other SuSiE-extended multi-ancestry fine-mapping frameworks assuming no ancestral correlation (Joint SuShiE). However, it has the functions to make inference assuming no correlation across ancestries by simply specifying ``--no_update`` on the effect size covariance matrix and fixing the rho equal to zero ``--rho 0``. With this, the effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) will get updated while rho will not.
+SuShiE features that it accounts for ancestral quantitative trait loci (QTL) effect size correlation (:math:`\rho` in :ref:`Model`) in the inference, which is different from other SuSiE-extended multi-ancestry fine-mapping frameworks assuming no ancestral correlation (Joint SuShiE). However, it has the functions to make inference assuming no correlation across ancestries by simply specifying ``--no-update`` on the effect size covariance matrix and fixing the rho equal to zero ``--rho 0``. With this, the effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) will get updated while rho will not.
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --no_update --rho 0 --output ~/test_result
+    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --no-update --rho 0 --output ~/test_result
 
-9. I want to improvise in post-hoc analysis
+10. I want to improvise in post-hoc analysis
 -------------------------------------------
 
 We understand :ref:`Files` output by SuShiE may not serve all users' post-hoc analysis. Therefore, we add the option to save all the inference results in ``*.npy`` file by specifying ``--numpy``.
@@ -217,7 +230,7 @@ The ``*.npy`` files include SNP information, prior estimators, posterior estimat
     sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --numpy --output ~/test_result
 
 
-10. I seek to use GPU or TPU to make inference faster
+11. I seek to use GPU or TPU to make inference faster
 -----------------------------------------------------
 
 SuShiE software uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation. Jax can be run on GPU or TPU.
@@ -227,7 +240,7 @@ SuShiE software uses `JAX <https://github.com/google/jax>`_ with `Just In Time  
     cd ./data/
     sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --platform gpu --output ~/test_result
 
-11. I want to use 32-bit precision
+12. I want to use 32-bit precision
 ----------------------------------
 
 SuShiE uses 64-bit precision to assure an accurate inference. However, if users want to use 32-bit precision, they can specify it by having ``--precision 32``.
@@ -238,6 +251,16 @@ Unless necessarily needed, we do not recommend to use 32-bit precision as it may
 
     cd ./data/
     sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --precision 32 --output ~/test_result
+
+13. I want to run fine-mapping on certain subjects
+--------------------------------------------------
+
+Users can use ``--keep`` command to specify a file that contains the subject IDs. As a result, the following fine-mapping inference only performs on the subjects listed in the file.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --keep keep.subject.tsv --output ~/test_result
 
 .. _Param:
 
@@ -272,6 +295,16 @@ Parameters
      - None
      - ``--bgen bgen/EUR.bgen bgen/AFR.bgen``
      - Genotype data in `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's.
+   * - ``--ancestry-index``
+     - String
+     - None
+     - ``--ancestry-index all.ancestry.index.tsv``
+     - Single file that contains subject ID and their ancestry index. Default is None. It has to be a tsv file that contains at least two columns where the first column is the subject ID and the second column is the ancestry index starting from 1 (e.g., 1, 2, 3 etc.). It can be a compressed file (e.g., tsv.gz). Only the first two columns will be used. No headers. If this file is specified, it assumes that all the phenotypes across ancestries are in one single file, and same thing for genotypes and covariates data. It will produce errors if multiple phenotype, genotype, and covariates are specified.
+   * - ``--keep``
+     - String
+     - None
+     - ``--keep keep.subject.tsv``
+     - Single file that contains subject ID across all ancestries that are used for fine-mapping. It has to be a tsv file that contains at least one columns where the first column is the subject ID. It can be a compressed file (e.g., tsv.gz). No headers. If this file is specified, all phenotype, genotype, and covariates data will be filtered down to the subjects listed in it.
    * - ``--covar``
      - String
      - None
@@ -279,53 +312,53 @@ Parameters
      - Covariates that will be accounted in the fine-mapping. It has to be a tsv file that contains at least two columns where the first column is the subject ID. It can be a compressed file (e.g., tsv.gz). **No headers**. All the columns will be counted. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's. Pre-converting the categorical covariates into dummy variables is required. If the categorical covariate has ``n`` levels, make sure the dummy variables have ``n-1`` columns.
    * - ``--L``
      - Integer
-     - 5
-     - ``--L 10``
+     - 10
+     - ``--L 5``
      - Integer number of shared effects pre-specified. Larger number may cause slow inference.
    * - ``--pi``
      - Float
      - 1/p
      - ``--pi 0.1``
      - Prior probability for each SNP to be causal (:math:`\pi` in :ref:`Model`). Default is ``1/p`` where ``p`` is the number of SNPs in the region. It is the fixed across all ancestries.
-   * - ``--resid_var``
+   * - ``--resid-var``
      - Float
      - 1e-3
-     - ``--resid_var 5.18 0.2``
+     - ``--resid-var 5.18 0.2``
      - Specify the prior for the residual variance (:math:`\sigma^2_e` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two.
-   * - ``--effect_var``
+   * - ``--effect-var``
      - Float
      - 1e-3
-     - ``--effect_var 5.21 0.99 ``
-     - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no_update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect_var`` as prior through optimizations and update ``rho``. If ``--effect_covar``, ``--rho``, and ``--no_update`` all three are specified, both ``--effect_covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no_update`` is specified, but neither ``--effect_covar`` nor ``--rho``, both ``--effect_covar`` and ``--rho`` will be fixed as default prior value through optimizations.
+     - ``--effect-var 5.21 0.99 ``
+     - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no-update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect-var`` as prior through optimizations and update ``rho``. If ``--effect-covar``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-covar`` nor ``--rho``, both ``--effect-covar`` and ``--rho`` will be fixed as default prior value through optimizations.
    * - ``--rho``
      - Float
      - 0.1
      - ``--rho 0.05``
-     - Specify the prior for the effect correlation (:math:`\rho` in :ref:`Model`) for ancestries. Default is 0.1 for each pair of ancestries. Use space to separate ancestries if more than two. Each rho has to be a float number between -1 and 1. If there are ``N > 2`` ancestries, ``X = choose(N, 2)`` is required. The rho order has to be ``rho(1,2)``, ..., ``rho(1, N)``, ``rho(2,3)``, ..., ``rho(N-1. N)``. If ``--no_update`` is specified and ``--effect_covar`` is not, specifying this parameter will only fix ``rho`` as prior through optimizations and update ``effect_covar``. If ``--effect_covar``, ``--rho``, and ``--no_update`` all three are specified, both ``--effect_covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no_update`` is specified, but neither ``--effect_covar`` nor ``--rho``, both ``--effect_covar`` and ``--rho`` will be fixed as default prior value through optimizations.
-   * - ``--no_scale``
+     - Specify the prior for the effect correlation (:math:`\rho` in :ref:`Model`) for ancestries. Default is 0.1 for each pair of ancestries. Use space to separate ancestries if more than two. Each rho has to be a float number between -1 and 1. If there are ``N > 2`` ancestries, ``X = choose(N, 2)`` is required. The rho order has to be ``rho(1,2)``, ..., ``rho(1, N)``, ``rho(2,3)``, ..., ``rho(N-1. N)``. If ``--no-update`` is specified and ``--effect-covar`` is not, specifying this parameter will only fix ``rho`` as prior through optimizations and update ``effect-covar``. If ``--effect-covar``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-covar`` nor ``--rho``, both ``--effect-covar`` and ``--rho`` will be fixed as default prior value through optimizations.
+   * - ``--no-scale``
      - Boolean
      - False
-     - ``--no_scale # will store as True``
-     - Indicator to scale the genotype and phenotype data by standard deviation. Default is to scale. Specify ``--no_scale`` will store ``True`` value, and may cause different inference.
-   * - ``--no_regress``
+     - ``--no-scale # will store as True``
+     - Indicator to scale the genotype and phenotype data by standard deviation. Default is to scale. Specify ``--no-scale`` will store ``True`` value, and may cause different inference.
+   * - ``--no-regress``
      - Boolean
      - False
-     - ``--no_regress # will store as True``
-     - Indicator to regress the covariates on each SNP. Default is to regress. Specify ``--no_regress`` will store ``True`` value. It may slightly slow the inference, but can be more accurate.
-   * - ``--no_update``
+     - ``--no-regress # will store as True``
+     - Indicator to regress the covariates on each SNP. Default is to regress. Specify ``--no-regress`` will store ``True`` value. It may slightly slow the inference, but can be more accurate.
+   * - ``--no-update``
      - Boolean
      - False
-     - ``--no_update # will store as True``
-     - Indicator to update effect covariance prior before running single effect regression. Default is to update. Specify ``--no_update`` will store ``True`` value. The updating algorithm is similar to `EM algorithm <https://en.wikipedia.org/wiki/Expectation%E2%80%93maximization_algorithm>`_ or `Empirical Bayes method <https://en.wikipedia.org/wiki/Empirical_Bayes_method>`_ that computes the prior covariance conditioned on other parameters. See the manuscript for more information."
-   * - ``--max_iter``
+     - ``--no-update # will store as True``
+     - Indicator to update effect covariance prior before running single effect regression. Default is to update. Specify ``--no-update`` will store ``True`` value. The updating algorithm is similar to `EM algorithm <https://en.wikipedia.org/wiki/Expectation%E2%80%93maximization_algorithm>`_ or `Empirical Bayes method <https://en.wikipedia.org/wiki/Empirical_Bayes_method>`_ that computes the prior covariance conditioned on other parameters. See the manuscript for more information."
+   * - ``--max-iter``
      - Integer
      - 500
-     - ``--max_iter 300``
+     - ``--max-iter 300``
      - Maximum iterations for the optimization. Larger number may slow the inference while smaller may cause different inference.
-   * - ``--min_tol``
+   * - ``--min-tol``
      - Float
-     - 1e-4
-     - ``--min_tol 1e-3``
+     - 1e-3
+     - ``--min_tol 1e-4``
      - Minimum tolerance for the convergence. Smaller number may slow the inference while larger may cause different inference.
    * - ``--threshold``
      - Float
@@ -337,16 +370,26 @@ Parameters
      - 0.5
      - ``--purity 0.5``
      - Specify the purity threshold for credible sets to be output. It has to be a float number between 0 and 1.
-   * - ``--no_kl``
+   * - ``--max-select``
+     - Integer
+     - 250
+     - ``--max-select 100``
+     - The maximum selected number of SNPs to calculate the purity. Default is 250. It has to be positive integer number. A larger number can unnecessarily spend much memory.
+   * - ``--min-snps``
+     - Integer
+     - 100
+     - ``--min-snps 50``
+     - The minimum number of SNPs to fine-map. Default is 100. It has to be positive integer number. A smaller number may produce weird results.
+   * - ``--maf``
+     - float
+     - 0.01
+     - ``--maf 0.05``
+     - Threshold for minor allele frequency (MAF) to filter out SNPs for each ancestry. It has to be a float between 0 (exclusive) and 0.5 (inclusive).
+   * - ``--rint``
      - Boolean
      - False
-     - ``--no_kl # will store as True``
-     - Indicator to use KL divergence as alternative credible set pruning threshold in addition to purity. Default is False. Specify ``--no_kl`` will store ``True`` value and will not use KL divergence as extra threshold.
-   * - ``--kl_threshold``
-     - float
-     - 5.0
-     - ``--kl_threshold 4.8``
-     - Specify the KL divergence threshold for credible sets to be output. Default is 5. It has to be a positive number.
+     - ``--rint``
+     - Indicator to perform rank inverse normalization transformation (rint) for each phenotype data. Default is False (do not transform). Specify --rint will store 'True' value. We suggest users to do this QC during data preparation.
    * - ``--meta``
      - Boolean
      - False
@@ -361,22 +404,22 @@ Parameters
      - Boolean
      - False
      - ``--her # will store as True``
-     - Indicator to perform heritability (:math:`h_g^2`) analysis using limix. Specify ``--her`` will store ``True`` value and increase running time. It estimates :math:`h_g^2` with two definitions. One is with variance of fixed terms (original `limix <https://github.com/limix/limix>`_), and the other is without variance of fixed terms (`gcta <https://yanglab.westlake.edu.cn/software/gcta/#Overview>`_). It also estimates these two definitions' :math:`h_g^2` using using all genotypes and using only SNPs in the credible sets.
+     - Indicator to perform heritability (:math:`h_g^2`) analysis using limix. Specify ``--her`` will store ``True`` value and increase running time. It estimates :math:`h_g^2` using codes in `limix <https://github.com/limix/limix>`_.
    * - ``--cv``
      - Boolean
      - False
      - ``--cv 0.5 # will store as True``
      - Indicator to perform cross validation (CV) and output CV results (adjusted r-squared and its p-value) for future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipline. Specify ``--cv`` will store ``True`` value and increase running time.
-   * - ``--cv_num``
+   * - ``--cv-num``
      - Integer
      - 5
      - ``--cv_num 6``
      - The number of fold cross validation. It has to be a positive integer number. Larger number may cause longer running time.
    * - ``--seed``
      - Integer
-     - 1234
+     - 12345
      - ``--seed 4321``
-     - The seed to randomly cut data sets in cross validation. It has to be positive integer number.
+     - The seed for randomization. It can be used to cut data sets in cross validation. It can also be used to randomly select SNPs in the credible sets to calculate the purity. Default is 12345. It has to be positive integer number.
    * - ``--alphas``
      - Boolean
      - False
@@ -412,10 +455,10 @@ Parameters
      - cpu
      - ``--platform gpu``
      - Indicator for the JAX platform.
-   * - ``--jax_precision``
+   * - ``--jax-precision``
      - Integer choices in ``[32, 64]``
      - 64
-     - ``--jax_precision 32``
+     - ``--jax-precision 32``
      - Indicator for the JAX precision: 64-bit or 32-bit. Choose 32-bit may cause 'elbo decreases' warning.
    * - ``--output``
      - String

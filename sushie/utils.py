@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import pandas as pd
 from glimix_core.lmm import LMM
@@ -7,8 +7,12 @@ from scipy import stats
 
 import jax.numpy as jnp
 import jax.scipy as jsp
+from jax import Array
+from jax.typing import ArrayLike
 
 __all__ = [
+    "make_pip",
+    "rint",
     "ListFloatOrNone",
     "ols",
     "estimate_her",
@@ -18,16 +22,51 @@ __all__ = [
 # prior argument effect_covar, resid_covar, rho, etc.
 ListFloatOrNone = Optional[List[float]]
 # covar process data, etc.
-ListArrayOrNone = Optional[List[jnp.ndarray]]
+ListArrayOrNone = Optional[List[ArrayLike]]
 # effect_covar sushie etc.
-ArrayOrFloat = Union[jnp.ndarray, float]
+ArrayOrFloat = ArrayLike
 # covar paths
 ListStrOrNone = Optional[List[str]]
 # covar raw data
 PDOrNone = Optional[pd.DataFrame]
 
 
-def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def make_pip(alpha: ArrayLike) -> Array:
+    """The function to calculate posterior inclusion probability (PIP).
+
+    Args:
+        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
+            (i.e., :math:`\\alpha` in :ref:`Model`).
+
+    Returns:
+        :py:obj:`Array`: :math:`p \\times 1` vector for the posterior inclusion probability.
+
+    """
+
+    pip = -jnp.expm1(jnp.sum(jnp.log1p(-alpha), axis=0))
+
+    return pip
+
+
+def rint(y_val: ArrayLike) -> Array:
+    """Perform rank inverse normalization transformation.
+
+    Args:
+        y_val: :math:`n \\times 1` vector for dependent variables.
+
+    Returns:
+        :py:obj:`Array`: A array of transformed value.
+
+    """
+
+    n_pt = y_val.shape[0]
+    r_y = stats.rankdata(y_val)
+    q_y = stats.norm.ppf(r_y / (n_pt + 1))
+
+    return q_y
+
+
+def ols(X: ArrayLike, y: ArrayLike) -> Tuple[Array, Array, Array]:
     """Perform ordinary linear regression using QR Factorization.
 
     Args:
@@ -36,10 +75,10 @@ def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.n
             perform :math:`m` ordinary regression in parallel.
 
     Returns:
-        :py:obj:`Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]`: A tuple of
-            #. contains residuals (:py:obj:`jnp.ndarray`),
-            #. adjusted :math:`r^2` (:py:obj:`jnp.ndarray`) for of the regression,
-            #. :math:`p` values (:py:obj:`jnp.ndarray`) for the coefficients.
+        :py:obj:`Tuple[Array, Array, Array]`: A tuple of
+            #. contains residuals (:py:obj:`Array`),
+            #. adjusted :math:`r^2` (:py:obj:`Array`) for of the regression,
+            #. :math:`p` values (:py:obj:`Array`) for the coefficients.
 
     """
 
@@ -70,8 +109,8 @@ def ols(X: jnp.ndarray, y: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.n
 
 
 def regress_covar(
-    X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray, no_regress: bool
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    X: ArrayLike, y: ArrayLike, covar: ArrayLike, no_regress: bool
+) -> Tuple[Array, Array]:
     """Regress phenotypes and genotypes on covariates and return the residuals.
 
     Args:
@@ -81,9 +120,9 @@ def regress_covar(
         no_regress: boolean indicator whether to regress genotypes on covariates.
 
     Returns:
-        :py:obj:`Tuple[jnp.ndarray, jnp.ndarray]`: A tuple of
-            #. genotype residual matrix after regressing out covariates effects (:py:obj:`jnp.ndarray`),
-            #. phenotype residual vector (:py:obj:`jnp.ndarray`) after regressing out covariates effects.
+        :py:obj:`Tuple[Array, Array]`: A tuple of
+            #. genotype residual matrix after regressing out covariates effects (:py:obj:`Array`),
+            #. phenotype residual vector (:py:obj:`Array`) after regressing out covariates effects.
 
     """
 
@@ -95,46 +134,59 @@ def regress_covar(
 
 
 def estimate_her(
-    X: jnp.ndarray, y: jnp.ndarray, covar: jnp.ndarray = None
-) -> Tuple[float, jnp.ndarray, float, float, float]:
+    X: ArrayLike,
+    y: ArrayLike,
+    covar: ArrayLike = None,
+    normalize: bool = True,
+) -> Tuple[float, Array, float, float]:
     """Calculate proportion of expression variation explained by genotypes (cis-heritability; :math:`h_g^2`).
 
     Args:
         X: :math:`n \\times p` matrix for independent variables with no intercept vector.
         y: :math:`n \\times 1` vector for gene expression.
         covar: :math:`n \\times m` matrix for covariates.
+        normalize: Boolean value to indicate whether normalize X and y
 
     Returns:
         :py:obj:`Tuple[float, float, float, float, float]`: A tuple of
             #. genetic variance (:py:obj:`float`) of the complex trait,
             #. :math:`h_g^2` (:py:obj:`float`) from `limix <https://github.com/limix/limix>`_ definition,
-            #. :math:`h_g^2` (:py:obj:`float`) from `gcta <https://yanglab.westlake.edu.cn/software/gcta/>`_ definition,
             #. LRT test statistics (:py:obj:`float`) for :math:`h_g^2`,
             #. LRT :math:`p` value (:py:obj:`float`) for :math:`h_g^2`.
 
     """
     n, p = X.shape
 
+    if normalize:
+        X -= jnp.mean(X, axis=0)
+        X /= jnp.std(X, axis=0)
+        y -= jnp.mean(y)
+        y /= jnp.std(y)
+
     if covar is None:
         covar = jnp.ones(n)
 
     GRM = jnp.dot(X, X.T) / p
-    GRM = GRM / jnp.diag(GRM).mean()
+    # normalize the covariance matrix as suggested by Limix
+    # https://horta-limix.readthedocs.io/en/api/_modules/limix/her/_estimate.html#estimate
+    # and https://horta-limix.readthedocs.io/en/api/_modules/limix/qc/kinship.html#normalise_covariance
+    # here, we calculate GRM using p, instead of p-1, so jnp.diag.mean should be equivalent to jnp.trace/(p-1)
+    GRM /= jnp.diag(GRM).mean()
     QS = economic_qs(GRM)
     method = LMM(y, covar, QS, restricted=True)
-    method.fit(verbose=False)
+    method.fit(verbose=False)  # alternative
 
     g = method.scale * (1 - method.delta)
     e = method.scale * method.delta
     v = jnp.var(method.mean())
-    h2g_w_v = g / (v + g + e)
-    h2g_wo_v = g / (g + e)
+    h2g = g / (v + g + e)
     alt_lk = method.lml()
     method.delta = 1
     method.fix("delta")
-    method.fit(verbose=False)
+    method.fit(verbose=False)  # null
     null_lk = method.lml()
     lrt_stats = -2 * (null_lk - alt_lk)
+    # https://en.wikipedia.org/wiki/Wilks%27_theorem
     p_value = stats.chi2.sf(lrt_stats, 1) / 2
 
-    return g, h2g_w_v, h2g_wo_v, lrt_stats, p_value
+    return g, h2g, lrt_stats, p_value
