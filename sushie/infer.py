@@ -70,6 +70,10 @@ class SushieResult(NamedTuple):
         sample_size: The sample size for each ancestry in the inference.
         elbo: The final ELBO.
         elbo_increase: A boolean to indicate whether ELBO increases during the optimizations.
+        l_order: The original order that SuShiE infers. For example, if L=3 and it is 0,2,1,
+            then the original SuShiE's second effect (0-based index 1) is now third,
+            and the original SuShiE's third effect (0-based index 2) is now second
+            after sorting use Frobenius norm.
 
     """
 
@@ -82,6 +86,7 @@ class SushieResult(NamedTuple):
     sample_size: Array
     elbo: Array
     elbo_increase: bool
+    l_order: Array
 
 
 class _PriorAdjustor(NamedTuple):
@@ -172,6 +177,7 @@ def infer_sushie(
     purity: float = 0.5,
     max_select: int = 500,
     min_snps: int = 100,
+    no_reorder: bool = False,
     seed: int = 12345,
 ) -> SushieResult:
     """The main inference function for running SuShiE.
@@ -198,6 +204,8 @@ def infer_sushie(
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
         max_select: The maximum number of selected SNPs to compute purity.
         min_snps: The minimum number of SNPs to fine-map.
+        no_reorder: Do not re-order single effects based on Frobenius norm of alpha-weighted posterior mean square.
+            Default is to re-order.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
     Returns:
@@ -311,7 +319,6 @@ def infer_sushie(
         raise ValueError(
             f"The number of common SNPs across ancestries ({n_snps}) is less than minimum common "
             + "number of SNPs specified. Please expand the genomic window."
-            + "We do not recommend to set --min-snps less than 50 as it may give weird results."
         )
 
     param_effect_var = effect_var
@@ -490,9 +497,12 @@ def infer_sushie(
                 + f" Reach maximum iteration threshold {max_iter}.",
             )
 
+    l_order = jnp.arange(L)
+    if not no_reorder:
+        priors, posteriors, l_order = _reorder_l(priors, posteriors)
+
     cs, full_alphas, pip_all, pip_cs = make_cs(
         posteriors.alpha,
-        posteriors.weighted_sum_covar,
         Xs,
         ns,
         threshold,
@@ -511,6 +521,7 @@ def infer_sushie(
         ns,
         elbo_tracker,
         elbo_increase,
+        l_order,
     )
 
 
@@ -736,10 +747,29 @@ def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Ar
     term_2 = jnp.sum(mu2_li - (mu_li ** 2), axis=(1, 2))
     return term_1 + term_2
 
+def _reorder_l(priors: Prior, posteriors: Posterior) -> Tuple[Prior, Posterior, Array]:
+
+    frob_norm = jnp.sum(jnp.linalg.svd(posteriors.weighted_sum_covar, compute_uv=False), axis=1)
+
+    # we want to reorder them based on the Frobenius norm
+    l_order = jnp.argsort(-frob_norm)
+
+    # priors effect_covar
+    priors = priors._replace(effect_covar=priors.effect_covar[l_order])
+
+    posteriors = posteriors._replace(
+        alpha = posteriors.alpha[l_order],
+        post_mean = posteriors.post_mean[l_order],
+        post_mean_sq = posteriors.post_mean_sq[l_order],
+        weighted_sum_covar = posteriors.weighted_sum_covar[l_order],
+        kl = posteriors.kl[l_order]
+    )
+
+    return priors, posteriors, l_order
+
 
 def make_cs(
     alpha: ArrayLike,
-    prior_covar: ArrayLike,
     Xs: ArrayLike,
     ns: ArrayLike,
     threshold: float = 0.9,
@@ -752,8 +782,6 @@ def make_cs(
     Args:
         alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
             (i.e., :math:`\\alpha` in :ref:`Model`).
-        prior_covar: :math:`L \\times k \\times k` matrix that contains prior covariance for each credible set
-            (i.e., :math:`C` in :ref:`Model`).
         Xs: Genotype data for multiple ancestries.
         ns: Sample size for each ancestry.
         threshold: The credible set threshold.
@@ -773,19 +801,11 @@ def make_cs(
     rng_key = random.PRNGKey(seed)
     n_l, n_snps = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
-    frob_norm = jnp.sum(jnp.linalg.svd(prior_covar, compute_uv=False), axis=1)
-
-    # we want to reorder them based on the Frobenius norm
-    new_order = jnp.argsort(-frob_norm)
 
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
     full_alphas = t_alpha[["index"]]
 
-    # new CS index name
-    new_ldx = 0
-    for ldx in new_order.tolist():
-        new_ldx += 1
-
+    for ldx in range(n_l):
         # select original index and alpha
         tmp_pd = (
             t_alpha[["index", ldx]]
@@ -801,9 +821,10 @@ def make_cs(
         else:
             select_idx = jnp.arange(n_row + 1)
 
+        # output CS Index is 1-based
         tmp_cs = (
             tmp_pd.iloc[select_idx, :]
-            .assign(CSIndex=new_ldx)
+            .assign(CSIndex=(ldx + 1))
             .rename(columns={"csum": "c_alpha", "index": "SNPIndex", ldx: "alpha"})
         )
 
@@ -812,8 +833,8 @@ def make_cs(
         # prepare alphas table's entries
         tmp_pd = tmp_pd.drop(["csum"], axis=1).rename(
             columns={
-                "in_cs": f"in_cs_l{new_ldx}",
-                ldx: f"alpha_l{new_ldx}",
+                "in_cs": f"in_cs_l{ldx + 1}",
+                ldx: f"alpha_l{ldx + 1}",
             }
         )
 
@@ -838,17 +859,19 @@ def make_cs(
             jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
         )
 
-        full_alphas[f"purity_l{new_ldx}"] = avg_corr
+        full_alphas[f"purity_l{ldx + 1}"] = avg_corr
 
         if avg_corr > purity:
             cs = pd.concat([cs, tmp_cs], ignore_index=True)
-            full_alphas[f"kept_l{new_ldx}"] = 1
+            full_alphas[f"kept_l{ldx + 1}"] = 1
         else:
-            full_alphas[f"kept_l{new_ldx}"] = 0
+            full_alphas[f"kept_l{ldx + 1}"] = 0
 
     pip_all = utils.make_pip(alpha)
+
+    # CSIndex is now 1-based
     pip_cs = utils.make_pip(
-        alpha[new_order][
+        alpha[
             (cs.CSIndex.unique().astype(int) - 1),
         ]
     )
@@ -858,8 +881,8 @@ def make_cs(
 
     if len(n_snp_cs) != len(n_snp_cs_unique):
         log.logger.warning(
-            "Same SNPs appear in different credible set."
-            + " This is considered weired results. It may be due to not enough SNPs to fine-map."
+            "Same SNPs appear in different credible set, which is very unusual."
+            + " You may want to check this gene in details."
         )
 
     cs["pip_all"] = jnp.array([pip_all[idx] for idx in cs.SNPIndex.values.astype(int)])
