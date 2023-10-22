@@ -393,7 +393,7 @@ Parameters
    * - ``--no-reorder``
      - Boolean
      - False
-     - ``--no=reorder``
+     - ``--no-reorder``
      - Indicator to re-order single effects based on Frobenius norm of alpha-weighted posterior mean square. Default is False (to re-order). Specify --no-reorder will store 'True' value.
    * - ``--meta``
      - Boolean

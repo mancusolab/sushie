@@ -382,6 +382,9 @@ def output_weights(
             .reset_index()
         )
 
+        # although for super rare cases, we have the same snp in more credible sets
+        # to record this situation in the weights file (we introduce WARNING in the inference function),
+        # we just concatenate the CS index with comma by creating this tmp_cs pandas data frame
         tmp_cs = (
             weights[["SNPIndex"]]
             .merge(df_cs, on="SNPIndex", how="left")
