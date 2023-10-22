@@ -39,9 +39,9 @@
     :target: https://pyscaffold.org/
 
 
-==========
-🍣SuShiE🍣
-==========
+========
+SuShiE🍣
+========
 SuShiE (Sum of SHared sIngle Effect) is a Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation across multiple ancestries. **The manuscript is in progress.**
 
 .. code:: diff
