@@ -747,9 +747,12 @@ def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Ar
     term_2 = jnp.sum(mu2_li - (mu_li ** 2), axis=(1, 2))
     return term_1 + term_2
 
+
 def _reorder_l(priors: Prior, posteriors: Posterior) -> Tuple[Prior, Posterior, Array]:
 
-    frob_norm = jnp.sum(jnp.linalg.svd(posteriors.weighted_sum_covar, compute_uv=False), axis=1)
+    frob_norm = jnp.sum(
+        jnp.linalg.svd(posteriors.weighted_sum_covar, compute_uv=False), axis=1
+    )
 
     # we want to reorder them based on the Frobenius norm
     l_order = jnp.argsort(-frob_norm)
@@ -758,11 +761,11 @@ def _reorder_l(priors: Prior, posteriors: Posterior) -> Tuple[Prior, Posterior, 
     priors = priors._replace(effect_covar=priors.effect_covar[l_order])
 
     posteriors = posteriors._replace(
-        alpha = posteriors.alpha[l_order],
-        post_mean = posteriors.post_mean[l_order],
-        post_mean_sq = posteriors.post_mean_sq[l_order],
-        weighted_sum_covar = posteriors.weighted_sum_covar[l_order],
-        kl = posteriors.kl[l_order]
+        alpha=posteriors.alpha[l_order],
+        post_mean=posteriors.post_mean[l_order],
+        post_mean_sq=posteriors.post_mean_sq[l_order],
+        weighted_sum_covar=posteriors.weighted_sum_covar[l_order],
+        kl=posteriors.kl[l_order],
     )
 
     return priors, posteriors, l_order

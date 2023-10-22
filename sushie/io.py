@@ -374,8 +374,13 @@ def output_weights(
         tmp_weights[cname_pip_cs] = result[idx].pip_cs
         weights = pd.concat([weights, tmp_weights], axis=1)
 
-        df_cs = result[idx].cs[["SNPIndex", "CSIndex"]].groupby("SNPIndex")["CSIndex"]\
-            .agg(lambda x: ",".join(x.astype(str))).reset_index()
+        df_cs = (
+            result[idx]
+            .cs[["SNPIndex", "CSIndex"]]
+            .groupby("SNPIndex")["CSIndex"]
+            .agg(lambda x: ",".join(x.astype(str)))
+            .reset_index()
+        )
 
         tmp_cs = (
             weights[["SNPIndex"]]
