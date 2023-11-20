@@ -396,7 +396,7 @@ def parameter_check(
     )
 
     if n_geno > 1:
-        log.logger.warning(
+        log.logger.info(
             f"Detect {n_geno} genotypes, will only use one genotypes in the order of 'plink, vcf, and bgen'"
         )
 
@@ -495,11 +495,6 @@ def parameter_check(
                 "The number of folds in cross validation is invalid."
                 + " Choose some number greater than 1.",
             )
-        elif args.cv_num > 5:
-            log.logger.warning(
-                "The number of folds in cross validation is too large."
-                + " It may increase running time.",
-            )
 
     if args.maf <= 0 or args.maf > 0.5:
         raise ValueError(
@@ -508,7 +503,7 @@ def parameter_check(
         )
 
     if (args.meta or args.mega) and n_pop == 1:
-        log.logger.warning(
+        log.logger.info(
             "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuSiE."
         )
 
@@ -636,7 +631,7 @@ def process_raw(
             )
 
         if imp_num != 0:
-            log.logger.warning(
+            log.logger.debug(
                 f"Ancestry {idx + 1}: Impute {imp_num} out of {old_snp_num} SNPs with NAN value based on allele"
                 + " frequency."
             )
@@ -910,6 +905,7 @@ def sushie_wrapper(
                 purity=args.purity,
                 max_select=args.max_select,
                 min_snps=args.min_snps,
+                no_reorder=args.no_reorder,
                 seed=args.seed,
             )
             pips_all.append(tmp_result.pip_all[:, jnp.newaxis])
@@ -919,6 +915,7 @@ def sushie_wrapper(
         pips_all = utils.make_pip(jnp.concatenate(pips_all, axis=1).T)
         pips_cs = utils.make_pip(jnp.concatenate(pips_cs, axis=1).T)
     else:
+        # normal sushie and mega sushie can use the same wrapper function
         if mega:
             log.logger.info(
                 f"Start fine-mapping using Mega SuSiE with {args.L} effects because --mega is specified."
@@ -944,6 +941,7 @@ def sushie_wrapper(
             purity=args.purity,
             max_select=args.max_select,
             min_snps=args.min_snps,
+            no_reorder=args.no_reorder,
             seed=args.seed,
         )
         result.append(tmp_result)
@@ -1337,7 +1335,7 @@ def build_finemap_parser(subp):
         type=int,
         help=(
             "The minimum number of SNPs to fine-map. Default is 100.",
-            " It has to be positive integer number. A smaller number may produce weird results.",
+            " It has to be positive integer number.",
         ),
     )
 
@@ -1360,6 +1358,18 @@ def build_finemap_parser(subp):
             " Default is False (do not transform).",
             " Specify --rint will store 'True' value.",
             " We suggest users to do this QC during data preparation.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--no-reorder",
+        default=False,
+        action="store_true",
+        help=(
+            "Indicator to re-order single effects based on Frobenius norm of alpha-weighted",
+            " posterior mean square.",
+            " Default is False (to re-order).",
+            " Specify --no-reorder will store 'True' value.",
         ),
     )
 

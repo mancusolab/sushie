@@ -39,9 +39,9 @@
     :target: https://pyscaffold.org/
 
 
-======
-SuShiE
-======
+========
+SuShiE🍣
+========
 SuShiE (Sum of SHared sIngle Effect) is a Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation across multiple ancestries. **The manuscript is in progress.**
 
 .. code:: diff
@@ -105,6 +105,17 @@ It can perform:
 * Convert prediction results to `FUSION <http://gusevlab.org/projects/fusion/>`_ format, thus can be used in `TWAS <https://www.nature.com/articles/ng.3506>`_
 
 See `here <https://mancusolab.github.io/sushie/>`_ for more details on how to use SuShiE.
+
+If you want to use in-software SuShiE inference function, you can use following code as an example:
+
+.. code:: python
+
+   from sushie.infer import infer_sushie
+   # Xs is for genotype data, and it should be a list of numpy array whose length is the number of ancestry.
+   # ys is for phenotype data, and it should also be a list of numpy array whose length is the number of ancestry.
+   infer_sushie(Xs=X, ys=y)
+
+You can play it with your own ideas!
 
 .. _Notes:
 .. |Notes| replace:: **Notes**

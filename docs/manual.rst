@@ -390,6 +390,11 @@ Parameters
      - False
      - ``--rint``
      - Indicator to perform rank inverse normalization transformation (rint) for each phenotype data. Default is False (do not transform). Specify --rint will store 'True' value. We suggest users to do this QC during data preparation.
+   * - ``--no-reorder``
+     - Boolean
+     - False
+     - ``--no-reorder``
+     - Indicator to re-order single effects based on Frobenius norm of alpha-weighted posterior mean square. Default is False (to re-order). Specify --no-reorder will store 'True' value.
    * - ``--meta``
      - Boolean
      - False

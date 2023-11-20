@@ -131,7 +131,8 @@ def read_data(
                 )
             else:
                 covar = None
-        # it has some warnings. It's okay to ingore them.
+
+        # it has some pycharm warnings. It's okay to ingore them.
         # I couldn't think of a way to remove these warnings other than pre-specify them before for loops
         # but the codes will look silly
         tmp_bim = bim
@@ -372,11 +373,24 @@ def output_weights(
         tmp_weights[cname_pip_all] = result[idx].pip_all
         tmp_weights[cname_pip_cs] = result[idx].pip_cs
         weights = pd.concat([weights, tmp_weights], axis=1)
+
+        df_cs = (
+            result[idx]
+            .cs[["SNPIndex", "CSIndex"]]
+            .groupby("SNPIndex")["CSIndex"]
+            .agg(lambda x: ",".join(x.astype(str)))
+            .reset_index()
+        )
+
+        # although for super rare cases, we have the same snp in more credible sets
+        # to record this situation in the weights file (we introduce WARNING in the inference function),
+        # we just concatenate the CS index with comma by creating this tmp_cs pandas data frame
         tmp_cs = (
             weights[["SNPIndex"]]
-            .merge(result[idx].cs[["SNPIndex", "CSIndex"]], on="SNPIndex", how="left")
-            .fillna(0)
+            .merge(df_cs, on="SNPIndex", how="left")
+            .fillna("No CS")
         )
+
         weights = weights.merge(
             tmp_cs.rename(columns={"CSIndex": cname_cs}), on="SNPIndex"
         )
