@@ -416,7 +416,7 @@ Parameters
    * - ``--cv-num``
      - Integer
      - 5
-     - ``--cv_num 6``
+     - ``--cv-num 6``
      - The number of fold cross validation. It has to be a positive integer number. Larger number may cause longer running time.
    * - ``--seed``
      - Integer
