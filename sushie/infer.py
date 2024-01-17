@@ -312,13 +312,12 @@ def infer_sushie(
     if min_snps < L:
         raise ValueError(
             f"The number of minimum common SNPs across ancestries ({min_snps}) is less than inferred L ({L})."
-            + "Please choose a smaller L or increase the minimum threshold for SNPs to fine-map with --min-snps."
         )
 
     if n_snps < min_snps:
         raise ValueError(
             f"The number of common SNPs across ancestries ({n_snps}) is less than minimum common "
-            + "number of SNPs specified. Please expand the genomic window."
+            + "number of SNPs specified."
         )
 
     param_effect_var = effect_var

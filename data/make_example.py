@@ -1,0 +1,132 @@
+import pandas as pd
+from pandas_plink import read_plink
+
+import jax.numpy as jnp
+from jax import random
+
+# set key
+rng_key = random.PRNGKey(1234)
+
+
+# flip allele if necessary
+def _allele_check(baseA0, baseA1, compareA0, compareA1):
+    correct = jnp.array(
+        ((baseA0 == compareA0) * 1) * ((baseA1 == compareA1) * 1), dtype=int
+    )
+    flipped = jnp.array(
+        ((baseA0 == compareA1) * 1) * ((baseA1 == compareA0) * 1), dtype=int
+    )
+    correct_idx = jnp.where(correct == 1)[0]
+    flipped_idx = jnp.where(flipped == 1)[0]
+    wrong_idx = jnp.where((correct + flipped) == 0)[0]
+
+    return correct_idx, flipped_idx, wrong_idx
+
+
+# read plink1.9 triplet
+n_pop = 3
+pop = ["EUR", "AFR", "EAS"]
+bim = []
+fam = []
+bed = []
+# create ancestry index
+fam_index = []
+
+for idx in range(n_pop):
+    tmp_bim, tmp_fam, tmp_bed = read_plink(f"./plink/{pop[idx]}", verbose=False)
+    tmp_bim = tmp_bim[["chrom", "snp", "a0", "a1", "i"]].rename(
+        columns={"i": f"bimIDX_{idx}", "a0": f"a0_{idx}", "a1": f"a1_{idx}"}
+    )
+    bim.append(tmp_bim)
+    fam.append(tmp_fam)
+    bed.append(tmp_bed)
+    new_fam = tmp_fam[["iid"]].copy()
+    new_fam["index"] = idx + 1
+    fam_index.append(new_fam)
+
+snps = pd.merge(bim[0], bim[1], how="inner", on=["chrom", "snp"])
+snps = pd.merge(snps, bim[2], how="inner", on=["chrom", "snp"])
+
+flip_idx = []
+if n_pop > 1:
+    for idx in range(1, n_pop):
+        # keep track of miss match alleles
+        correct_idx, tmp_flip_idx, tmp_wrong_idx = _allele_check(
+            snps["a0_0"].values,
+            snps["a1_0"].values,
+            snps[f"a0_{idx}"].values,
+            snps[f"a1_{idx}"].values,
+        )
+        flip_idx.append(tmp_flip_idx)
+        snps = snps.drop(index=tmp_wrong_idx)
+        snps = snps.drop(columns=[f"a0_{idx}", f"a1_{idx}"])
+    snps = snps.rename(columns={"a0_0": "a0", "a1_0": "a1"})
+
+for idx in range(n_pop):
+    bed[idx] = bed[idx][snps[f"bimIDX_{idx}"].values, :].compute()
+    # flip the mismatched allele
+    if idx > 0:
+        bed[idx][flip_idx[idx - 1]] = 2 - bed[idx][flip_idx[idx - 1]]
+
+# we assume there exists 2 causal snps, and the heritability is 0.5 (we make it large as demonstrating purpose)
+# we also assume the qtl effect size correlations are 0.8 for all ancestry pairs
+# as a result, the per-snp variance is 0.5/2, and the covariance is 0.8*jnp.sqrt((0.5/2)**2) = 0.2
+b_covar = jnp.array([[0.25, 0.2, 0.2], [0.2, 0.25, 0.2], [0.2, 0.2, 0.25]])
+L = 2
+
+bvec = random.multivariate_normal(rng_key, jnp.zeros((n_pop,)), b_covar, shape=(L,))
+
+# make the first and the fifth snp as causal
+gamma = jnp.array([0, 4])
+print(
+    snps.iloc[
+        gamma,
+    ]
+)
+#   chrom        snp a0 a1  bimIDX_0  bimIDX_1  bimIDX_2
+# 0     1  rs2294190  T  G         0         0         0
+# 4     1  rs2038008  C  A         4         4         4
+
+all_pheno = []
+all_covar = []
+for idx in range(n_pop):
+    sel_index = snps.iloc[
+        gamma,
+    ][f"bimIDX_{idx}"]
+    tmp_pheno = fam[idx][["iid"]].copy()
+    # make some random noises
+    rng_key, y_key, sex_key, other_key = random.split(rng_key, 4)
+    tmp_bed = bed[idx].T[:, sel_index]
+    tmp_bed = tmp_bed - jnp.mean(tmp_bed, axis=0)
+    tmp_bed = tmp_bed / jnp.std(tmp_bed, axis=0)
+    tmp_g = tmp_bed @ bvec.T[idx]
+    tmp_s2g = jnp.var(tmp_g)
+    tmp_s2e = ((1 / 0.5) - 1) * tmp_s2g
+    tmp_y = tmp_g + jnp.sqrt(tmp_s2e) * random.normal(
+        y_key, shape=(tmp_pheno.shape[0],)
+    )
+    tmp_pheno["pheno"] = tmp_y
+    tmp_pheno.to_csv(f"./{pop[idx]}.pheno", index=False, header=None, sep="\t")
+    all_pheno.append(tmp_pheno)
+
+    # make some random covariates
+    tmp_covar = fam[idx][["iid"]].copy()
+    covar_sex = 1 * (random.bernoulli(sex_key, p=0.5, shape=(tmp_covar.shape[0],)))
+    covar_other = random.normal(other_key, shape=(tmp_covar.shape[0],))
+    tmp_covar["sex"] = covar_sex
+    tmp_covar["other"] = covar_other
+    all_covar.append(tmp_covar)
+    tmp_covar.to_csv(f"./{pop[idx]}.covar", index=False, header=None, sep="\t")
+
+pd.concat(all_pheno).to_csv("./all.pheno", index=False, header=None, sep="\t")
+pd.concat(all_covar).to_csv("./all.covar", index=False, header=None, sep="\t")
+pd.concat(fam_index).to_csv("./all.ancestry.index", index=False, header=None, sep="\t")
+
+# create keep.subject file, randomly 1500 from 1609 individuals
+rng_key, pt_key = random.split(rng_key, 2)
+sel_pt = random.randint(
+    pt_key, shape=(1500,), minval=0, maxval=pd.concat(fam_index).shape[0] - 1
+)
+pd.concat(fam_index)[["iid"]].iloc[sel_pt, :].to_csv(
+    "./keep.subject", index=False, header=None, sep="\t"
+)
