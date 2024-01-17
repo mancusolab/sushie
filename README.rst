@@ -42,7 +42,7 @@
 ========
 SuShiE🍣
 ========
-SuShiE (Sum of SHared sIngle Effect) is a Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation for molecular data (e.g., mRNA levels and protein levels etc.) across multiple ancestries. **The manuscript is in progress.**
+SuShiE (Sum of Shared Single Effect) is a Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation for molecular data (e.g., mRNA levels and protein levels etc.) across multiple ancestries. **The manuscript is in progress.**
 
 .. code:: diff
 

@@ -58,7 +58,7 @@ We provide example data in ``./data/`` folder to test out SuShiE. All the data a
 
 The genotype is the high-quality `HapMap <https://www.genome.gov/10001688/international-hapmap-project>`_ SNPs in some random gene 1M base-pair window, which contains 123, 129, and 113 SNPs for EUR, AFR, and EAS respectively in `1000G <https://www.internationalgenome.org/>`_ project. We provide genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, and `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
 
-Using ``./data/make_example.py``, we simulated phenotype data (cis-SNP heritability:0.5 and effect size correlation 0.8), random covariate data for each ancestry. It also outputs ``all.pheno`` file that row-binds simulated phenotype across ancestries, ``all.ancestry.index`` file that specifies ancestry index if using ``all.pheno``, ``all.covar``, and ``.\plink\all`` triplets, ``keep.subject`` file that specifies subjects to be included in the inference.
+Using ``./data/make_example.py``, we simulated phenotype data (2 causal QTLs, cis-SNP heritability:0.5 and effect size correlation 0.8), random covariate data for each ancestry. It also outputs ``all.pheno`` file that row-binds simulated phenotype across ancestries, ``all.ancestry.index`` file that specifies ancestry index if using ``all.pheno``, ``all.covar``, and ``.\plink\all`` triplets, ``keep.subject`` file that specifies subjects to be included in the inference.
 
 As for the format requirement, see :ref:`Param` for detailed explanations.
 
@@ -189,7 +189,7 @@ Fine-mapping inference sometimes can be sensitive to whether scaling the phenoty
 8. I have my own initial values for the hyperparameters
 -------------------------------------------------------
 
-SuShiE has three hyperparameters (:ref:`Model`): the residual variance (:math:`\sigma^2_e`) prior, the QTL effect size variance (:math:`\sigma^2_{i,b}`) prior, and the ancestral effect size correlation (:math:`\rho`) prior. SuShiE by default initializes them as ``0.001``, ``0.001``, and ``0.8``. If users have their own initial values, simply specify them with ``--resid_var``, ``--effect_var``, and ``--rho``. Make sure the ancestry order has to match the phenotype file order.
+SuShiE has three hyperparameters (:ref:`Model`): the residual variance (:math:`\sigma^2_e`) prior, the QTL effect size variance (:math:`\sigma^2_{i,b}`) prior, and the ancestral effect size correlation (:math:`\rho`) prior. SuShiE by default initializes them as ``0.001``, ``0.001``, and ``0.8``. If users have their own initial values, simply specify them with ``--resid-var``, ``--effect-var``, and ``--rho``. Make sure the ancestry order has to match the phenotype file order.
 
 .. code:: bash
 
