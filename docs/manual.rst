@@ -46,7 +46,7 @@ Although we highly recommend users to perform high-quality QC on their own genot
 #. Only keep subjects who have data in all the genotype, phenotype, and covariate data.
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
-#. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf`).
+#. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
 #. For single ancestry SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
 
 See :func:`sushie.cli.process_raw` for these QCs' source codes.
@@ -58,9 +58,7 @@ We provide example data in ``./data/`` folder to test out SuShiE. All the data a
 
 The genotype is the high-quality `HapMap <https://www.genome.gov/10001688/international-hapmap-project>`_ SNPs in some random gene 1M base-pair window, which contains 123, 129, and 113 SNPs for EUR, AFR, and EAS respectively in `1000G <https://www.internationalgenome.org/>`_ project. We provide genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, and `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
 
-We simulate phenotypes using the approach described in our manuscript.
-
-We randomly simulate null phenotype and covariate data only for testing purpose.
+Using ``./data/make_example.py``, we simulated phenotype data (cis-SNP heritability:0.5 and effect size correlation 0.8), random covariate data for each ancestry. It also outputs ``all.pheno`` file that row-binds simulated phenotype across ancestries, ``all.ancestry.index`` file that specifies ancestry index if using ``all.pheno``, ``all.covar``, and ``.\plink\all`` triplets, ``keep.subject`` file that specifies subjects to be included in the inference.
 
 As for the format requirement, see :ref:`Param` for detailed explanations.
 
@@ -85,7 +83,7 @@ In this example, we perform two-ancestry SuShiE with covariates regressed out fr
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --covar EUR.covar.tsv AFR.covar.tsv --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --covar EUR.covar AFR.covar --output ./test_result
 
 
 2. :math:`N`-Ancestry SuShiE
@@ -96,14 +94,14 @@ In the example below, we perform single-ancestry SuShiE, which is equivalently t
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv --vcf vcf/EUR.vcf --covar EUR.covar.tsv --output ~/test_result
+    sushie finemap --pheno EUR.pheno --vcf vcf/EUR.vcf --covar EUR.covar --output ./test_result
 
 Or three-ancestry setting:
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv EAS.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf vcf/EAS.vcf --covar EUR.covar.tsv AFR.covar.tsv EAS.covar.tsv --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno EAS.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf vcf/EAS.vcf --covar EUR.covar AFR.covar EAS.covar --output ./test_result
 
 3. Can I use other formats of genotypes?
 ----------------------------------------
@@ -115,14 +113,14 @@ For plink 1, SuShiE read in the triplet (bed, bim, and fam) prefix.
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --plink plink/EUR plink/AFR --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --plink plink/EUR plink/AFR --output ./test_result
 
 For bgen data, users need to make sure that the latter allele shown up in the ``allele ids`` is the reference allele.
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --bgen bgen/EUR.bgen bgen/AFR.bgen --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --bgen bgen/EUR.bgen bgen/AFR.bgen --output ./test_result
 
 .. _index:
 4. My data contains all the participants and I do not want to separate them
@@ -133,7 +131,7 @@ No problem! If all the subjects are in single phenotype, genotype, and covariate
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno all.pheno.tsv --plink plink/all --ancestry-index all.ancestry.index.tsv --output ~/test_result
+    sushie finemap --pheno all.pheno --plink plink/all --ancestry-index all.ancestry.index --output ./test_result
 
 .. _meta:
 5. How about mega or meta SuShiE?
@@ -151,12 +149,12 @@ We define the mega SuShiE as running single-ancestry SuShiE on genotype and phen
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --meta --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --meta --output ./test_result
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --mega --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --mega --output ./test_result
 
 .. _cv:
 6. Let's estimate heritability, run CV, and make FUSION files!
@@ -173,8 +171,8 @@ With these two information (:math:`h_g^2` and CV), we prepare R codes ``./misc/m
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --cv --her --output ~/test_result
-    Rscript ./misc/make_FUSION.R ~/test_result ~
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --cv --her --output ./test_result
+    Rscript ./misc/make_FUSION.R ./test_result ~
 
 
 7. I don't want to scale my phenotype by its standard deviation
@@ -186,7 +184,7 @@ Fine-mapping inference sometimes can be sensitive to whether scaling the phenoty
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --no-scale --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --no-scale --output ./test_result
 
 8. I have my own initial values for the hyperparameters
 -------------------------------------------------------
@@ -196,14 +194,14 @@ SuShiE has three hyperparameters (:ref:`Model`): the residual variance (:math:`\
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --resid-var 2.2 2.2 --effect-var 1.2 3.4 --rho 0.2 --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --resid-var 2.2 2.2 --effect-var 1.2 3.4 --rho 0.2 --output ./test_result
 
 By default, SuShiE will update :math:`\sigma^2_{i,b}` and :math:`\rho` during the optimization. If users want to disable it, add ``--no-update`` to the command line.
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --resid_var 2.2 2.2 --effect_var 1.2 3.4 --rho 0.2 --no-update --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --resid-var 2.2 2.2 --effect-var 1.2 3.4 --rho 0.2 --no-update --output ./test_result
 
 In addition, with ``--no-update``, if users only specify ``--effect-var`` but not for ``--rho``, ``--effect-var`` will be fixed during the optimizations while ``--rho`` will get updated, vice versa. In other words, if users want to fix both priors, they have to specify both at the same time or specify neither of them (in the latter case, fixing the default values 0.001 and 0.2 as the priors).
 
@@ -215,7 +213,7 @@ SuShiE features that it accounts for ancestral quantitative trait loci (QTL) eff
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --no-update --rho 0 --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --no-update --rho 0 --output ./test_result
 
 10. I want to improvise in post-hoc analysis
 -------------------------------------------
@@ -227,7 +225,7 @@ The ``*.npy`` files include SNP information, prior estimators, posterior estimat
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --numpy --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --numpy --output ./test_result
 
 
 11. I seek to use GPU or TPU to make inference faster
@@ -238,7 +236,7 @@ SuShiE software uses `JAX <https://github.com/google/jax>`_ with `Just In Time  
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --platform gpu --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --platform gpu --output ./test_result
 
 12. I want to use 32-bit precision
 ----------------------------------
@@ -250,7 +248,7 @@ Unless necessarily needed, we do not recommend to use 32-bit precision as it may
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --precision 32 --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --precision 32 --output ./test_result
 
 13. I want to run fine-mapping on certain subjects
 --------------------------------------------------
@@ -260,7 +258,7 @@ Users can use ``--keep`` command to specify a file that contains the subject IDs
 .. code:: bash
 
     cd ./data/
-    sushie finemap --pheno EUR.pheno.tsv AFR.pheno.tsv --vcf vcf/EUR.vcf vcf/AFR.vcf --keep keep.subject.tsv --output ~/test_result
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --keep keep.subject --output ./test_result
 
 .. _Param:
 
@@ -278,7 +276,7 @@ Parameters
    * - ``--pheno``
      - String
      - Required, no default
-     - ``--pheno EUR.pheno.tsv AFR.pheno.tsv``
+     - ``--pheno EUR.pheno AFR.pheno``
      - Phenotype data. It has to be a tsv file that contains at least two columns where the first column is subject ID and the second column is the continuous phenotypic value. It can be a compressed file (e.g., tsv.gz). It is okay to have additional columns, but only the first two columns will be used. **No headers**. Use ``space`` to separate ancestries if more than two. SuShiE currently only fine-maps on **continuous** data.
    * - ``--plink``
      - String
@@ -298,17 +296,17 @@ Parameters
    * - ``--ancestry-index``
      - String
      - None
-     - ``--ancestry-index all.ancestry.index.tsv``
+     - ``--ancestry-index all.ancestry.index``
      - Single file that contains subject ID and their ancestry index. Default is None. It has to be a tsv file that contains at least two columns where the first column is the subject ID and the second column is the ancestry index starting from 1 (e.g., 1, 2, 3 etc.). It can be a compressed file (e.g., tsv.gz). Only the first two columns will be used. No headers. If this file is specified, it assumes that all the phenotypes across ancestries are in one single file, and same thing for genotypes and covariates data. It will produce errors if multiple phenotype, genotype, and covariates are specified.
    * - ``--keep``
      - String
      - None
-     - ``--keep keep.subject.tsv``
+     - ``--keep keep.subject``
      - Single file that contains subject ID across all ancestries that are used for fine-mapping. It has to be a tsv file that contains at least one columns where the first column is the subject ID. It can be a compressed file (e.g., tsv.gz). No headers. If this file is specified, all phenotype, genotype, and covariates data will be filtered down to the subjects listed in it.
    * - ``--covar``
      - String
      - None
-     - ``--covar EUR.covar.tsv AFR.covar.tsv``
+     - ``--covar EUR.covar AFR.covar``
      - Covariates that will be accounted in the fine-mapping. It has to be a tsv file that contains at least two columns where the first column is the subject ID. It can be a compressed file (e.g., tsv.gz). **No headers**. All the columns will be counted. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's. Pre-converting the categorical covariates into dummy variables is required. If the categorical covariate has ``n`` levels, make sure the dummy variables have ``n-1`` columns.
    * - ``--L``
      - Integer
@@ -358,7 +356,7 @@ Parameters
    * - ``--min-tol``
      - Float
      - 1e-3
-     - ``--min_tol 1e-4``
+     - ``--min-tol 1e-4``
      - Minimum tolerance for the convergence. Smaller number may slow the inference while larger may cause different inference.
    * - ``--threshold``
      - Float
@@ -418,7 +416,7 @@ Parameters
    * - ``--cv-num``
      - Integer
      - 5
-     - ``--cv_num 6``
+     - ``--cv-num 6``
      - The number of fold cross validation. It has to be a positive integer number. Larger number may cause longer running time.
    * - ``--seed``
      - Integer
