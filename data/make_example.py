@@ -63,6 +63,7 @@ if n_pop > 1:
     snps = snps.rename(columns={"a0_0": "a0", "a1_0": "a1"})
 
 for idx in range(n_pop):
+    # subset genotype file to common snps
     bed[idx] = bed[idx][snps[f"bimIDX_{idx}"].values, :].compute()
     # flip the mismatched allele
     if idx > 0:
@@ -76,27 +77,26 @@ L = 2
 
 bvec = random.multivariate_normal(rng_key, jnp.zeros((n_pop,)), b_covar, shape=(L,))
 
-# make the first and the fifth snp as causal
-gamma = jnp.array([0, 4])
+# random select 2 snps as causal
+rng_key, gamma_key = random.split(rng_key, 2)
+gamma = random.choice(gamma_key, snps.shape[0], shape=(L,), replace=False)
+
 print(
     snps.iloc[
         gamma,
-    ]
+    ][["chrom", "snp", "a0", "a1"]]
 )
-#   chrom        snp a0 a1  bimIDX_0  bimIDX_1  bimIDX_2
-# 0     1  rs2294190  T  G         0         0         0
-# 4     1  rs2038008  C  A         4         4         4
+#    chrom         snp a0 a1
+# 31     1  rs10914958  G  A
+# 72     1   rs1886340  G  A
 
 all_pheno = []
 all_covar = []
 for idx in range(n_pop):
-    sel_index = snps.iloc[
-        gamma,
-    ][f"bimIDX_{idx}"]
     tmp_pheno = fam[idx][["iid"]].copy()
     # make some random noises
     rng_key, y_key, sex_key, other_key = random.split(rng_key, 4)
-    tmp_bed = bed[idx].T[:, sel_index]
+    tmp_bed = bed[idx].T[:, gamma]
     tmp_bed = tmp_bed - jnp.mean(tmp_bed, axis=0)
     tmp_bed = tmp_bed / jnp.std(tmp_bed, axis=0)
     tmp_g = tmp_bed @ bvec.T[idx]
