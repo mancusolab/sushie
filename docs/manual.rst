@@ -58,7 +58,7 @@ We provide example data in ``./data/`` folder to test out SuShiE. All the data a
 
 The genotype is the high-quality `HapMap <https://www.genome.gov/10001688/international-hapmap-project>`_ SNPs in some random gene 1M base-pair window, which contains 123, 129, and 113 SNPs for EUR, AFR, and EAS respectively in `1000G <https://www.internationalgenome.org/>`_ project. We provide genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, and `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
 
-Using ``./data/make_example.py``, we simulated phenotype data (2 causal QTLs, cis-SNP heritability:0.5 and effect size correlation 0.8), random covariate data for each ancestry. It also outputs ``all.pheno`` file that row-binds simulated phenotype across ancestries, ``all.ancestry.index`` file that specifies ancestry index if using ``all.pheno``, ``all.covar``, and ``.\plink\all`` triplets, ``keep.subject`` file that specifies subjects to be included in the inference.
+Using ``./data/make_example.py``, we simulated phenotype data (2 causal QTLs, cis-SNP heritability: 0.5 and effect size correlation 0.8), random covariate data for each ancestry. The two QTL rsID are rs1886340 and rs10914958. It also outputs ``all.pheno`` file that row-binds simulated phenotype across ancestries, ``all.ancestry.index`` file that specifies ancestry index if using ``all.pheno``, ``all.covar``, and ``.\plink\all`` triplets, ``keep.subject`` file that specifies subjects to be included in the inference.
 
 As for the format requirement, see :ref:`Param` for detailed explanations.
 
