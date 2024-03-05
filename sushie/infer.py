@@ -98,8 +98,7 @@ class _AbstractOptFunc(eqx.Module, metaclass=ABCMeta):
     @abstractmethod
     def __call__(
         self,
-        beta_hat: ArrayLike,
-        shat2: ArrayLike,
+        rTZDinv: ArrayLike,
         inv_shat2: ArrayLike,
         priors: Prior,
         posteriors: Posterior,
@@ -122,17 +121,14 @@ class _LResult(NamedTuple):
 class _EMOptFunc(_AbstractOptFunc):
     def __call__(
         self,
-        beta_hat: ArrayLike,
-        shat2: ArrayLike,
+        rTZDinv: ArrayLike,
         inv_shat2: ArrayLike,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
         l_iter: int,
     ) -> Prior:
-        priors, _ = _compute_posterior(
-            beta_hat, shat2, inv_shat2, priors, posteriors, l_iter
-        )
+        priors, _ = _compute_posterior(rTZDinv, inv_shat2, priors, posteriors, l_iter)
 
         return priors
 
@@ -140,17 +136,14 @@ class _EMOptFunc(_AbstractOptFunc):
 class _NoopOptFunc(_AbstractOptFunc):
     def __call__(
         self,
-        beta_hat: ArrayLike,
-        shat2: ArrayLike,
+        rTZDinv: ArrayLike,
         inv_shat2: ArrayLike,
         priors: Prior,
         posteriors: Posterior,
         prior_adjustor: _PriorAdjustor,
         l_iter: int,
     ) -> Prior:
-        priors, _ = _compute_posterior(
-            beta_hat, shat2, inv_shat2, priors, posteriors, l_iter
-        )
+        priors, _ = _compute_posterior(rTZDinv, inv_shat2, priors, posteriors, l_iter)
         priors = priors._replace(
             effect_covar=priors.effect_covar.at[l_iter].set(
                 priors.effect_covar[l_iter] * prior_adjustor.times + prior_adjustor.plus
@@ -623,33 +616,29 @@ def _ssr(
     shat2 = jnp.eye(n_pop) * shat2[:, jnp.newaxis]
     inv_shat2 = jnp.eye(n_pop) * inv_shat2[:, jnp.newaxis]
 
-    priors = opt_v_func(
-        beta_hat, shat2, inv_shat2, priors, posteriors, prior_adjustor, l_iter
-    )
+    rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
-    _, posteriors = _compute_posterior(
-        beta_hat, shat2, inv_shat2, priors, posteriors, l_iter
-    )
+    priors = opt_v_func(rTZDinv, inv_shat2, priors, posteriors, prior_adjustor, l_iter)
+
+    _, posteriors = _compute_posterior(rTZDinv, inv_shat2, priors, posteriors, l_iter)
 
     return priors, posteriors
 
 
 def _compute_posterior(
-    beta_hat: ArrayLike,
-    shat2: ArrayLike,
+    rTZDinv: ArrayLike,
     inv_shat2: ArrayLike,
     priors: Prior,
     posteriors: Posterior,
     l_iter: int,
 ) -> Tuple[Prior, Posterior]:
-    n_snps, n_pop = beta_hat.shape
+    n_snps, n_pop, _ = inv_shat2.shape
 
     # prior_covar is kxk
     prior_covar = priors.effect_covar[l_iter]
     # post_covar is pxkxk
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
     # pxk
-    rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
     # dim m = dim k for the next two lines
     post_mean = jnp.einsum("pkm,pm->pk", post_covar, rTZDinv)
