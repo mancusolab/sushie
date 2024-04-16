@@ -263,11 +263,11 @@ SuShiE by default outputs a ``*.corr.tsv`` file that contains the estimated effe
      - Float
      - 1.34
      - The inferred effect size variance (the posterior estimate for :math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestry 1. It depends on the number of ancestry. One estimate for each credible set.
-   * - ancestry1_est_covar
+   * - ancestry1_ancestry2_est_covar
      - Float
      - 2.56
      - The inferred effect size covariance between ancestry 1 and ancestry 2. It depends on the number of pairs of ancestries. One estimate for each credible set.
-   * - ancestry1_est_corr
+   * - ancestry1_ancestry2_est_corr
      - Float
      - 0.8
      - The inferred effect size correlation (the posterior estimate for :math:`\rho` in :ref:`Model`) between ancestry 1 and ancestry 2. It depends on the number of pairs of ancestries. One estimate for each credible set.
