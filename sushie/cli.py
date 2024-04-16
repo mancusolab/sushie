@@ -256,7 +256,7 @@ def _prepare_cv(
         train_pheno = []
         valid_geno = []
         valid_pheno = []
-        train_index = jnp.delete(jnp.arange(5), cv).tolist()
+        train_index = jnp.delete(jnp.arange(cv_num), cv).tolist()
 
         # make the training and test for each population separately
         # because sample size may be different
@@ -1111,7 +1111,7 @@ def build_finemap_parser(subp):
         default=None,
         help=(
             "Genotype data in vcf format. Use 'space' to separate ancestries if more than two.",
-            " Keep the same ancestry order as phenotype's.",
+            " Keep the same ancestry order as phenotype's. The software will count RFE allele.",
         ),
     )
 

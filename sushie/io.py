@@ -198,7 +198,7 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     """Read in genotype data in `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_ format.
 
     Args:
-        path: The path for vcf genotype data (full file name).
+        path: The path for vcf genotype data (full file name). It will count REF allele.
 
     Returns:
         :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array]`: A tuple of

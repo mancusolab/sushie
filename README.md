@@ -20,7 +20,7 @@ documentation.
   [**Installation**](#installation)
   | [**Example**](#get-started-with-example)
   | [**Notes**](#notes)
-  | [**Version History**](#version)
+  | [**Version History**](#version-history)
   | [**Support**](#support)
   | [**Other Software**](#other-software)
 
