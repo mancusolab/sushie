@@ -8,7 +8,7 @@
 SuShiE (Sum of Shared Single Effect) is a Python software to fine-map
 causal SNPs, compute prediction weights, and infer effect size
 correlation for molecular data (e.g., mRNA levels and protein levels
-etc.) across multiple ancestries. **The manuscript is in progress.**
+etc.) across multiple ancestries. **Check out our preprint at https://doi.org/10.1101/2024.04.15.24305836**.
 
 ``` diff
 - We detest usage of our software or scientific outcome to promote racial discrimination.
@@ -86,7 +86,7 @@ You can play it with your own ideas!
 -   SuShiE currently only supports **continuous** phenotype
     fine-mapping.
 -   SuShiE currently only supports fine-mapping on
-    [autosomes](https://en.wikipedia.org/wiki/Autosome).
+    [autosomes]~~(https://en.wikipedia.org/wiki/Autosome)~~.
 -   SuShiE uses [JAX](https://github.com/google/jax) with [Just In
     Time](https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html)
     compilation to achieve high-speed computation. However, there are
