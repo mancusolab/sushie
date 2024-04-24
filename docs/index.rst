@@ -2,20 +2,15 @@
 SuShiE🍣
 ========
 
-SuShiE (Sum of Shared Single Effect) is a Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation for molecular data (e.g., mRNA levels and protein levels etc.) across multiple ancestries. **The manuscript is in progress.**
+SuShiE (Sum of Shared Single Effect) is a Python software to fine-map causal SNPs, compute prediction weights, and infer effect size correlation for molecular data (e.g., mRNA levels and protein levels etc.) across multiple ancestries.
 
-.. code:: diff
-
-    - We detest usage of our software or scientific outcome to promote racial discrimination.
-
+**We detest usage of our software or scientific outcome to promote racial discrimination.**
 
 SuShiE is described in
 
-.. code::
+**Improved multi-ancestry fine-mapping identifies cis-regulatory variants underlying molecular traits and disease risk** `medRxiv <https://www.medrxiv.org/content/10.1101/2024.04.15.24305836v1>`_
 
-    `Improved multi-ancestry fine-mapping identifies cis-regulatory variants underlying molecular traits and disease risk <https://www.medrxiv.org/content/10.1101/2024.04.15.24305836v1>`_
-
-    Zeyun Lu, Xinran Wang, Matthew Carr, Artem Kim, Steven Gazal, Pejman Mohammadi, Lang Wu, Alexander Gusev, James Pirruccello, Linda Kachuri, Nicholas Mancuso
+*Zeyun Lu, Xinran Wang, Matthew Carr, Artem Kim, Steven Gazal, Pejman Mohammadi, Lang Wu, Alexander Gusev, James Pirruccello, Linda Kachuri, Nicholas Mancuso*
 
 Contents
 ========
