@@ -1101,6 +1101,7 @@ def build_finemap_parser(subp):
             " Use 'space' to separate ancestries if more than two.",
             " Keep the same ancestry order as phenotype's.",
             " SuShiE currently does not take plink 2 format.",
+            " Data has to only contain bialleic variant.",
         ),
     )
 
@@ -1112,6 +1113,8 @@ def build_finemap_parser(subp):
         help=(
             "Genotype data in vcf format. Use 'space' to separate ancestries if more than two.",
             " Keep the same ancestry order as phenotype's. The software will count RFE allele.",
+            " If gt_types is UNKNOWN, it will be coded as NA, and be imputed by allele frequency.",
+            " Data has to only contain bialleic variant.",
         ),
     )
 
@@ -1123,6 +1126,7 @@ def build_finemap_parser(subp):
         help=(
             "Genotype data in bgen 1.3 format. Use 'space' to separate ancestries if more than two.",
             " Keep the same ancestry order as phenotype's.",
+            " Data has to only contain bialleic variant.",
         ),
     )
 

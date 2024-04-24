@@ -174,6 +174,7 @@ def read_data(
 
 def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     """Read in genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format.
+        `pandas_plink <https://pandas-plink.readthedocs.io/>`_ package is used to read in the plink file.
 
     Args:
         path: The path for plink genotype data (suffix only).
@@ -196,6 +197,8 @@ def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
 
 def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     """Read in genotype data in `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_ format.
+        `cyvcf2 <https://brentp.github.io/cyvcf2/>`_ package is used to read in the vcf file.
+        gt_types are used to determine the genotype matrix. It it is UNKNOWN, it will be coded as NA.
 
     Args:
         path: The path for vcf genotype data (full file name). It will count REF allele.
@@ -215,6 +218,7 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     for var in vcf:
         # var.ALT is a list of alternative allele
         bim_list.append([var.CHROM, var.ID, var.POS, var.ALT[0], var.REF])
+        var.gt_types = jnp.where(var.gt_types == 3, jnp.nan, var.gt_types)
         tmp_bed = 2 - var.gt_types
         bed_list.append(tmp_bed)
 
@@ -226,6 +230,7 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
 
 def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     """Read in genotype data in `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
+     `bgen-reader <https://pypi.org/project/bgen-reader/>`_ package is used to read in the bgen file.
 
     Args:
         path: The path for bgen genotype data (full file name).
