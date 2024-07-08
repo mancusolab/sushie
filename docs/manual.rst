@@ -47,7 +47,8 @@ Although we highly recommend users to perform high-quality QC on their own genot
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
 #. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
-#. For single ancestry SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
+# Users also have an option to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--remove-ambiguous`` (Default is NOT to remove them).
+#. For single ancestry SuSiE or Mega-SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
 
 See :func:`sushie.cli.process_raw` for these QCs' source codes.
 
@@ -260,6 +261,16 @@ Users can use ``--keep`` command to specify a file that contains the subject IDs
     cd ./data/
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --keep keep.subject --output ./test_result
 
+14. I want to assign the prior weights for each SNP
+--------------------------------------------------
+
+Users can use ``--pi`` command to specify a tsv file that contains the SNP ID and their prior weights. The weights will be normalized to sum to 1 before inference.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --pi prior_weights --output ./test_result
+
 .. _Param:
 
 Parameters
@@ -314,10 +325,10 @@ Parameters
      - ``--L 5``
      - Integer number of shared effects pre-specified. Larger number may cause slow inference.
    * - ``--pi``
-     - Float
-     - 1/p
-     - ``--pi 0.1``
-     - Prior probability for each SNP to be causal (:math:`\pi` in :ref:`Model`). Default is ``1/p`` where ``p`` is the number of SNPs in the region. It is the fixed across all ancestries.
+     - str
+     - "uniform"
+     - ``--pi ./prior_weights``
+     - Prior probability for each SNP to be causal (:math:`\pi` in :ref:`Model`). Default is uniform (i.e., ``1/p`` where ``p`` is the number of SNPs in the region. It is the fixed across all ancestries. Alternatively, users can specify the file path that contains the prior weights for each SNP. The weights have to be positive value. The weights will be normalized to sum to 1 before inference. The file has to be a tsv file that contains two columns where the first column is the SNP ID and the second column is the prior weights. Additional columns will be ignored. For SNPs do not have prior weights in the file, it will be assigned the average value of the rest. It can be a compressed file (e.g., tsv.gz). No headers.
    * - ``--resid-var``
      - Float
      - 1e-3
@@ -393,6 +404,11 @@ Parameters
      - False
      - ``--no-reorder``
      - Indicator to re-order single effects based on Frobenius norm of alpha-weighted posterior mean square. Default is False (to re-order). Specify --no-reorder will store 'True' value.
+   * - ``--remove-ambiguous``
+     - Boolean
+     - False
+     - ``--remove-ambiguous``
+     - Indicator to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) from the genotypes. Recommend to remove these SNPs if each ancestry data is from different studies. Default is False (do not remove). Specify --remove-ambiguous will store 'True' value.
    * - ``--meta``
      - Boolean
      - False

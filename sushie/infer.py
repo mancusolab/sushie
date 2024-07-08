@@ -160,7 +160,7 @@ def infer_sushie(
     no_scale: bool = False,
     no_regress: bool = False,
     no_update: bool = False,
-    pi: Array = None,
+    pi: ArrayLike = None,
     resid_var: utils.ListFloatOrNone = None,
     effect_var: utils.ListFloatOrNone = None,
     rho: utils.ListFloatOrNone = None,
@@ -262,10 +262,22 @@ def infer_sushie(
             "The maximum selected number of SNPs is too small thus may miss true positives. Choose a positive integer."
         )
 
-    if pi is not None and (pi >= 1 or pi <= 0):
-        raise ValueError(
-            f"Pi prior ({pi}) is not a probability (0-1). Specify a valid pi prior."
-        )
+    if pi is not None:
+        if not (pi > 0).all():
+            raise ValueError(
+                "Prior probability/weights contain negative value. Specify a valid pi prior."
+            )
+
+        if pi.shape[0] != Xs[0].shape[1]:
+            raise ValueError(
+                f"Prior probability/weights ({pi.shape[0]}) does not match the number of SNPs ({Xs[0].shape[1]})."
+            )
+
+        if jnp.sum(pi) > 1:
+            log.logger.debug(
+                "Prior probability/weights sum to more than 1. Will normalize to sum to 1."
+            )
+            pi = float(pi / jnp.sum(pi))
 
     # first regress out covariates if there are any, then scale the genotype and phenotype
     if covar is not None:
@@ -457,11 +469,11 @@ def infer_sushie(
         )
         elbo_last = elbo_tracker[o_iter]
         elbo_tracker = jnp.append(elbo_tracker, elbo_cur)
-        elbo_increase = elbo_cur < elbo_last and (
-            not jnp.isclose(elbo_cur, elbo_last, atol=1e-8)
+        elbo_increase = not (
+            elbo_cur < elbo_last and (not jnp.isclose(elbo_cur, elbo_last, atol=1e-8))
         )
 
-        if elbo_increase or jnp.isnan(elbo_cur):
+        if (not elbo_increase) or jnp.isnan(elbo_cur):
             log.logger.warning(
                 f"Optimization concludes after {o_iter + 1} iterations."
                 + f" ELBO decreases. Final ELBO score: {elbo_cur}. Return last iteration's results."
@@ -471,7 +483,6 @@ def infer_sushie(
             )
             priors = prev_priors
             posteriors = prev_posteriors
-            elbo_increase = False
             break
 
         decimal_digit = len(str(min_tol)) - str(min_tol).find(".") - 1

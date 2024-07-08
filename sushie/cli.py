@@ -63,11 +63,11 @@ def _keep_file_subjects(
     old_pheno_num = pheno.shape[0]
 
     bed = bed[fam.iid.isin(keep_subject).values, :]
-    fam = fam.loc[fam.iid.isin(keep_subject)]
-    pheno = pheno.loc[pheno.iid.isin(keep_subject)]
+    fam = fam.loc[fam.iid.isin(keep_subject)].reset_index(drop=True)
+    pheno = pheno.loc[pheno.iid.isin(keep_subject)].reset_index(drop=True)
 
     if covar is not None:
-        covar = covar.loc[covar.iid.isin(keep_subject)]
+        covar = covar.loc[covar.iid.isin(keep_subject)].reset_index(drop=True)
 
     del_fam_num = old_fam_num - fam.shape[0]
     del_pheno_num = old_pheno_num - pheno.shape[0]
@@ -95,19 +95,45 @@ def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
         )
         del_idx = jnp.logical_or(del_idx, covar_del)
 
-    (drop_idx,) = jnp.where(del_idx)
-    fam = fam.drop(drop_idx)
-    pheno = pheno.drop(drop_idx)
-    bed = jnp.delete(bed, drop_idx, 0)
+    (drop_idx_name,) = jnp.where(del_idx)
+
+    # ambiguous_idx is the positional index, but drop use the index label, so we need to convert it
+    fam_drop_idx = fam.index[drop_idx_name]
+    pheno_drop_idx = pheno.index[drop_idx_name]
+
+    fam = fam.drop(fam_drop_idx).reset_index(drop=True)
+    pheno = pheno.drop(pheno_drop_idx).reset_index(drop=True)
+    bed = jnp.delete(bed, drop_idx_name, 0)
 
     if covar is not None:
-        covar = covar.drop(drop_idx)
+        covar_drop_idx = pheno.index[drop_idx_name]
+        covar = covar.drop(covar_drop_idx).reset_index(drop=True)
 
     rawData = rawData._replace(
         fam=fam,
         pheno=pheno,
         bed=bed,
         covar=covar,
+    )
+
+    return rawData, len(drop_idx_name)
+
+
+def _remove_ambiguous_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
+    bim, _, bed, _, _ = rawData
+
+    ambiguous_snps = ["AT", "TA", "CG", "GC"]
+    ambiguous_idx = jnp.where((bim.A0.values + bim.A1.values).isin(ambiguous_snps))[0]
+
+    # ambiguous_idx is the positional index, but drop use the index label, so we need to convert it
+    drop_idx = bim.index[ambiguous_idx]
+    bim = bim.drop(drop_idx).reset_index(drop=True)
+
+    bed = jnp.delete(bed, ambiguous_idx, 1)
+
+    rawData = rawData._replace(
+        bim=bim,
+        bed=bed,
     )
 
     return rawData, len(drop_idx)
@@ -118,7 +144,10 @@ def _remove_dup_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
 
     (dup_idx,) = jnp.where(bim.snp.duplicated().values)
 
-    bim = bim.drop(dup_idx)
+    # dup_idx is the positional index, but drop use the index label, so we need to convert it
+    dup_idx_name = bim.index[dup_idx]
+
+    bim = bim.drop(dup_idx_name).reset_index(drop=True)
     bed = jnp.delete(bed, dup_idx, 1)
 
     rawData = rawData._replace(
@@ -135,7 +164,10 @@ def _impute_geno(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
     # if we observe SNPs have nan value for all participants (although not likely), drop them
     (del_idx,) = jnp.where(jnp.all(jnp.isnan(bed), axis=0))
 
-    bim = bim.drop(del_idx)
+    # del_idx is the positional index, but drop use the index label, so we need to convert it
+    del_idx_name = bim.index[del_idx]
+
+    bim = bim.drop(del_idx_name).reset_index(drop=True)
     bed = jnp.delete(bed, del_idx, 1)
 
     # if we observe SNPs that partially have nan value, impute them with column mean
@@ -233,7 +265,10 @@ def _allele_check(
 
 
 def _prepare_cv(
-    geno: List[jnp.ndarray], pheno: List[jnp.ndarray], cv_num: int, seed: int
+    geno: List[jnp.ndarray],
+    pheno: List[jnp.ndarray],
+    cv_num: int,
+    seed: int,
 ) -> List[io.CVData]:
     rng_key = random.PRNGKey(seed)
     n_pop = len(geno)
@@ -284,7 +319,7 @@ def _prepare_cv(
     return cv_data
 
 
-def _run_cv(args, cv_data) -> List[List[jnp.ndarray]]:
+def _run_cv(args, cv_data, pi) -> List[List[jnp.ndarray]]:
     n_pop = len(cv_data[0].train_geno)
     # create a list to store future estimated y value
     est_y = [jnp.array([])] * n_pop
@@ -298,7 +333,7 @@ def _run_cv(args, cv_data) -> List[List[jnp.ndarray]]:
             no_scale=args.no_scale,
             no_regress=args.no_regress,
             no_update=args.no_update,
-            pi=args.pi,
+            pi=pi,
             resid_var=args.resid_var,
             effect_var=args.effect_var,
             rho=args.rho,
@@ -330,7 +365,7 @@ def _run_cv(args, cv_data) -> List[List[jnp.ndarray]]:
 
 def parameter_check(
     args,
-) -> Tuple[int, pd.DataFrame, List[str], List[str], Callable]:
+) -> Tuple[int, pd.DataFrame, List[str], pd.DataFrame, List[str], Callable]:
     """The function to process raw phenotype, genotype, covariates data across ancestries.
 
     Args:
@@ -342,6 +377,7 @@ def parameter_check(
                 #. an integer to indicate how many ancestries,
                 #. a DataFrame that contains ancestry index (can be none),
                 #. a list that contains subject ID that fine-mapping performs on.
+                #. a DataFrame that contains prior probability for each SNP to be causal.
                 #. a list of genotype data paths (:py:obj:`List[str]`),
                 #. genotype read-in function (:py:obj:`Callable`).
 
@@ -484,6 +520,32 @@ def parameter_check(
             )
         keep_subject = df_keep[0].values.tolist()
 
+    if args.pi != "uniform":
+        log.logger.info(
+            "Detect file that contains prior weights for each SNP to be causal."
+        )
+        pi = pd.read_csv(args.pi, header=None, sep="\t")
+        if pi.shape[0] == 0:
+            raise ValueError(
+                "No prior weights are listed in the prior file. Check the source."
+            )
+
+        if pi.shape[1] < 2:
+            raise ValueError(
+                "The prior file has less than 2 columns. It has to be at least two columns."
+                + " The first column is the SNP ID, and the second column the prior probability."
+            )
+
+        if pi.shape[1] > 2:
+            log.logger.debug(
+                "The prior file has more than 2 columns. Will only use the first two columns."
+            )
+
+        pi = pi.iloc[:, 0:2]
+        pi.columns = ["snp", "pi"]
+    else:
+        pi = pd.DataFrame()
+
     if args.seed <= 0:
         raise ValueError(
             "The seed specified for randomization is invalid. Choose a positive integer."
@@ -507,12 +569,14 @@ def parameter_check(
             "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuSiE."
         )
 
-    return n_pop, ancestry_index, keep_subject, geno_path, geno_func
+    return n_pop, ancestry_index, keep_subject, pi, geno_path, geno_func
 
 
 def process_raw(
     rawData: List[io.RawData],
     keep_subject: List[str],
+    pi: pd.DataFrame,
+    remove_ambiguous: bool,
     maf: float,
     rint: bool,
     no_regress: bool,
@@ -531,6 +595,8 @@ def process_raw(
     Args:
         rawData: Raw data for phenotypes, genotypes, covariates across ancestries.
         keep_subject: The DataFrame that contains subject ID that fine-mapping performs on.
+        pi: The DataFrame that contains prior weights for each SNP to be causal.
+        remove_ambiguous: The indicator whether to remove ambiguous SNPs.
         maf: The minor allele frequency threshold to filter the genotypes.
         rint: The indicator whether to perform rank inverse normalization on each phenotype data.
         no_regress: The indicator whether to regress genotypes on covariates.
@@ -605,15 +671,20 @@ def process_raw(
                 + " Check the source."
             )
 
-        old_snp_num = rawData[idx].bim.shape[0]
-        # remove duplicates SNPs based on rsid even though we suggest users to do some QC on this
-        rawData[idx], del_num = _remove_dup_geno(rawData[idx])
+        # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
+        if remove_ambiguous:
+            old_snp_num = rawData[idx].bim.shape[0]
+            rawData[idx], del_num = _remove_ambiguous_geno(rawData[idx])
 
-        if del_num != 0:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of duplicates in the rs ID"
-                + " in genotype data."
-            )
+            if del_num == old_snp_num:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: All SNPs are ambiguous in genotype data. Check the source."
+                )
+
+            if del_num != 0:
+                log.logger.debug(
+                    f"Ancestry {idx + 1}: Drop {del_num} ambiguous SNPs out of {old_snp_num} in genotype data."
+                )
 
         old_snp_num = rawData[idx].bim.shape[0]
         # impute genotype data even though we suggest users to impute the genotypes beforehand
@@ -650,9 +721,14 @@ def process_raw(
                 f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of maf threshold at {maf}."
             )
 
-        if rawData[idx].bim.shape[0] == 0:
-            raise ValueError(
-                f"Ancestry {idx + 1}: no SNPs left after QC. Check the source."
+        old_snp_num = rawData[idx].bim.shape[0]
+        # remove duplicates SNPs based on rsid even though we suggest users to do some QC on this
+        rawData[idx], del_num = _remove_dup_geno(rawData[idx])
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of duplicates in the rs ID"
+                + " in genotype data."
             )
 
         # reset index and add index column to all dataset for future inter-ancestry or inter-dataset processing
@@ -693,11 +769,35 @@ def process_raw(
     else:
         snps = rawData[0].bim
 
+    # remove non-biallelic SNPs across ancestries
+    if n_pop > 1:
+        for idx in range(1, n_pop):
+            _, _, remove_idx = _allele_check(
+                snps["a0_1"].values,
+                snps["a1_1"].values,
+                snps[f"a0_{idx + 1}"].values,
+                snps[f"a1_{idx + 1}"].values,
+            )
+
+            if len(remove_idx) != 0:
+                snps = snps.drop(index=remove_idx).reset_index(drop=True)
+                log.logger.debug(
+                    f"Ancestry{idx + 1} has {len(remove_idx)} alleles that"
+                    + "couldn't match to ancestry 1 and couldn't be flipped. Will remove these SNPs."
+                )
+
+            if snps.shape[0] == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1} has none of correct or flippable SNPs from ancestry 1. Check the source.",
+                )
+
+    snps = snps.reset_index(drop=True)
+
     # find flipped reference alleles across ancestries
     flip_idx = []
     if n_pop > 1:
         for idx in range(1, n_pop):
-            correct_idx, tmp_flip_idx, wrong_idx = _allele_check(
+            correct_idx, tmp_flip_idx, _ = _allele_check(
                 snps["a0_1"].values,
                 snps["a1_1"].values,
                 snps[f"a0_{idx + 1}"].values,
@@ -712,24 +812,30 @@ def process_raw(
             # save the index for future swapping
             flip_idx.append(tmp_flip_idx)
 
-            if len(wrong_idx) != 0:
-                snps = snps.drop(index=wrong_idx)
-                log.logger.debug(
-                    f"Ancestry{idx + 1} has {len(wrong_idx)} alleles that couldn't be flipped. Will remove these SNPs."
-                )
-
-            if snps.shape[0] == 0:
-                raise ValueError(
-                    f"Ancestry {idx + 1} has none of correct or flippable SNPs from ancestry 1. Check the source.",
-                )
             # drop unused columns
             snps = snps.drop(
                 columns=[f"a0_{idx + 1}", f"a1_{idx + 1}", f"pos_{idx + 1}"]
             )
-        # rename columns for better indexing in the future
+
+    # rename columns for better indexing in the future
     snps = snps.reset_index().rename(
         columns={"index": "SNPIndex", "a0_1": "a0", "a1_1": "a1", "pos_1": "pos"}
     )
+
+    if pi.shape[0] != 0:
+        # append prior weights to the snps
+        snps = pd.merge(snps, pi, how="left", on="snp")
+        nan_count = snps["pi"].isna().sum()
+        if nan_count > snps.shape[0] * 0.25:
+            log.logger.warning(
+                "More than 25% of SNPs have missing prior weights. Will replace them with the mean value of the rest."
+            )
+        # if the column pi has nan value, replace it with the mean value of the rest of the column
+        snps["pi"] = snps["pi"].fillna(snps["pi"].mean())
+        pi = jnp.array(snps["pi"].values)
+    else:
+        snps["pi"] = jnp.ones(snps.shape[0]) / float(snps.shape[0])
+        pi = None
 
     geno = []
     pheno = []
@@ -749,6 +855,8 @@ def process_raw(
         tmp_geno = tmp_geno[common_ind_id, :][:, common_snp_id]
 
         # flip genotypes for bed files starting second ancestry
+        # flip index is the positional index based on snps data frame, so we have to subset genotype
+        # data based on the common snps (i.e., snps data frame).
         if idx > 0 and len(flip_idx[idx - 1]) != 0:
             tmp_geno[:, flip_idx[idx - 1]] = 2 - tmp_geno[:, flip_idx[idx - 1]]
 
@@ -776,7 +884,7 @@ def process_raw(
     else:
         data_covar = covar
 
-    regular_data = io.CleanData(geno=geno, pheno=pheno, covar=data_covar)
+    regular_data = io.CleanData(geno=geno, pheno=pheno, covar=data_covar, pi=pi)
 
     name_ancestry = "ancestry" if n_pop == 1 else "ancestries"
 
@@ -816,6 +924,7 @@ def process_raw(
                 geno=[mega_geno],
                 pheno=[mega_pheno],
                 covar=None,
+                pi=pi,
             )
 
     return snps, regular_data, mega_data, cv_data
@@ -895,7 +1004,7 @@ def sushie_wrapper(
                 no_scale=args.no_scale,
                 no_regress=args.no_regress,
                 no_update=args.no_update,
-                pi=args.pi,
+                pi=data.pi,
                 resid_var=resid_var,
                 effect_var=effect_var,
                 rho=None,
@@ -931,7 +1040,7 @@ def sushie_wrapper(
             no_scale=args.no_scale,
             no_regress=args.no_regress,
             no_update=args.no_update,
-            pi=args.pi,
+            pi=data.pi,
             resid_var=resid_var,
             effect_var=effect_var,
             rho=rho,
@@ -985,8 +1094,8 @@ def sushie_wrapper(
             log.logger.info(
                 f"Start {args.cv_num}-fold cross validation as --cv is specified "
             )
-            cv_res = _run_cv(args, cv_data)
-            sample_size = [idx.shape[0] for idx in data.geno]
+            cv_res = _run_cv(args, cv_data, data.pi)
+            sample_size = jnp.squeeze(tmp_result.sample_size)
             io.output_cv(cv_res, sample_size, output, args.trait, args.compress)
 
     return None
@@ -1007,7 +1116,7 @@ def run_finemap(args):
 
         config.update("jax_platform_name", args.platform)
 
-        n_pop, ancestry_index, keep_subject, geno_path, geno_func = parameter_check(
+        n_pop, ancestry_index, keep_subject, pi, geno_path, geno_func = parameter_check(
             args
         )
 
@@ -1023,6 +1132,8 @@ def run_finemap(args):
         snps, regular_data, mega_data, cv_data = process_raw(
             rawData,
             keep_subject,
+            pi,
+            args.remove_ambiguous,
             args.maf,
             args.rint,
             args.no_regress,
@@ -1184,19 +1295,27 @@ def build_finemap_parser(subp):
         type=int,
         help=(
             "Integer number of shared effects pre-specified.",
-            " Default is 5. Larger number may cause slow inference.",
+            " Default is 10. Larger number may cause slow inference.",
         ),
     )
 
     # fine-map prior options
     finemap.add_argument(
         "--pi",
-        default=None,
-        type=float,
+        default="uniform",
+        type=str,
         help=(
             "Prior probability for each SNP to be causal.",
-            " Default is 1/p where p is the number of SNPs in the region.",
+            " Default is uniform (i.e., 1/p where p is the number of SNPs in the region.",
             " It is the fixed across all ancestries.",
+            " Alternatively, users can specify the file path that contains the prior weights for each SNP.",
+            " The weights have to be positive value.",
+            " The weights will be normalized to sum to 1 before inference.",
+            " The file has to be a tsv file that contains two columns where the",
+            " first column is the SNP ID and the second column is the prior weights.",
+            " Additional columns will be ignored.",
+            " For SNPs do not have prior weights in the file, it will be assigned the average value of the rest.",
+            " It can be a compressed file (e.g., tsv.gz). No headers.",
         ),
     )
 
@@ -1374,6 +1493,18 @@ def build_finemap_parser(subp):
             " posterior mean square.",
             " Default is False (to re-order).",
             " Specify --no-reorder will store 'True' value.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--remove-ambiguous",
+        default=False,
+        action="store_true",
+        help=(
+            "Indicator to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C pairs) from the genotypes.",
+            " Recommend to remove these SNPs if each ancestry data is from different studies.",
+            " Default is False (not to remove).",
+            " Specify --remove-ambiguous will store 'True' value.",
         ),
     )
 

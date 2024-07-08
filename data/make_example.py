@@ -10,6 +10,8 @@ rng_key = random.PRNGKey(1234)
 
 # flip allele if necessary
 def _allele_check(baseA0, baseA1, compareA0, compareA1):
+    # no snps that have more than 2 alleles
+    # e.g., G and T for EUR and G and A for AFR
     correct = jnp.array(
         ((baseA0 == compareA0) * 1) * ((baseA1 == compareA1) * 1), dtype=int
     )
@@ -18,9 +20,8 @@ def _allele_check(baseA0, baseA1, compareA0, compareA1):
     )
     correct_idx = jnp.where(correct == 1)[0]
     flipped_idx = jnp.where(flipped == 1)[0]
-    wrong_idx = jnp.where((correct + flipped) == 0)[0]
 
-    return correct_idx, flipped_idx, wrong_idx
+    return correct_idx, flipped_idx
 
 
 # read plink1.9 triplet
@@ -51,14 +52,13 @@ flip_idx = []
 if n_pop > 1:
     for idx in range(1, n_pop):
         # keep track of miss match alleles
-        correct_idx, tmp_flip_idx, tmp_wrong_idx = _allele_check(
+        correct_idx, tmp_flip_idx = _allele_check(
             snps["a0_0"].values,
             snps["a1_0"].values,
             snps[f"a0_{idx}"].values,
             snps[f"a1_{idx}"].values,
         )
         flip_idx.append(tmp_flip_idx)
-        snps = snps.drop(index=tmp_wrong_idx)
         snps = snps.drop(columns=[f"a0_{idx}", f"a1_{idx}"])
     snps = snps.rename(columns={"a0_0": "a0", "a1_0": "a1"})
 
@@ -130,3 +130,8 @@ sel_pt = random.randint(
 pd.concat(fam_index)[["iid"]].iloc[sel_pt, :].to_csv(
     "./keep.subject", index=False, header=None, sep="\t"
 )
+
+rng_key, unif_key = random.split(rng_key, 2)
+unif = random.uniform(unif_key, shape=(snps.shape[0],), minval=5, maxval=200)
+snps["unif"] = unif
+snps[["snp", "unif"]].to_csv("./prior_weights", index=False, header=None, sep="\t")
