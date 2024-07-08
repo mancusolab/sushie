@@ -672,7 +672,8 @@ def process_raw(
             )
 
         # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
-        if remove_ambiguous:
+        # we just need to remove it for the first ancestry, later ancestries will be merged into first ancestry
+        if remove_ambiguous and idx == 0:
             old_snp_num = rawData[idx].bim.shape[0]
             rawData[idx], del_num = _remove_ambiguous_geno(rawData[idx])
 
