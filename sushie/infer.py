@@ -469,11 +469,11 @@ def infer_sushie(
         )
         elbo_last = elbo_tracker[o_iter]
         elbo_tracker = jnp.append(elbo_tracker, elbo_cur)
-        elbo_increase = not (
-            elbo_cur < elbo_last and (not jnp.isclose(elbo_cur, elbo_last, atol=1e-8))
+        elbo_increase = elbo_cur >= elbo_last or jnp.isclose(
+            elbo_cur, elbo_last, atol=1e-8
         )
 
-        if (not elbo_increase) or jnp.isnan(elbo_cur):
+        if not elbo_increase:
             log.logger.warning(
                 f"Optimization concludes after {o_iter + 1} iterations."
                 + f" ELBO decreases. Final ELBO score: {elbo_cur}. Return last iteration's results."
