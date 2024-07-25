@@ -34,7 +34,7 @@ __all__ = [
 
 
 class CVData(NamedTuple):
-    """Define the raw data object for the future inference.
+    """Define the cross validation data object.
 
     Attributes:
         train_geno: genotype data for training SuShiE weights.
@@ -51,22 +51,24 @@ class CVData(NamedTuple):
 
 
 class CleanData(NamedTuple):
-    """Define the raw data object for the future inference.
+    """Define the clean data object ready for the future inference.
 
     Attributes:
         geno: actual genotype data.
         pheno: phenotype data.
         covar: covariate needed to be adjusted in the inference.
+        pi: prior weights for each SNP to be causal.
 
     """
 
     geno: List[Array]
     pheno: List[Array]
     covar: utils.ListArrayOrNone
+    pi: utils.ListArrayOrNone
 
 
 class RawData(NamedTuple):
-    """Define the raw data object for the future inference.
+    """Define the raw data object for the future data cleaning.
 
     Attributes:
         bim: SNP information data.
@@ -142,12 +144,12 @@ def read_data(
         tmp_covar = covar
         if index_file:
             tmp_pt = ancestry_index.loc[ancestry_index[1] == (idx + 1)][0]
-            tmp_fam = fam.loc[fam.iid.isin(tmp_pt)]
+            tmp_fam = fam.loc[fam.iid.isin(tmp_pt)].reset_index(drop=True)
             tmp_bed = bed[fam.iid.isin(tmp_pt).values, :]
-            tmp_pheno = pheno.loc[pheno.iid.isin(tmp_pt)]
+            tmp_pheno = pheno.loc[pheno.iid.isin(tmp_pt)].reset_index(drop=True)
 
             if covar_paths is not None:
-                tmp_covar = covar.loc[covar.iid.isin(tmp_pt)]
+                tmp_covar = covar.loc[covar.iid.isin(tmp_pt)].reset_index(drop=True)
             else:
                 tmp_covar = None
 
@@ -218,8 +220,8 @@ def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     for var in vcf:
         # var.ALT is a list of alternative allele
         bim_list.append([var.CHROM, var.ID, var.POS, var.ALT[0], var.REF])
-        var.gt_types = jnp.where(var.gt_types == 3, jnp.nan, var.gt_types)
-        tmp_bed = 2 - var.gt_types
+        tmp_gt_types = jnp.where(var.gt_types == 3, jnp.nan, var.gt_types)
+        tmp_bed = 2 - tmp_gt_types
         bed_list.append(tmp_bed)
 
     bim = pd.DataFrame(bim_list, columns=["chrom", "snp", "pos", "a0", "a1"])
