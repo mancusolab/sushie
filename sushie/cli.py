@@ -119,6 +119,28 @@ def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
     return rawData, len(drop_idx_name)
 
 
+def _filter_common_ind(rawData: io.RawData) -> io.RawData:
+    _, fam, bed, pheno, covar = rawData
+
+    common_fam = pd.merge(fam, pheno[["iid"]], how="inner", on=["iid"])
+
+    if covar is not None:
+        # reorder covar file to align with fam and bed files
+        covar = pd.merge(common_fam, covar, how="inner", on=["iid"]).reset_index(
+            drop=True
+        )
+        common_fam = covar[["iid"]].copy()
+
+    bed = bed[fam.iid.isin(common_fam.iid).values, :]
+
+    pheno = pd.merge(common_fam, pheno, how="inner", on=["iid"]).reset_index(drop=True)
+    common_fam = common_fam.reset_index(drop=True)
+
+    rawData = rawData._replace(fam=common_fam, bed=bed, pheno=pheno, covar=covar)
+
+    return rawData
+
+
 def _remove_ambiguous_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
     bim, _, bed, _, _ = rawData
 
@@ -187,7 +209,7 @@ def _impute_geno(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
 
 
 def _reset_idx(rawData: io.RawData, idx: int) -> io.RawData:
-    bim, fam, _, pheno, covar = rawData
+    bim, _, _, _, _ = rawData
 
     bim = (
         bim.reset_index(drop=True)
@@ -202,45 +224,7 @@ def _reset_idx(rawData: io.RawData, idx: int) -> io.RawData:
         )
     )
 
-    fam = (
-        fam.reset_index(drop=True)
-        .reset_index()
-        .rename(columns={"index": f"famIDX_{idx + 1}"})
-    )
-    pheno = (
-        pheno.reset_index(drop=True)
-        .reset_index()
-        .rename(columns={"index": f"phenoIDX_{idx + 1}"})
-    )
-    if covar is not None:
-        covar = (
-            covar.reset_index(drop=True)
-            .reset_index()
-            .rename(columns={"index": f"covarIDX_{idx + 1}"})
-        )
-
-    rawData = rawData._replace(
-        bim=bim,
-        fam=fam,
-        pheno=pheno,
-        covar=covar,
-    )
-
-    return rawData
-
-
-def _filter_common_ind(rawData: io.RawData, idx: int) -> io.RawData:
-    _, fam, _, pheno, covar = rawData
-
-    common_fam = pd.merge(
-        fam, pheno[[f"phenoIDX_{idx + 1}", "iid"]], how="inner", on=["iid"]
-    )
-    if covar is not None:
-        # match fam id and covar id
-        common_fam = pd.merge(
-            common_fam, covar[[f"covarIDX_{idx + 1}", "iid"]], how="inner", on=["iid"]
-        )
-    rawData = rawData._replace(fam=common_fam)
+    rawData = rawData._replace(bim=bim)
 
     return rawData
 
@@ -671,6 +655,20 @@ def process_raw(
                 + " Check the source."
             )
 
+        # find common individuals across geno, pheno, and covar within an ancestry
+        rawData[idx] = _filter_common_ind(rawData[idx])
+
+        if rawData[idx].fam.shape[0] == 0:
+            raise ValueError(
+                f"Ancestry {idx + 1}: No common individuals across phenotype, covariates,"
+                + " genotype found. Check the source.",
+            )
+        else:
+            log.logger.debug(
+                f"Ancestry {idx + 1}: Found {rawData[idx].fam.shape[0]} common individuals"
+                + " across phenotype, covariates, and genotype.",
+            )
+
         # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
         # we just need to remove it for the first ancestry, later ancestries will be merged into first ancestry
         if remove_ambiguous and idx == 0:
@@ -688,6 +686,7 @@ def process_raw(
                 )
 
         old_snp_num = rawData[idx].bim.shape[0]
+
         # impute genotype data even though we suggest users to impute the genotypes beforehand
         rawData[idx], del_num, imp_num = _impute_geno(rawData[idx])
 
@@ -709,6 +708,7 @@ def process_raw(
             )
 
         old_snp_num = rawData[idx].bim.shape[0]
+
         # remove SNPs that cannot pass MAF threshold
         rawData[idx], del_num = _filter_maf(rawData[idx], maf)
 
@@ -732,22 +732,8 @@ def process_raw(
                 + " in genotype data."
             )
 
-        # reset index and add index column to all dataset for future inter-ancestry or inter-dataset processing
+        # reset bim index for future inter-ancestry  processing
         rawData[idx] = _reset_idx(rawData[idx], idx)
-
-        # find common individuals across geno, pheno, and covar within an ancestry
-        rawData[idx] = _filter_common_ind(rawData[idx], idx)
-
-        if rawData[idx].fam.shape[0] == 0:
-            raise ValueError(
-                f"Ancestry {idx + 1}: No common individuals across phenotype, covariates,"
-                + " genotype found. Check the source.",
-            )
-        else:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Found {rawData[idx].fam.shape[0]} common individuals"
-                + " across phenotype, covariates, and genotype.",
-            )
 
     # find common snps across ancestries
     if n_pop > 1:
@@ -827,9 +813,9 @@ def process_raw(
         # append prior weights to the snps
         snps = pd.merge(snps, pi, how="left", on="snp")
         nan_count = snps["pi"].isna().sum()
-        if nan_count > snps.shape[0] * 0.25:
+        if nan_count > 0:
             log.logger.warning(
-                "More than 25% of SNPs have missing prior weights. Will replace them with the mean value of the rest."
+                f"{nan_count} SNP(s) have missing prior weights. Will replace them with the mean value of the rest."
             )
         # if the column pi has nan value, replace it with the mean value of the rest of the column
         snps["pi"] = snps["pi"].fillna(snps["pi"].mean())
@@ -844,16 +830,15 @@ def process_raw(
     total_ind = 0
     # filter on geno, pheno, and covar
     for idx in range(n_pop):
-        _, tmp_fam, tmp_geno, tmp_pheno, tmp_covar = rawData[idx]
+        _, _, tmp_geno, tmp_pheno, tmp_covar = rawData[idx]
 
-        # get common individual and snp id
-        common_ind_id = tmp_fam[f"famIDX_{idx + 1}"].values
+        # get common snp id
         common_snp_id = snps[f"bimIDX_{idx + 1}"].values
         snps = snps.drop(columns=[f"bimIDX_{idx + 1}"])
 
         # filter on individuals who have both geno, pheno, and covar (if applicable)
         # filter on shared snps across ancestries
-        tmp_geno = tmp_geno[common_ind_id, :][:, common_snp_id]
+        tmp_geno = tmp_geno[:, common_snp_id]
 
         # flip genotypes for bed files starting second ancestry
         # flip index is the positional index based on snps data frame, so we have to subset genotype
@@ -863,8 +848,7 @@ def process_raw(
 
         # swap pheno and covar rows order to match fam/bed file, and then select the
         # values for future fine-mapping
-        common_pheno_id = tmp_fam[f"phenoIDX_{idx + 1}"].values
-        tmp_pheno = tmp_pheno["pheno"].values[common_pheno_id]
+        tmp_pheno = tmp_pheno["pheno"].values
         total_ind += tmp_pheno.shape[0]
         geno.append(tmp_geno)
 
@@ -875,9 +859,8 @@ def process_raw(
 
         if tmp_covar is not None:
             # select the common individual for covar
-            common_covar_id = tmp_fam[f"covarIDX_{idx + 1}"].values
             n_covar = tmp_covar.shape[1]
-            tmp_covar = tmp_covar.iloc[common_covar_id, 2:n_covar].values
+            tmp_covar = tmp_covar.iloc[:, 2:n_covar].values
             covar.append(tmp_covar)
 
     if len(covar) == 0:
