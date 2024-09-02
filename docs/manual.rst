@@ -371,8 +371,8 @@ Parameters
      - Minimum tolerance for the convergence. Smaller number may slow the inference while larger may cause different inference.
    * - ``--threshold``
      - Float
-     - 0.9
-     - ``--threshold 0.8``
+     - 0.95
+     - ``--threshold 0.9``
      - Specify the PIP threshold for SNPs to be included in the credible sets. It has to be a float number between 0 and 1.
    * - ``--purity``
      - Float

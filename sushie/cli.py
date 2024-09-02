@@ -1425,10 +1425,10 @@ def build_finemap_parser(subp):
 
     finemap.add_argument(
         "--threshold",
-        default=0.9,
+        default=0.95,
         type=float,
         help=(
-            "Specify the PIP threshold for SNPs to be included in the credible sets. Default is 0.9.",
+            "Specify the PIP threshold for SNPs to be included in the credible sets. Default is 0.95.",
             " It has to be a float number between 0 and 1.",
         ),
     )
