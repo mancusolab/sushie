@@ -123,7 +123,7 @@ def _remove_ambiguous_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
     bim, _, bed, _, _ = rawData
 
     ambiguous_snps = ["AT", "TA", "CG", "GC"]
-    ambiguous_idx = jnp.where((bim.A0.values + bim.A1.values).isin(ambiguous_snps))[0]
+    ambiguous_idx = jnp.where((bim.a0.values + bim.a1.values).isin(ambiguous_snps))[0]
 
     # ambiguous_idx is the positional index, but drop use the index label, so we need to convert it
     drop_idx = bim.index[ambiguous_idx]
@@ -827,9 +827,9 @@ def process_raw(
         # append prior weights to the snps
         snps = pd.merge(snps, pi, how="left", on="snp")
         nan_count = snps["pi"].isna().sum()
-        if nan_count > snps.shape[0] * 0.25:
+        if nan_count > 0:
             log.logger.warning(
-                "More than 25% of SNPs have missing prior weights. Will replace them with the mean value of the rest."
+                f"{nan_count} SNP(s) have missing prior weights. Will replace them with the mean value of the rest."
             )
         # if the column pi has nan value, replace it with the mean value of the rest of the column
         snps["pi"] = snps["pi"].fillna(snps["pi"].mean())
