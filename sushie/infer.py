@@ -194,7 +194,8 @@ def infer_sushie(
         max_iter: The maximum iteration for optimization. Default is :math:`500`.
         min_tol: The convergence tolerance. Default is :math:`10^{-4}`.
         threshold: The credible set threshold. Default is :math:`0.95`.
-        purity: The minimum pairwise correlation across SNPs to be eligible as output credible set. Default is :math:`0.5`.
+        purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
+            Default is :math:`0.5`.
         max_select: The maximum number of selected SNPs to compute purity. Default is :math:`500`.
         min_snps: The minimum number of SNPs to fine-map. Default is :math:`100`.
         no_reorder: Do not re-order single effects based on Frobenius norm of alpha-weighted posterior mean square.
@@ -901,6 +902,7 @@ def make_cs(
 
     return cs, full_alphas, pip_all, pip_cs
 
+
 def _infer_test(
     Xs: List[ArrayLike],
     ys: List[ArrayLike],
@@ -920,9 +922,7 @@ def _infer_test(
     max_select: int = 500,
     min_snps: int = 100,
 ) -> None:
-    """The main inference function for testing computation time purpose.
-
-    """
+    """The main inference function for testing computation time purpose."""
     if len(Xs) == len(ys):
         n_pop = len(Xs)
     else:
@@ -1218,4 +1218,3 @@ def _infer_test(
             )
 
     return None
-
