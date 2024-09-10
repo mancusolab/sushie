@@ -82,41 +82,34 @@ def _keep_file_subjects(
     return rawData, del_fam_num, del_pheno_num
 
 
-def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
-    _, fam, bed, pheno, covar = rawData
+def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
+    _, _, _, pheno, covar = rawData
 
     val = jnp.array(pheno["pheno"])
     del_idx = jnp.logical_or(jnp.isnan(val), jnp.isinf(val))
 
+    # drop_idx is the positional index, but drop use the index label, so we need to convert it
+    (drop_idx_name,) = jnp.where(del_idx)
+    pheno_drop_idx = pheno.index[drop_idx_name]
+    pheno = pheno.drop(pheno_drop_idx).reset_index(drop=True)
+
+    len_drop_idx_name = jnp.nan
     if covar is not None:
         val = jnp.array(covar.drop(columns="iid"))
         covar_del = jnp.logical_or(
             jnp.any(jnp.isinf(val), axis=1), jnp.any(jnp.isnan(val), axis=1)
         )
-        del_idx = jnp.logical_or(del_idx, covar_del)
-
-    (drop_idx_name,) = jnp.where(del_idx)
-
-    # ambiguous_idx is the positional index, but drop use the index label, so we need to convert it
-    fam_drop_idx = fam.index[drop_idx_name]
-    pheno_drop_idx = pheno.index[drop_idx_name]
-
-    fam = fam.drop(fam_drop_idx).reset_index(drop=True)
-    pheno = pheno.drop(pheno_drop_idx).reset_index(drop=True)
-    bed = jnp.delete(bed, drop_idx_name, 0)
-
-    if covar is not None:
-        covar_drop_idx = pheno.index[drop_idx_name]
+        (drop_idx_name,) = jnp.where(covar_del)
+        covar_drop_idx = covar.index[drop_idx_name]
         covar = covar.drop(covar_drop_idx).reset_index(drop=True)
+        len_drop_idx_name = len(drop_idx_name)
 
     rawData = rawData._replace(
-        fam=fam,
         pheno=pheno,
-        bed=bed,
         covar=covar,
     )
 
-    return rawData, len(drop_idx_name)
+    return rawData, len(drop_idx_name), len_drop_idx_name
 
 
 def _remove_ambiguous_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
@@ -657,17 +650,29 @@ def process_raw(
 
         # remove NA/inf value for subjects across phenotype or covariates data
         old_subject_num = rawData[idx].fam.shape[0]
-        rawData[idx], del_num = _drop_na_subjects(rawData[idx])
+        rawData[idx], del_num_pheno, del_num_covar = _drop_na_subjects(rawData[idx])
 
-        if del_num != 0:
+        if del_num_pheno != 0:
             log.logger.debug(
-                f"Ancestry {idx + 1}: Drop {del_num} out of {old_subject_num} subjects because of INF or NAN value"
-                + " in either phenotype or covariates data."
+                f"Ancestry {idx + 1}: Drop {del_num_pheno} out of {old_subject_num} subjects"
+                + " because of INF or NAN value in phenotype data."
             )
 
-        if del_num == old_subject_num:
+        if del_num_covar != 0:
+            log.logger.debug(
+                f"Ancestry {idx + 1}: Drop {del_num_covar} out of {old_subject_num} subjects"
+                + " because of INF or NAN value in covariates data."
+            )
+
+        if del_num_pheno == old_subject_num:
             raise ValueError(
-                f"Ancestry {idx + 1}: All subjects have INF or NAN value in either phenotype or covariates data."
+                f"Ancestry {idx + 1}: All subjects have INF or NAN value in phenotype data."
+                + " Check the source."
+            )
+
+        if del_num_covar == old_subject_num:
+            raise ValueError(
+                f"Ancestry {idx + 1}: All subjects have INF or NAN value in covariates data."
                 + " Check the source."
             )
 
