@@ -47,7 +47,7 @@ Although we highly recommend users to perform high-quality QC on their own genot
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
 #. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
-# Users also have an option to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--remove-ambiguous`` (Default is NOT to remove them).
+# Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
 #. For single ancestry SuSiE or Mega-SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
 
 See :func:`sushie.cli.process_raw` for these QCs' source codes.
@@ -404,11 +404,11 @@ Parameters
      - False
      - ``--no-reorder``
      - Indicator to re-order single effects based on Frobenius norm of alpha-weighted posterior mean square. Default is False (to re-order). Specify --no-reorder will store 'True' value.
-   * - ``--remove-ambiguous``
+   * - ``--keep-ambiguous``
      - Boolean
      - False
-     - ``--remove-ambiguous``
-     - Indicator to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) from the genotypes. Recommend to remove these SNPs if each ancestry data is from different studies. Default is False (do not remove). Specify --remove-ambiguous will store 'True' value.
+     - ``--keep-ambiguous``
+     - Indicator to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) from the genotypes. Recommend to remove these SNPs if each ancestry data is from different studies or plan to use the inference results for downstream analysis with other datasets. Default is False (do not keep). Specify --keep-ambiguous will store 'True' value.
    * - ``--meta``
      - Boolean
      - False

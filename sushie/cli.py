@@ -56,30 +56,24 @@ def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
 
 def _keep_file_subjects(
     rawData: io.RawData, keep_subject: List[str]
-) -> Tuple[io.RawData, int, int]:
+) -> Tuple[io.RawData, int]:
     _, fam, bed, pheno, covar = rawData
 
+    # we just need to filter out the subjects in genotype file
+    # because later pheno and covar will be inner merged with fam file
     old_fam_num = fam.shape[0]
-    old_pheno_num = pheno.shape[0]
 
     bed = bed[fam.iid.isin(keep_subject).values, :]
     fam = fam.loc[fam.iid.isin(keep_subject)].reset_index(drop=True)
-    pheno = pheno.loc[pheno.iid.isin(keep_subject)].reset_index(drop=True)
-
-    if covar is not None:
-        covar = covar.loc[covar.iid.isin(keep_subject)].reset_index(drop=True)
 
     del_fam_num = old_fam_num - fam.shape[0]
-    del_pheno_num = old_pheno_num - pheno.shape[0]
 
     rawData = rawData._replace(
         fam=fam,
-        pheno=pheno,
         bed=bed,
-        covar=covar,
     )
 
-    return rawData, del_fam_num, del_pheno_num
+    return rawData, del_fam_num
 
 
 def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
@@ -110,26 +104,6 @@ def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
     )
 
     return rawData, len(drop_idx_name), len_drop_idx_name
-
-
-def _remove_ambiguous_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
-    bim, _, bed, _, _ = rawData
-
-    ambiguous_snps = ["AT", "TA", "CG", "GC"]
-    ambiguous_idx = jnp.where((bim.a0.values + bim.a1.values).isin(ambiguous_snps))[0]
-
-    # ambiguous_idx is the positional index, but drop use the index label, so we need to convert it
-    drop_idx = bim.index[ambiguous_idx]
-    bim = bim.drop(drop_idx).reset_index(drop=True)
-
-    bed = jnp.delete(bed, ambiguous_idx, 1)
-
-    rawData = rawData._replace(
-        bim=bim,
-        bed=bed,
-    )
-
-    return rawData, len(drop_idx)
 
 
 def _remove_dup_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
@@ -569,7 +543,7 @@ def process_raw(
     rawData: List[io.RawData],
     keep_subject: List[str],
     pi: pd.DataFrame,
-    remove_ambiguous: bool,
+    keep_ambiguous: bool,
     maf: float,
     rint: bool,
     no_regress: bool,
@@ -589,7 +563,7 @@ def process_raw(
         rawData: Raw data for phenotypes, genotypes, covariates across ancestries.
         keep_subject: The DataFrame that contains subject ID that fine-mapping performs on.
         pi: The DataFrame that contains prior weights for each SNP to be causal.
-        remove_ambiguous: The indicator whether to remove ambiguous SNPs.
+        keep_ambiguous: The indicator whether to keep ambiguous SNPs.
         maf: The minor allele frequency threshold to filter the genotypes.
         rint: The indicator whether to perform rank inverse normalization on each phenotype data.
         no_regress: The indicator whether to regress genotypes on covariates.
@@ -616,12 +590,10 @@ def process_raw(
         # remove subjects that are not in the keep file
         if len(keep_subject) != 0:
             old_fam_num = rawData[idx].fam.shape[0]
-            old_pheno_num = rawData[idx].pheno.shape[0]
 
             (
                 rawData[idx],
                 del_fam_num,
-                del_pheno_num,
             ) = _keep_file_subjects(rawData[idx], keep_subject)
 
             if len(rawData[idx].fam) == 0:
@@ -639,12 +611,6 @@ def process_raw(
             if del_fam_num != 0:
                 log.logger.debug(
                     f"Ancestry {idx + 1}: Drop {del_fam_num} out of {old_fam_num} subjects in the genotype data"
-                    + " because these subjects are not listed in the subject keep file."
-                )
-
-            if del_pheno_num != 0:
-                log.logger.debug(
-                    f"Ancestry {idx + 1}: Drop {del_pheno_num} out of {old_pheno_num} subjects in the phenotype data"
                     + " because these subjects are not listed in the subject keep file."
                 )
 
@@ -675,22 +641,6 @@ def process_raw(
                 f"Ancestry {idx + 1}: All subjects have INF or NAN value in covariates data."
                 + " Check the source."
             )
-
-        # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
-        # we just need to remove it for the first ancestry, later ancestries will be merged into first ancestry
-        if remove_ambiguous and idx == 0:
-            old_snp_num = rawData[idx].bim.shape[0]
-            rawData[idx], del_num = _remove_ambiguous_geno(rawData[idx])
-
-            if del_num == old_snp_num:
-                raise ValueError(
-                    f"Ancestry {idx + 1}: All SNPs are ambiguous in genotype data. Check the source."
-                )
-
-            if del_num != 0:
-                log.logger.debug(
-                    f"Ancestry {idx + 1}: Drop {del_num} ambiguous SNPs out of {old_snp_num} in genotype data."
-                )
 
         old_snp_num = rawData[idx].bim.shape[0]
         # impute genotype data even though we suggest users to impute the genotypes beforehand
@@ -798,6 +748,21 @@ def process_raw(
                 )
 
     snps = snps.reset_index(drop=True)
+
+    # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
+    if not keep_ambiguous:
+        ambiguous_snps = ["AT", "TA", "CG", "GC"]
+        if_ambig = (snps.a0_1.values + snps.a1_1.values).isin(ambiguous_snps)
+        del_num = if_ambig.sum()
+        snps = snps[~if_ambig].reset_index(drop=True)
+
+        if snps.shape[0] == 0:
+            raise ValueError(
+                "All SNPs are ambiguous in genotype data. Check the source."
+            )
+
+        if del_num != 0:
+            log.logger.debug(f"Drop {del_num} ambiguous SNPs in genotype data.")
 
     # find flipped reference alleles across ancestries
     flip_idx = []
@@ -1139,7 +1104,7 @@ def run_finemap(args):
             rawData,
             keep_subject,
             pi,
-            args.remove_ambiguous,
+            args.keep_ambiguous,
             args.maf,
             args.rint,
             args.no_regress,
@@ -1503,14 +1468,15 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--remove-ambiguous",
+        "--keep-ambiguous",
         default=False,
         action="store_true",
         help=(
-            "Indicator to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C pairs) from the genotypes.",
-            " Recommend to remove these SNPs if each ancestry data is from different studies.",
-            " Default is False (not to remove).",
-            " Specify --remove-ambiguous will store 'True' value.",
+            "Indicator to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C pairs) from the genotypes.",
+            " Recommend to remove these SNPs if each ancestry data is from different studies",
+            " or plan to use the inference results for downstream analysis with other datasets."
+            " Default is False (not to keep).",
+            " Specify --keep-ambiguous will store 'True' value.",
         ),
     )
 
