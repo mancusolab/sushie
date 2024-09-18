@@ -342,7 +342,7 @@ def infer_sushie_ss(
     # get XtXs and Xtys
     # Zou et al. Plos Genet
     sigma2 = ns / (zs ** 2 + ns)
-    Xtys = jnp.sqrt(ns) * sigma2 * zs
+    Xtys = jnp.sqrt(ns) * jnp.sqrt(sigma2) * zs
     # new_lds = lds + jnp.eye(lds.shape[1]) * 0.1
     new_lds = lds
     XtXs = ns[:, :, jnp.newaxis] * new_lds
@@ -547,12 +547,18 @@ def _erss_ss(
 ) -> Array:
 
     ebeta = jnp.sum(beta, axis=2)
+    # N, ns is k by 1
     term_1 = jnp.squeeze(ns)
-    term_2 = -2 * jnp.diag(Xtys @ ebeta.T)
+    # -2 * E(beta)(Xty)
+    term_2 = -2 * jnp.sum(ebeta * Xtys, axis=1)
+    # eb * XtXs * eb
     term_3 = jnp.einsum("kp,kpq,kq->k", ebeta, XtXs, ebeta)
+    # beta was kxpxl, convert it to kxlxp
     tr_beta = jnp.transpose(beta, axes=(0, 2, 1))
     tr_beta_sq = jnp.transpose(beta_sq, axes=(0, 2, 1))
+    # vb = e(beta^2) - e(beta)^2
     v_beta = tr_beta_sq - tr_beta ** 2
+    # sum over all l and sum over all p (trace)
     term_4 = jnp.einsum("kp,klp->k", jnp.diagonal(XtXs, axis1=1, axis2=2), v_beta)
 
     return term_1 + term_2 + term_3 + term_4
