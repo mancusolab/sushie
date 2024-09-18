@@ -18,6 +18,12 @@ __all__ = [
     "SushieResult",
     "infer_sushie",
     "make_cs",
+    "_PriorAdjustor",
+    "_AbstractOptFunc",
+    "_NoopOptFunc",
+    "_EMOptFunc",
+    "_compute_posterior",
+    "_reorder_l",
 ]
 
 
@@ -156,7 +162,7 @@ def infer_sushie(
     Xs: List[ArrayLike],
     ys: List[ArrayLike],
     covar: utils.ListArrayOrNone = None,
-    L: int = 5,
+    L: int = 10,
     no_scale: bool = False,
     no_regress: bool = False,
     no_update: bool = False,
@@ -616,19 +622,13 @@ def _ssr(
     n_pop, _, n_snps = Xs.shape
 
     Xty = jnp.einsum("knp,kn->kp", Xs, ys)
-    # beta_hat is pxk
-    beta_hat = (Xty / XtXs).T
+    rTZDinv = (Xty / priors.resid_var).T
 
     # priors.resid_var is kx1, XtXs is kxp, and the result is kxp, and inverse is pxk
-    shat2 = (priors.resid_var / XtXs).T
-    # also pxk
-    inv_shat2 = 1 / shat2
+    inv_shat2 = (XtXs / priors.resid_var).T
 
     # expand it to diag matrix, so they're pxkxk
-    shat2 = jnp.eye(n_pop) * shat2[:, jnp.newaxis]
     inv_shat2 = jnp.eye(n_pop) * inv_shat2[:, jnp.newaxis]
-
-    rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
     priors = opt_v_func(rTZDinv, inv_shat2, priors, posteriors, prior_adjustor, l_iter)
 
@@ -1169,11 +1169,7 @@ def _infer_test(
     XtXs = jnp.sum(Xs ** 2, axis=1)
 
     elbo_tracker = jnp.array([-jnp.inf])
-    elbo_increase = True
     for o_iter in range(max_iter):
-        prev_priors = priors
-        prev_posteriors = posteriors
-
         priors, posteriors, elbo_cur = _update_effects(
             Xs,
             ys,
@@ -1198,8 +1194,6 @@ def _infer_test(
                 + " and adding 'import jax; jax.config.update('jax_enable_x64', True)' may fix it."
                 + " If this issue keeps rising for many genes, contact the developer."
             )
-            priors = prev_priors
-            posteriors = prev_posteriors
             break
 
         decimal_digit = len(str(min_tol)) - str(min_tol).find(".") - 1

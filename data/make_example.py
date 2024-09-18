@@ -1,11 +1,41 @@
 import pandas as pd
 from pandas_plink import read_plink
+from scipy import stats
 
 import jax.numpy as jnp
 from jax import random
 
 # set key
 rng_key = random.PRNGKey(1234)
+
+
+def regress(Z, pheno):
+    betas = []
+    ses = []
+    pvals = []
+    zs = []
+    for snp in Z.T:
+        beta, inter, rval, pval, se = stats.linregress(snp, pheno)
+        betas.append(beta)
+        ses.append(se)
+        pvals.append(pval)
+        zs.append(beta / se)
+
+    res = pd.DataFrame({"beta": betas, "se": ses, "pval": pvals, "zs": zs})
+
+    return res
+
+
+def _compute_ld(G):
+    G = G.T
+    n, p = [float(x) for x in G.shape]
+    mafs = jnp.mean(G, axis=0) / 2
+    G -= mafs * 2
+    G /= jnp.std(G, axis=0)
+
+    # regularize so that LD is PSD
+    LD = jnp.dot(G.T, G) / n
+    return LD
 
 
 # flip allele if necessary
@@ -69,6 +99,10 @@ for idx in range(n_pop):
     if idx > 0:
         bed[idx][flip_idx[idx - 1]] = 2 - bed[idx][flip_idx[idx - 1]]
 
+pd.DataFrame(_compute_ld(bed[0])).to_csv("EUR.ld", sep="\t", index=False)
+pd.DataFrame(_compute_ld(bed[1])).to_csv("AFR.ld", sep="\t", index=False)
+pd.DataFrame(_compute_ld(bed[2])).to_csv("HIS.ld", sep="\t", index=False)
+
 # we assume there exists 2 causal snps, and the heritability is 0.5 (we make it large as demonstrating purpose)
 # we also assume the qtl effect size correlations are 0.8 for all ancestry pairs
 # as a result, the per-snp variance is 0.5/2, and the covariance is 0.8*jnp.sqrt((0.5/2)**2) = 0.2
@@ -92,6 +126,7 @@ print(
 
 all_pheno = []
 all_covar = []
+all_gwas = []
 for idx in range(n_pop):
     tmp_pheno = fam[idx][["iid"]].copy()
     # make some random noises
@@ -117,6 +152,13 @@ for idx in range(n_pop):
     tmp_covar["other"] = covar_other
     all_covar.append(tmp_covar)
     tmp_covar.to_csv(f"./{pop[idx]}.covar", index=False, header=None, sep="\t")
+    # run gwas
+    df_gwas = regress(bed[idx].T, tmp_y)
+    all_gwas.append(df_gwas)
+
+all_gwas[0].to_csv("EUR.gwas", index=False, sep="\t")
+all_gwas[1].to_csv("AFR.gwas", index=False, sep="\t")
+all_gwas[2].to_csv("HIS.gwas", index=False, sep="\t")
 
 pd.concat(all_pheno).to_csv("./all.pheno", index=False, header=None, sep="\t")
 pd.concat(all_covar).to_csv("./all.covar", index=False, header=None, sep="\t")
