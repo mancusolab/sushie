@@ -1,5 +1,5 @@
 import math
-from typing import NamedTuple, Optional, Tuple
+from typing import NamedTuple, Tuple
 
 import equinox as eqx
 import pandas as pd
@@ -28,8 +28,7 @@ class _LResult_ss(NamedTuple):
 def infer_sushie_ss(
     lds: ArrayLike,
     ns: ArrayLike,
-    betas: Optional[ArrayLike] = None,
-    ses: Optional[ArrayLike] = None,
+    zs: ArrayLike,
     L: int = 10,
     no_update: bool = False,
     pi: ArrayLike = None,
@@ -49,8 +48,6 @@ def infer_sushie_ss(
 
     Args:
         lds: LD matrix for multiple ancestries.
-        betas: Effect size for multiple ancestries.
-        ses: Standard error for effect size for multiple ancestries.
         zs: molQTL scan z scores for multiple ancestries.
         ns: Sample size for each ancestry.
         L: Inferred number of eQTLs for the gene.
@@ -92,42 +89,22 @@ def infer_sushie_ss(
     if lds[0].shape[0] != lds[0].shape[1]:
         raise ValueError("LD matrices are not square matrices. Check your input.")
 
-    if betas is None:
-        raise ValueError(
-            "Effect sizes are not provided. Specify effect sizes or z-scores."
-        )
+    if zs is None:
+        raise ValueError("Z scores are not provided. Check your input.")
     else:
-        if len(betas) != n_pop:
+        if len(zs) != n_pop:
             raise ValueError(
-                f"The number of effect sizes ({len(betas)}) does not match the number of ancestries ({n_pop})."
+                f"The number of Z scores ({len(zs)}) does not match the number of ancestries ({n_pop})."
             )
 
-        if not all(beta.shape == betas[0].shape for beta in betas):
+        if not all(z.shape == zs[0].shape for z in zs):
             raise ValueError(
-                "Effect sizes do not have the same shape. Check your input."
+                "Z scores across ancestries do not have the same shape. Check your input."
             )
 
-        if betas[0].shape[0] != lds[0].shape[0]:
+        if zs[0].shape[0] != lds[0].shape[0]:
             raise ValueError(
-                "Effect sizes do not have the same number of SNPs as the LD matrices. Check your input."
-            )
-
-    if ses is None:
-        raise ValueError("Standard errors are not provided. Specify standard errors.")
-    else:
-        if len(ses) != n_pop:
-            raise ValueError(
-                f"The number of standard errors ({len(ses)}) does not match the number of ancestries ({n_pop})."
-            )
-
-        if not all(se.shape == ses[0].shape for se in ses):
-            raise ValueError(
-                "Standard errors do not have the same shape. Check your input."
-            )
-
-        if ses[0].shape[0] != lds[0].shape[0]:
-            raise ValueError(
-                "Standard errors do not have the same number of SNPs as the LD matrices. Check your input."
+                "Z scores do not have the same number of SNPs as the LD matrices. Check your input."
             )
 
     if L <= 0:
@@ -322,8 +299,8 @@ def infer_sushie_ss(
     opt_v_func = infer._EMOptFunc() if not no_update else infer._NoopOptFunc()
 
     # get XtXs and Xtys
-    sigma2 = 1 - betas ** 2
-    Xtys = jnp.sqrt(ns) * jnp.sqrt(sigma2) * (betas / ses)
+    sigma2 = ns / (ns + zs ** 2)
+    Xtys = jnp.sqrt(ns) * jnp.sqrt(sigma2) * zs
     XtXs = ns[:, :, jnp.newaxis] * lds
 
     elbo_tracker = jnp.array([-jnp.inf])
@@ -417,7 +394,7 @@ def _update_effects_ss(
     # reduce from lxpxk to pxk
     post_mean_lsum = jnp.sum(posteriors.post_mean, axis=0)
 
-    residual = Xtys - jnp.einsum("kpq,qk->kp", XtXs, post_mean_lsum)
+    residual = Xtys - jnp.einsum("kpq,kq->kp", XtXs, post_mean_lsum.T)
 
     init_l_result = _LResult_ss(
         Xtys=residual,
@@ -536,12 +513,11 @@ def _erss_ss(
     # beta was kxpxl, convert it to kxlxp
     tr_beta = jnp.transpose(beta, axes=(0, 2, 1))
     tr_beta_sq = jnp.transpose(beta_sq, axes=(0, 2, 1))
-    # vb = e(beta^2) - e(beta)^2
-    v_beta = tr_beta_sq - tr_beta ** 2
-    # sum over all l and sum over all p (trace)
-    term_4 = jnp.einsum("kp,klp->k", jnp.diagonal(XtXs, axis1=1, axis2=2), v_beta)
 
-    return term_1 + term_2 + term_3 + term_4
+    term_4 = -1 * jnp.einsum("klp,kpq,klq->k", tr_beta, XtXs, tr_beta)
+    term_5 = jnp.einsum("kp,klp->k", jnp.diagonal(XtXs, axis1=1, axis2=2), tr_beta_sq)
+
+    return term_1 + term_2 + term_3 + term_4 + term_5
 
 
 def make_cs_ss(

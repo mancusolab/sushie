@@ -4,9 +4,11 @@ from scipy import stats
 
 import jax.numpy as jnp
 from jax import random
+from jax.config import config
 
 # set key
 rng_key = random.PRNGKey(1234)
+config.update("jax_enable_x64", True)
 
 
 def regress(Z, pheno):
