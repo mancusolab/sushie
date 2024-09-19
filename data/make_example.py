@@ -155,7 +155,12 @@ for idx in range(n_pop):
     all_covar.append(tmp_covar)
     tmp_covar.to_csv(f"./{pop[idx]}.covar", index=False, header=None, sep="\t")
     # run gwas
-    df_gwas = regress(bed[idx].T, tmp_y)
+    gwas_bed = bed[idx].T
+    gwas_bed -= jnp.mean(gwas_bed, axis=0)
+    gwas_bed /= jnp.std(gwas_bed, axis=0)
+    tmp_y -= jnp.mean(tmp_y)
+    tmp_y /= jnp.std(tmp_y)
+    df_gwas = regress(gwas_bed, tmp_y)
     all_gwas.append(df_gwas)
 
 pd.concat(all_pheno).to_csv("./all.pheno", index=False, header=None, sep="\t")

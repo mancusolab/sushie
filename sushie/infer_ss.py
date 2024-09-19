@@ -30,7 +30,6 @@ def infer_sushie_ss(
     ns: ArrayLike,
     betas: Optional[ArrayLike] = None,
     ses: Optional[ArrayLike] = None,
-    zs: Optional[ArrayLike] = None,
     L: int = 10,
     no_update: bool = False,
     pi: ArrayLike = None,
@@ -93,59 +92,42 @@ def infer_sushie_ss(
     if lds[0].shape[0] != lds[0].shape[1]:
         raise ValueError("LD matrices are not square matrices. Check your input.")
 
-    if zs is None:
-        if betas is None:
-            raise ValueError(
-                "Effect sizes or z-scores are not provided. Specify effect sizes or z-scores."
-            )
-        else:
-            if len(betas) != n_pop:
-                raise ValueError(
-                    f"The number of effect sizes ({len(betas)}) does not match the number of ancestries ({n_pop})."
-                )
-
-            if not all(beta.shape == betas[0].shape for beta in betas):
-                raise ValueError(
-                    "Effect sizes do not have the same shape. Check your input."
-                )
-
-            if betas[0].shape[0] != lds[0].shape[0]:
-                raise ValueError(
-                    "Effect sizes do not have the same number of SNPs as the LD matrices. Check your input."
-                )
-
-            if ses is None:
-                raise ValueError(
-                    "Standard errors are not provided. Specify standard errors."
-                )
-            else:
-                if len(ses) != n_pop:
-                    raise ValueError(
-                        f"The number of standard errors ({len(ses)}) does not match the number of ancestries ({n_pop})."
-                    )
-
-                if not all(se.shape == ses[0].shape for se in ses):
-                    raise ValueError(
-                        "Standard errors do not have the same shape. Check your input."
-                    )
-
-                if ses[0].shape[0] != lds[0].shape[0]:
-                    raise ValueError(
-                        "Standard errors do not have the same number of SNPs as the LD matrices. Check your input."
-                    )
-                zs = betas / ses
+    if betas is None:
+        raise ValueError(
+            "Effect sizes are not provided. Specify effect sizes or z-scores."
+        )
     else:
-        if len(zs) != n_pop:
+        if len(betas) != n_pop:
             raise ValueError(
-                f"The number of z-scores ({len(zs)}) does not match the number of ancestries ({n_pop})."
+                f"The number of effect sizes ({len(betas)}) does not match the number of ancestries ({n_pop})."
             )
 
-        if not all(z.shape == zs[0].shape for z in zs):
-            raise ValueError("Z-scores do not have the same shape. Check your input.")
-
-        if zs[0].shape[0] != lds[0].shape[0]:
+        if not all(beta.shape == betas[0].shape for beta in betas):
             raise ValueError(
-                "Z-scores do not have the same number of SNPs as the LD matrices. Check your input."
+                "Effect sizes do not have the same shape. Check your input."
+            )
+
+        if betas[0].shape[0] != lds[0].shape[0]:
+            raise ValueError(
+                "Effect sizes do not have the same number of SNPs as the LD matrices. Check your input."
+            )
+
+    if ses is None:
+        raise ValueError("Standard errors are not provided. Specify standard errors.")
+    else:
+        if len(ses) != n_pop:
+            raise ValueError(
+                f"The number of standard errors ({len(ses)}) does not match the number of ancestries ({n_pop})."
+            )
+
+        if not all(se.shape == ses[0].shape for se in ses):
+            raise ValueError(
+                "Standard errors do not have the same shape. Check your input."
+            )
+
+        if ses[0].shape[0] != lds[0].shape[0]:
+            raise ValueError(
+                "Standard errors do not have the same number of SNPs as the LD matrices. Check your input."
             )
 
     if L <= 0:
@@ -340,12 +322,9 @@ def infer_sushie_ss(
     opt_v_func = infer._EMOptFunc() if not no_update else infer._NoopOptFunc()
 
     # get XtXs and Xtys
-    # Zou et al. Plos Genet
-    sigma2 = ns / (zs ** 2 + ns)
-    Xtys = jnp.sqrt(ns) * jnp.sqrt(sigma2) * zs
-    # new_lds = lds + jnp.eye(lds.shape[1]) * 0.1
-    new_lds = lds
-    XtXs = ns[:, :, jnp.newaxis] * new_lds
+    sigma2 = 1 - betas ** 2
+    Xtys = jnp.sqrt(ns) * jnp.sqrt(sigma2) * (betas / ses)
+    XtXs = ns[:, :, jnp.newaxis] * lds
 
     elbo_tracker = jnp.array([-jnp.inf])
     elbo_increase = True
@@ -462,7 +441,6 @@ def _update_effects_ss(
     sigma2 = _erss_ss(Xtys, XtXs, ns, tr_b_s, tr_bsq_s)[:, jnp.newaxis] / ns
     kl_divs = jnp.sum(posteriors.kl)
     elbo_score = exp_ll - kl_divs
-
     priors = priors._replace(resid_var=sigma2)
 
     return priors, posteriors, elbo_score
@@ -509,7 +487,7 @@ def _ssr_ss(
 ) -> Tuple[infer.Prior, infer.Posterior]:
 
     n_pop, n_snps = Xtys.shape
-
+    # Xtys is kxp, priors.resid_var is kx1, and the result is kxp, transpose is pxk
     rTZDinv = (Xtys / priors.resid_var).T
 
     # priors.resid_var is kx1, XtXs is kxpxp, and the result is kxp, and inverse is pxk
@@ -546,10 +524,12 @@ def _erss_ss(
     Xtys: ArrayLike, XtXs: ArrayLike, ns: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike
 ) -> Array:
 
+    # beta is kxpxl
     ebeta = jnp.sum(beta, axis=2)
     # N, ns is k by 1
     term_1 = jnp.squeeze(ns)
     # -2 * E(beta)(Xty)
+    # ebeta is kxp, and Xtys is kxp, multiply them still kxp, and sum over p, so it's k
     term_2 = -2 * jnp.sum(ebeta * Xtys, axis=1)
     # eb * XtXs * eb
     term_3 = jnp.einsum("kp,kpq,kq->k", ebeta, XtXs, ebeta)

@@ -650,7 +650,6 @@ def _compute_posterior(
     prior_covar = priors.effect_covar[l_iter]
     # post_covar is pxkxk
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
-    # pxk
 
     # dim m = dim k for the next two lines
     post_mean = jnp.einsum("pkm,pm->pk", post_covar, rTZDinv)
@@ -745,6 +744,7 @@ def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Ar
     term_1 = jnp.sum((y - jnp.sum(mu_li, axis=2)) ** 2, axis=1)
     # sum across n and l, then term_2 is kx1
     term_2 = jnp.sum(mu2_li - (mu_li ** 2), axis=(1, 2))
+
     return term_1 + term_2
 
 
