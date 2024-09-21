@@ -906,10 +906,8 @@ def make_cs(
 def _infer_test(
     Xs: List[ArrayLike],
     ys: List[ArrayLike],
-    covar: utils.ListArrayOrNone = None,
     L: int = 5,
     no_scale: bool = False,
-    no_regress: bool = False,
     no_update: bool = False,
     pi: ArrayLike = None,
     resid_var: utils.ListFloatOrNone = None,
@@ -917,10 +915,6 @@ def _infer_test(
     rho: utils.ListFloatOrNone = None,
     max_iter: int = 500,
     min_tol: float = 1e-4,
-    threshold: float = 0.95,
-    purity: float = 0.5,
-    max_select: int = 500,
-    min_snps: int = 100,
 ) -> None:
     """The main inference function for testing computation time purpose."""
     if len(Xs) == len(ys):
@@ -929,79 +923,6 @@ def _infer_test(
         raise ValueError(
             f"The number of geno ({len(Xs)}) and pheno ({len(ys)}) data does not match. Check your input."
         )
-
-    # check x and y have the same sample size
-    for idx in range(n_pop):
-        if Xs[idx].shape[0] != ys[idx].shape[0]:
-            raise ValueError(
-                f"Ancestry {idx + 1}: The sample size of geno ({Xs[idx].shape[0]}) "
-                + f"and pheno ({ys[idx].shape[0]}) data does not match. Check your input."
-            )
-
-    # check each ancestry has the same number of SNPs
-    for idx in range(1, n_pop):
-        if Xs[idx - 1].shape[1] != Xs[idx].shape[1]:
-            raise ValueError(
-                f"Ancestry {idx} and ancestry {idx} do not have "
-                + f"the same number of SNPs ({Xs[idx - 1].shape[1]} vs {Xs[idx].shape[1]})."
-            )
-
-    if L <= 0:
-        raise ValueError(f"Inferred L ({L}) is invalid, choose a positive L.")
-
-    if min_tol > 0.1:
-        log.logger.warning(
-            f"Minimum intolerance ({min_tol}) is greater than 0.1. Inference may not be accurate."
-        )
-
-    if not 0 < threshold < 1:
-        raise ValueError(
-            f"CS threshold ({threshold}) is not between 0 and 1. Specify a valid one."
-        )
-
-    if not 0 < purity < 1:
-        raise ValueError(
-            f"Purity threshold ({purity}) is not between 0 and 1. Specify a valid one."
-        )
-
-    if max_select <= 0:
-        raise ValueError(
-            "The maximum selected number of SNPs for purity is invalid. Choose a positive integer."
-        )
-
-    if max_select <= 0:
-        raise ValueError(
-            "The minimum number of SNPs to fine-map is invalid. Choose a positive integer."
-        )
-
-    if max_select < 100:
-        raise ValueError(
-            "The maximum selected number of SNPs is too small thus may miss true positives. Choose a positive integer."
-        )
-
-    if pi is not None:
-        if not (pi > 0).all():
-            raise ValueError(
-                "Prior probability/weights contain negative value. Specify a valid pi prior."
-            )
-
-        if pi.shape[0] != Xs[0].shape[1]:
-            raise ValueError(
-                f"Prior probability/weights ({pi.shape[0]}) does not match the number of SNPs ({Xs[0].shape[1]})."
-            )
-
-        if jnp.sum(pi) > 1:
-            log.logger.debug(
-                "Prior probability/weights sum to more than 1. Will normalize to sum to 1."
-            )
-            pi = float(pi / jnp.sum(pi))
-
-    # first regress out covariates if there are any, then scale the genotype and phenotype
-    if covar is not None:
-        for idx in range(n_pop):
-            Xs[idx], ys[idx] = utils.regress_covar(
-                Xs[idx], ys[idx], covar[idx], no_regress
-            )
 
     # center data
     for idx in range(n_pop):
@@ -1030,17 +951,6 @@ def _infer_test(
             )
 
     _, n_snps = Xs[0].shape
-
-    if min_snps < L:
-        raise ValueError(
-            f"The number of minimum common SNPs across ancestries ({min_snps}) is less than inferred L ({L})."
-        )
-
-    if n_snps < min_snps:
-        raise ValueError(
-            f"The number of common SNPs across ancestries ({n_snps}) is less than minimum common "
-            + "number of SNPs specified."
-        )
 
     param_effect_var = effect_var
     if effect_var is None:
