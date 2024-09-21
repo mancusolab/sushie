@@ -651,7 +651,7 @@ def make_cs_ss(
     return cs, full_alphas, pip_all, pip_cs
 
 
-def infer_ss_test(
+def _infer_ss_test(
     lds: ArrayLike,
     ns: ArrayLike,
     zs: ArrayLike,
