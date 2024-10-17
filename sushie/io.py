@@ -23,6 +23,8 @@ __all__ = [
     "read_triplet",
     "read_bgen",
     "read_vcf",
+    "read_gwas",
+    "read_ld",
     "output_cs",
     "output_alphas",
     "output_weights",
@@ -64,6 +66,23 @@ class CleanData(NamedTuple):
     geno: List[Array]
     pheno: List[Array]
     covar: utils.ListArrayOrNone
+    pi: utils.ListArrayOrNone
+
+
+class ssData(NamedTuple):
+    """Define the summary data object ready for the future inference.
+
+    Attributes:
+        gwas: GWAS data.
+        lds: LD data.
+        ssize: GWAS sample size
+        pi: prior weights for each SNP to be causal.
+
+    """
+
+    gwas: List[Array]
+    lds: List[Array]
+    ssize: List[int]
     pi: utils.ListArrayOrNone
 
 
@@ -263,6 +282,73 @@ def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
     )
 
     return bim, fam, bed
+
+
+def read_gwas(
+    path: str, header: List[str], chrom: int, start: int, end: int
+) -> pd.DataFrame:
+    """Read in GWAS data in tsv file.
+
+    Args:
+        path: The path for GWAS data (full file name).
+        header: The header for GWAS data.
+        chrom: The chromosome number.
+        start: The start position.
+        end: The end position.
+
+    Returns:
+        :py:obj:`pd.DataFrame`
+
+    """
+
+    df_gwas = pd.read_csv(path, sep="\t").dropna()
+
+    if not all(col in df_gwas.columns for col in header):
+        raise ValueError("The specified GWAS columns are not in the GWAS data.")
+
+    df_gwas = (
+        df_gwas[header]
+        .rename(
+            columns={
+                header[0]: "chrom",
+                header[1]: "snp",
+                header[2]: "pos",
+                header[3]: "a1",
+                header[4]: "a0",
+                header[5]: "z",
+            }
+        )
+        .replace([jnp.inf, -jnp.inf], jnp.nan, inplace=False)
+        .dropna(inplace=False)
+    )
+
+    df_gwas[["chr"]] = df_gwas[["chr"]].astype(int)
+    df_gwas = df_gwas[df_gwas.chr == chrom]
+    df_gwas = df_gwas[df_gwas.pos >= start]
+    df_gwas = df_gwas[df_gwas.pos <= end].copy().reset_index(drop=True)
+
+    return df_gwas
+
+
+def read_ld(path: str) -> Array:
+    """Read in ld data in tsv file.
+
+    Args:
+        path: The path for bgen genotype data (full file name).
+
+    Returns:
+        :py:obj:`Array`
+
+    """
+
+    ld = pd.read_csv(path, sep="\t").replace([jnp.inf, -jnp.inf], jnp.nan)
+
+    rows_to_drop = ld.index[ld.isna().any(axis=1)]
+    cols_to_drop = ld.columns[ld.isna().any(axis=0)]
+
+    ld = ld.drop(rows_to_drop).drop(cols_to_drop, axis=1)
+
+    return ld
 
 
 # output functions

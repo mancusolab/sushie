@@ -325,7 +325,7 @@ Parameters
      - ``--L 5``
      - Integer number of shared effects pre-specified. Larger number may cause slow inference.
    * - ``--pi``
-     - str
+     - String
      - "uniform"
      - ``--pi ./prior_weights``
      - Prior probability for each SNP to be causal (:math:`\pi` in :ref:`Model`). Default is uniform (i.e., ``1/p`` where ``p`` is the number of SNPs in the region. It is the fixed across all ancestries. Alternatively, users can specify the file path that contains the prior weights for each SNP. The weights have to be positive value. The weights will be normalized to sum to 1 before inference. The file has to be a tsv file that contains two columns where the first column is the SNP ID and the second column is the prior weights. Additional columns will be ignored. For SNPs do not have prior weights in the file, it will be assigned the average value of the rest. It can be a compressed file (e.g., tsv.gz). No headers.
@@ -379,6 +379,11 @@ Parameters
      - 0.5
      - ``--purity 0.5``
      - Specify the purity threshold for credible sets to be output. It has to be a float number between 0 and 1.
+   * - ``--purity_method``
+     - String
+     - "weighted"
+     - ``--purity_method max``
+     - Specify the method to compute purity across ancestries. Users choose 'weighted', 'max', or 'min'. `weighted` is the sum of the purity of each ancestry weighted by the sample size.", `max` is the maximum purity value across ancestries. `min` is the minimum purity value across ancestries. Default is weighted.
    * - ``--max-select``
      - Integer
      - 250

@@ -174,6 +174,7 @@ def infer_sushie(
     min_tol: float = 1e-4,
     threshold: float = 0.95,
     purity: float = 0.5,
+    purity_method: str = "weighted",
     max_select: int = 500,
     min_snps: int = 100,
     no_reorder: bool = False,
@@ -202,6 +203,7 @@ def infer_sushie(
         threshold: The credible set threshold. Default is :math:`0.95`.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
             Default is :math:`0.5`.
+        purity_method: The method to compute purity across ancestries. Default is ``weighted``.
         max_select: The maximum number of selected SNPs to compute purity. Default is :math:`500`.
         min_snps: The minimum number of SNPs to fine-map. Default is :math:`100`.
         no_reorder: Do not re-order single effects based on Frobenius norm of alpha-weighted posterior mean square.
@@ -513,10 +515,12 @@ def infer_sushie(
 
     cs, full_alphas, pip_all, pip_cs = make_cs(
         posteriors.alpha,
-        Xs,
         ns,
+        Xs,
+        None,
         threshold,
         purity,
+        purity_method,
         max_select,
         seed,
     )
@@ -773,10 +777,12 @@ def _reorder_l(priors: Prior, posteriors: Posterior) -> Tuple[Prior, Posterior, 
 
 def make_cs(
     alpha: ArrayLike,
-    Xs: ArrayLike,
     ns: ArrayLike,
+    Xs: ArrayLike = None,
+    lds: ArrayLike = None,
     threshold: float = 0.9,
     purity: float = 0.5,
+    purity_method: str = "weighted",
     max_select: int = 500,
     seed: int = 12345,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Array, Array]:
@@ -785,10 +791,12 @@ def make_cs(
     Args:
         alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
             (i.e., :math:`\\alpha` in :ref:`Model`).
-        Xs: Genotype data for multiple ancestries.
+        Xs: Genotype data for multiple ancestries. It cannot be None if lds is None.
+        lds: LD matrix for multiple ancestries. It cannot be None if Xs is None.
         ns: Sample size for each ancestry.
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
+        purity_method: The method to compute purity across ancestries.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -801,8 +809,13 @@ def make_cs(
                 are pruned.
 
     """
+    if Xs is None and lds is None:
+        raise ValueError(
+            "Both Xs and lds are None. Please specify at least one of them."
+        )
+
     rng_key = random.PRNGKey(seed)
-    n_l, n_snps = alpha.shape
+    n_l, _ = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
 
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
@@ -853,14 +866,26 @@ def make_cs(
             )
 
         # update the genotype data and LD
-        ld_Xs = Xs[:, :, snp_idx]
-        ld = jnp.einsum("ijk,ijm->ikm", ld_Xs, ld_Xs) / ns[:, jnp.newaxis]
+        if Xs is not None:
+            ld_Xs = Xs[:, :, snp_idx]
+            ld = jnp.einsum("ijk,ijm->ikm", ld_Xs, ld_Xs) / ns[:, jnp.newaxis]
+        elif lds is not None:
+            ld = lds[:, snp_idx, :][:, :, snp_idx]
 
-        ss_weight = ns / jnp.sum(ns)
+        if purity_method == "weighted":
+            ss_weight = ns / jnp.sum(ns)
 
-        avg_corr = jnp.sum(
-            jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
-        )
+            avg_corr = jnp.sum(
+                jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
+            )
+        elif purity_method == "max":
+            avg_corr = jnp.max(jnp.min(jnp.abs(ld), axis=(1, 2)))
+        elif purity_method == "min":
+            avg_corr = jnp.min(jnp.min(jnp.abs(ld), axis=(1, 2)))
+        else:
+            raise ValueError(
+                f"Invalid purity method {purity_method}. Choose from 'weighted', 'max', or 'min'."
+            )
 
         full_alphas[f"purity_l{ldx + 1}"] = avg_corr
 
@@ -901,224 +926,3 @@ def make_cs(
     )
 
     return cs, full_alphas, pip_all, pip_cs
-
-
-def _infer_test(
-    Xs: List[ArrayLike],
-    ys: List[ArrayLike],
-    L: int = 5,
-    no_scale: bool = False,
-    no_update: bool = False,
-    pi: ArrayLike = None,
-    resid_var: utils.ListFloatOrNone = None,
-    effect_var: utils.ListFloatOrNone = None,
-    rho: utils.ListFloatOrNone = None,
-    max_iter: int = 500,
-    min_tol: float = 1e-4,
-) -> None:
-    """The main inference function for testing computation time purpose."""
-    if len(Xs) == len(ys):
-        n_pop = len(Xs)
-    else:
-        raise ValueError(
-            f"The number of geno ({len(Xs)}) and pheno ({len(ys)}) data does not match. Check your input."
-        )
-
-    # center data
-    for idx in range(n_pop):
-        Xs[idx] -= jnp.mean(Xs[idx], axis=0)
-        ys[idx] -= jnp.mean(ys[idx])
-        # scale data if specified
-        if not no_scale:
-            Xs[idx] /= jnp.std(Xs[idx], axis=0)
-            ys[idx] /= jnp.std(ys[idx])
-
-        ys[idx] = jnp.squeeze(ys[idx])
-
-    if resid_var is None:
-        resid_var = []
-        for idx in range(n_pop):
-            resid_var.append(jnp.var(ys[idx], ddof=1))
-    else:
-        if len(resid_var) != n_pop:
-            raise ValueError(
-                f"Number of specified residual prior ({len(resid_var)}) does not match ancestry number ({n_pop})."
-            )
-        resid_var = [float(i) for i in resid_var]
-        if jnp.any(jnp.array(resid_var) <= 0):
-            raise ValueError(
-                f"The input of residual prior ({resid_var}) is invalid (<0). Check your input."
-            )
-
-    _, n_snps = Xs[0].shape
-
-    param_effect_var = effect_var
-    if effect_var is None:
-        effect_var = [1e-3] * n_pop
-    else:
-        if len(effect_var) != n_pop:
-            raise ValueError(
-                f"Number of specified effect prior ({len(effect_var)}) does not match ancestry number ({n_pop})."
-            )
-        effect_var = [float(i) for i in effect_var]
-        if jnp.any(jnp.array(effect_var) <= 0):
-            raise ValueError(
-                f"The input of effect size prior ({effect_var})is invalid (<0)."
-            )
-
-    exp_num_rho = math.comb(n_pop, 2)
-    param_rho = rho
-    if rho is None:
-        rho = [0.1] * exp_num_rho
-    else:
-        if n_pop == 1:
-            log.logger.info(
-                "Running single-ancestry SuShiE, but --rho is specified. Will ignore."
-            )
-
-        if (len(rho) != exp_num_rho) and n_pop != 1:
-            raise ValueError(
-                f"Number of specified rho ({len(rho)}) does not match expected"
-                + f"number {exp_num_rho}.",
-            )
-        rho = [float(i) for i in rho]
-        # double-check the if it's invalid rho
-        if jnp.any(jnp.abs(jnp.array(rho)) >= 1):
-            raise ValueError(
-                f"The input of rho ({rho}) is invalid (>=1 or <=-1). Check your input."
-            )
-
-    effect_covar = jnp.diag(jnp.array(effect_var))
-    ct = 0
-    for col in range(n_pop):
-        for row in range(1, n_pop):
-            if col < row:
-                _two_sd = jnp.sqrt(effect_var[row] * effect_var[col])
-                effect_covar = effect_covar.at[row, col].set(rho[ct] * _two_sd)
-                effect_covar = effect_covar.at[col, row].set(rho[ct] * _two_sd)
-                ct += 1
-
-    if no_update:
-        # if we specify no_update and rho, we want to keep rho through iterations and update variance
-        if param_effect_var is None and param_rho is not None and n_pop != 1:
-            prior_adjustor = _PriorAdjustor(
-                times=jnp.eye(n_pop),
-                plus=effect_covar - jnp.diag(jnp.diag(effect_covar)),
-            )
-
-            log.logger.info(
-                "No updates on the prior effect correlation rho while updating prior effect variance."
-            )
-        # if we specify no_update and effect_covar, we want to keep variance through iterations, and update rho
-        elif param_effect_var is not None and param_rho is None and n_pop != 1:
-            prior_adjustor = _PriorAdjustor(
-                times=jnp.ones((n_pop, n_pop)) - jnp.eye(n_pop),
-                plus=effect_covar * jnp.eye(n_pop),
-            )
-            log.logger.info(
-                "No updates on the prior effect variance while updating prior effect correlation rho."
-            )
-        # if we (do not specify effect_covar and rho) or (specify both effect_covar and rho)
-        # nothing is updated through iterations
-        else:
-            prior_adjustor = _PriorAdjustor(
-                times=jnp.zeros((n_pop, n_pop)), plus=effect_covar
-            )
-            log.logger.info(
-                "No updates on the prior effect size variance/covariance matrix."
-            )
-    else:
-        prior_adjustor = _PriorAdjustor(
-            times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop))
-        )
-
-    # define:
-    # k is ancestry
-    # n is sample size
-    # p is SNP
-    # l is the number of effects
-
-    priors = Prior(
-        # p x 1
-        pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
-        # k x 1
-        resid_var=jnp.array(resid_var)[:, jnp.newaxis],
-        # l x k x k
-        effect_covar=jnp.array([effect_covar] * L),
-    )
-
-    posteriors = Posterior(
-        # l x p
-        alpha=jnp.zeros((L, n_snps)),
-        # l x p x k
-        post_mean=jnp.zeros((L, n_snps, n_pop)),
-        # l x p x k x k
-        post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
-        # l x n x n
-        weighted_sum_covar=jnp.zeros((L, n_pop, n_pop)),
-        kl=jnp.zeros((L,)),
-    )
-
-    # since we use prior adjustor, this is really no need
-    # opt_v_func = NoopOptFunc() would work
-    opt_v_func = _EMOptFunc() if not no_update else _NoopOptFunc()
-
-    # padding
-    ns = jnp.array([X.shape[0] for X in Xs])[:, jnp.newaxis]
-    p_max = jnp.max(ns)
-    for idx in range(n_pop):
-        # ((a,b), (c,d)) where a means top, b means bottom, c means left, and d means right
-        Xs[idx] = jnp.pad(
-            Xs[idx], ((0, p_max - jnp.squeeze(ns[idx])), (0, 0)), "constant"
-        )
-        ys[idx] = jnp.pad(ys[idx], (0, p_max - jnp.squeeze(ns[idx])), "constant")
-    # k x n x p
-    Xs = jnp.array(Xs)
-    # k x n
-    ys = jnp.array(ys)
-    XtXs = jnp.sum(Xs ** 2, axis=1)
-
-    elbo_tracker = jnp.array([-jnp.inf])
-    for o_iter in range(max_iter):
-        priors, posteriors, elbo_cur = _update_effects(
-            Xs,
-            ys,
-            XtXs,
-            ns,
-            priors,
-            posteriors,
-            prior_adjustor,
-            opt_v_func,
-        )
-        elbo_last = elbo_tracker[o_iter]
-        elbo_tracker = jnp.append(elbo_tracker, elbo_cur)
-        elbo_increase = elbo_cur >= elbo_last or jnp.isclose(
-            elbo_cur, elbo_last, atol=1e-8
-        )
-
-        if not elbo_increase:
-            log.logger.warning(
-                f"Optimization concludes after {o_iter + 1} iterations."
-                + f" ELBO decreases. Final ELBO score: {elbo_cur}. Return last iteration's results."
-                + " It can be precision issue,"
-                + " and adding 'import jax; jax.config.update('jax_enable_x64', True)' may fix it."
-                + " If this issue keeps rising for many genes, contact the developer."
-            )
-            break
-
-        decimal_digit = len(str(min_tol)) - str(min_tol).find(".") - 1
-
-        if jnp.abs(elbo_cur - elbo_last) < min_tol:
-            log.logger.info(
-                f"Optimization concludes after {o_iter + 1} iterations. Final ELBO score: {elbo_cur:.{decimal_digit}f}."
-                + f" Reach minimum tolerance threshold {min_tol}.",
-            )
-            break
-
-        if o_iter + 1 == max_iter:
-            log.logger.info(
-                f"Optimization concludes after {o_iter + 1} iterations. Final ELBO score: {elbo_cur:.{decimal_digit}f}."
-                + f" Reach maximum iteration threshold {max_iter}.",
-            )
-
-    return None
