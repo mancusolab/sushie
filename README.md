@@ -58,7 +58,7 @@ sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --covar
 For fine-mapping using summary-level data:
 ``` bash
 cd ./data/
-sushie finemap --summaary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-header chrom snp pos a1 a0 zs --output ./test_result
+sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-header chrom snp pos a1 a0 zs --output ./test_result
 ```
 
 It can perform:
