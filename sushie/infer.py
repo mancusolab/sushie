@@ -271,7 +271,11 @@ def infer_sushie(
             "The maximum selected number of SNPs is too small thus may miss true positives. Choose a positive integer."
         )
 
-    if pi is not None:
+    _, n_snps = Xs[0].shape
+
+    if pi is None:
+        pi = jnp.ones(n_snps) / float(n_snps)
+    else:
         if not (pi > 0).all():
             raise ValueError(
                 "Prior probability/weights contain negative value. Specify a valid pi prior."
@@ -284,9 +288,9 @@ def infer_sushie(
 
         if jnp.sum(pi) > 1:
             log.logger.debug(
-                "Prior probability/weights sum to more than 1. Will normalize to sum to 1."
+                "Prior probability/weights sum is not equal to 1. Will normalize to sum to 1."
             )
-            pi = float(pi / jnp.sum(pi))
+            pi = pi.astype(float) / jnp.sum(pi)
 
     # first regress out covariates if there are any, then scale the genotype and phenotype
     if covar is not None:
@@ -320,8 +324,6 @@ def infer_sushie(
             raise ValueError(
                 f"The input of residual prior ({resid_var}) is invalid (<0). Check your input."
             )
-
-    _, n_snps = Xs[0].shape
 
     if min_snps < L:
         raise ValueError(
@@ -422,7 +424,7 @@ def infer_sushie(
 
     priors = Prior(
         # p x 1
-        pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
+        pi=pi,
         # k x 1
         resid_var=jnp.array(resid_var)[:, jnp.newaxis],
         # l x k x k

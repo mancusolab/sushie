@@ -33,11 +33,34 @@ do
   covar_EUR=eur_covar_file
   covar_AFR=afr_covar_file
 
+  # for fine-mapping using individual-level data
   sushie finemap \
-  --pheno $pheno_EUR $pheno_AFR \
-  --covar $covar_EUR $covar_AFR \
-  # if your genotype data is in plink1.9
-  --plink  $geno_EUR $geno_AFR \
-  --trait ${NAME} \
-  --output ${NAME}.sushie
+    --pheno $pheno_EUR $pheno_AFR \
+    --covar $covar_EUR $covar_AFR \
+    --plink  $geno_EUR $geno_AFR \
+    --trait ${NAME} \
+    --output ${NAME}.sushie
+
+  gwas_EUR=eur_gwas_file
+  gwas_AFR=afr_gwas_file
+
+  ld_EUR=eur_ld_file
+  ld_AFR=afr_ld_file
+
+  # for fine-mapping using summary-level data (User specify LD matrix)
+  sushie finemap \
+    --summary \
+    --gwas $gwas_EUR $gwas_AFR \
+    --ld $ld_EUR $ld_AFR \
+    --sample-size 100 100 \
+    --trait ${NAME} \
+    --output ${NAME}.sushie
+
+  # for fine-mapping using summary-level data (User specify individual-level reference data)
+  sushie finemap \
+    --summary \
+    --gwas $gwas_EUR $gwas_AFR \
+    --plink $geno_EUR $geno_AFR \
+    --trait ${NAME} \
+    --output ${NAME}.sushie
 done

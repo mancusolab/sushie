@@ -67,8 +67,13 @@ fam_index = []
 
 for idx in range(n_pop):
     tmp_bim, tmp_fam, tmp_bed = read_plink(f"./plink/{pop[idx]}", verbose=False)
-    tmp_bim = tmp_bim[["chrom", "snp", "a0", "a1", "i"]].rename(
-        columns={"i": f"bimIDX_{idx}", "a0": f"a0_{idx}", "a1": f"a1_{idx}"}
+    tmp_bim = tmp_bim[["chrom", "snp", "pos", "a0", "a1", "i"]].rename(
+        columns={
+            "pos": f"pos_{idx}",
+            "i": f"bimIDX_{idx}",
+            "a0": f"a0_{idx}",
+            "a1": f"a1_{idx}",
+        }
     )
     bim.append(tmp_bim)
     fam.append(tmp_fam)
@@ -92,7 +97,7 @@ if n_pop > 1:
         )
         flip_idx.append(tmp_flip_idx)
         snps = snps.drop(columns=[f"a0_{idx}", f"a1_{idx}"])
-    snps = snps.rename(columns={"a0_0": "a0", "a1_0": "a1"})
+    snps = snps.rename(columns={"a0_0": "a0", "a1_0": "a1", "pos_0": "pos"})
 
 lds = []
 for idx in range(n_pop):
@@ -103,9 +108,10 @@ for idx in range(n_pop):
         bed[idx][flip_idx[idx - 1]] = 2 - bed[idx][flip_idx[idx - 1]]
     lds.append(_compute_ld(bed[idx]))
 
-pd.DataFrame(_compute_ld(bed[0])).to_csv("EUR.ld", sep="\t", index=False)
-pd.DataFrame(_compute_ld(bed[1])).to_csv("AFR.ld", sep="\t", index=False)
-pd.DataFrame(_compute_ld(bed[2])).to_csv("HIS.ld", sep="\t", index=False)
+for idx in range(n_pop):
+    tmp_ld = pd.DataFrame(_compute_ld(bed[idx]))
+    tmp_ld.columns = snps.snp
+    tmp_ld.round(4).to_csv(f"{pop[idx]}.ld", sep="\t", index=False)
 
 # we assume there exists 2 causal snps, and the heritability is 0.5 (we make it large as demonstrating purpose)
 # we also assume the qtl effect size correlations are 0.8 for all ancestry pairs
@@ -169,9 +175,10 @@ pd.concat(all_pheno).to_csv("./all.pheno", index=False, header=None, sep="\t")
 pd.concat(all_covar).to_csv("./all.covar", index=False, header=None, sep="\t")
 pd.concat(fam_index).to_csv("./all.ancestry.index", index=False, header=None, sep="\t")
 
-all_gwas[0].to_csv("./EUR.gwas", index=False, header=True, sep="\t")
-all_gwas[1].to_csv("./AFR.gwas", index=False, header=True, sep="\t")
-all_gwas[2].to_csv("./HIS.gwas", index=False, header=True, sep="\t")
+for idx in range(n_pop):
+    pd.concat(
+        [snps[["chrom", "snp", "pos", "a0", "a1"]], all_gwas[idx]], axis=1
+    ).to_csv(f"./{pop[idx]}.gwas", index=False, header=True, sep="\t")
 
 # create keep.subject file, randomly 1500 from 1609 individuals
 rng_key, pt_key = random.split(rng_key, 2)

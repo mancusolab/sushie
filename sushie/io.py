@@ -80,9 +80,9 @@ class ssData(NamedTuple):
 
     """
 
-    gwas: List[Array]
+    zs: List[Array]
     lds: List[Array]
-    ssize: List[int]
+    ns: Array
     pi: utils.ListArrayOrNone
 
 
@@ -285,7 +285,11 @@ def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
 
 
 def read_gwas(
-    path: str, header: List[str], chrom: int, start: int, end: int
+    path: str,
+    header: List[str],
+    chrom: utils.IntOrNone,
+    start: utils.IntOrNone,
+    end: utils.IntOrNone,
 ) -> pd.DataFrame:
     """Read in GWAS data in tsv file.
 
@@ -322,10 +326,19 @@ def read_gwas(
         .dropna(inplace=False)
     )
 
-    df_gwas[["chr"]] = df_gwas[["chr"]].astype(int)
-    df_gwas = df_gwas[df_gwas.chr == chrom]
-    df_gwas = df_gwas[df_gwas.pos >= start]
-    df_gwas = df_gwas[df_gwas.pos <= end].copy().reset_index(drop=True)
+    df_gwas[["chrom"]] = df_gwas[["chrom"]].astype(int)
+    df_gwas[["pos"]] = df_gwas[["pos"]].astype(int)
+
+    if chrom is not None:
+        df_gwas = df_gwas[df_gwas.chrom == chrom]
+
+    if start is not None:
+        df_gwas = df_gwas[df_gwas.pos >= start]
+
+    if end is not None:
+        df_gwas = df_gwas[df_gwas.pos <= end]
+
+    df_gwas = df_gwas.copy().reset_index(drop=True)
 
     return df_gwas
 
@@ -347,6 +360,7 @@ def read_ld(path: str) -> Array:
     cols_to_drop = ld.columns[ld.isna().any(axis=0)]
 
     ld = ld.drop(rows_to_drop).drop(cols_to_drop, axis=1)
+    ld.index = ld.columns
 
     return ld
 
