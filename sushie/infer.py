@@ -18,6 +18,12 @@ __all__ = [
     "SushieResult",
     "infer_sushie",
     "make_cs",
+    "_PriorAdjustor",
+    "_AbstractOptFunc",
+    "_NoopOptFunc",
+    "_EMOptFunc",
+    "_compute_posterior",
+    "_reorder_l",
 ]
 
 
@@ -156,7 +162,7 @@ def infer_sushie(
     Xs: List[ArrayLike],
     ys: List[ArrayLike],
     covar: utils.ListArrayOrNone = None,
-    L: int = 5,
+    L: int = 10,
     no_scale: bool = False,
     no_regress: bool = False,
     no_update: bool = False,
@@ -166,8 +172,9 @@ def infer_sushie(
     rho: utils.ListFloatOrNone = None,
     max_iter: int = 500,
     min_tol: float = 1e-4,
-    threshold: float = 0.9,
+    threshold: float = 0.95,
     purity: float = 0.5,
+    purity_method: str = "weighted",
     max_select: int = 500,
     min_snps: int = 100,
     no_reorder: bool = False,
@@ -191,15 +198,17 @@ def infer_sushie(
             Default is :math:`0.001` by specifying it as ``None``.
         rho: Prior effect size correlation (:math:`\\rho` in :ref:`Model`).
             Default is :math:`0.1` by specifying it as ``None``.
-        max_iter: The maximum iteration for optimization.
-        min_tol: The convergence tolerance.
-        threshold: The credible set threshold.
+        max_iter: The maximum iteration for optimization. Default is :math:`500`.
+        min_tol: The convergence tolerance. Default is :math:`10^{-4}`.
+        threshold: The credible set threshold. Default is :math:`0.95`.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-        max_select: The maximum number of selected SNPs to compute purity.
-        min_snps: The minimum number of SNPs to fine-map.
+            Default is :math:`0.5`.
+        purity_method: The method to compute purity across ancestries. Default is ``weighted``.
+        max_select: The maximum number of selected SNPs to compute purity. Default is :math:`500`.
+        min_snps: The minimum number of SNPs to fine-map. Default is :math:`100`.
         no_reorder: Do not re-order single effects based on Frobenius norm of alpha-weighted posterior mean square.
             Default is to re-order.
-        seed: The randomization seed for selecting SNPs in the credible set to compute purity.
+        seed: The randomization seed for selecting SNPs in the credible set to compute purity. Default is :math:`12345`.
 
     Returns:
         :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
@@ -262,7 +271,11 @@ def infer_sushie(
             "The maximum selected number of SNPs is too small thus may miss true positives. Choose a positive integer."
         )
 
-    if pi is not None:
+    _, n_snps = Xs[0].shape
+
+    if pi is None:
+        pi = jnp.ones(n_snps) / float(n_snps)
+    else:
         if not (pi > 0).all():
             raise ValueError(
                 "Prior probability/weights contain negative value. Specify a valid pi prior."
@@ -275,9 +288,9 @@ def infer_sushie(
 
         if jnp.sum(pi) > 1:
             log.logger.debug(
-                "Prior probability/weights sum to more than 1. Will normalize to sum to 1."
+                "Prior probability/weights sum is not equal to 1. Will normalize to sum to 1."
             )
-            pi = float(pi / jnp.sum(pi))
+            pi = pi.astype(float) / jnp.sum(pi)
 
     # first regress out covariates if there are any, then scale the genotype and phenotype
     if covar is not None:
@@ -311,8 +324,6 @@ def infer_sushie(
             raise ValueError(
                 f"The input of residual prior ({resid_var}) is invalid (<0). Check your input."
             )
-
-    _, n_snps = Xs[0].shape
 
     if min_snps < L:
         raise ValueError(
@@ -413,7 +424,7 @@ def infer_sushie(
 
     priors = Prior(
         # p x 1
-        pi=jnp.ones(n_snps) / float(n_snps) if pi is None else pi,
+        pi=pi,
         # k x 1
         resid_var=jnp.array(resid_var)[:, jnp.newaxis],
         # l x k x k
@@ -506,10 +517,12 @@ def infer_sushie(
 
     cs, full_alphas, pip_all, pip_cs = make_cs(
         posteriors.alpha,
-        Xs,
         ns,
+        Xs,
+        None,
         threshold,
         purity,
+        purity_method,
         max_select,
         seed,
     )
@@ -615,19 +628,13 @@ def _ssr(
     n_pop, _, n_snps = Xs.shape
 
     Xty = jnp.einsum("knp,kn->kp", Xs, ys)
-    # beta_hat is pxk
-    beta_hat = (Xty / XtXs).T
+    rTZDinv = (Xty / priors.resid_var).T
 
     # priors.resid_var is kx1, XtXs is kxp, and the result is kxp, and inverse is pxk
-    shat2 = (priors.resid_var / XtXs).T
-    # also pxk
-    inv_shat2 = 1 / shat2
+    inv_shat2 = (XtXs / priors.resid_var).T
 
     # expand it to diag matrix, so they're pxkxk
-    shat2 = jnp.eye(n_pop) * shat2[:, jnp.newaxis]
     inv_shat2 = jnp.eye(n_pop) * inv_shat2[:, jnp.newaxis]
-
-    rTZDinv = beta_hat / jnp.diagonal(shat2, axis1=1, axis2=2)
 
     priors = opt_v_func(rTZDinv, inv_shat2, priors, posteriors, prior_adjustor, l_iter)
 
@@ -649,7 +656,6 @@ def _compute_posterior(
     prior_covar = priors.effect_covar[l_iter]
     # post_covar is pxkxk
     post_covar = jnp.linalg.inv(inv_shat2 + jnp.linalg.inv(prior_covar))
-    # pxk
 
     # dim m = dim k for the next two lines
     post_mean = jnp.einsum("pkm,pm->pk", post_covar, rTZDinv)
@@ -744,6 +750,7 @@ def _erss(X: ArrayLike, y: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike) -> Ar
     term_1 = jnp.sum((y - jnp.sum(mu_li, axis=2)) ** 2, axis=1)
     # sum across n and l, then term_2 is kx1
     term_2 = jnp.sum(mu2_li - (mu_li ** 2), axis=(1, 2))
+
     return term_1 + term_2
 
 
@@ -772,10 +779,12 @@ def _reorder_l(priors: Prior, posteriors: Posterior) -> Tuple[Prior, Posterior, 
 
 def make_cs(
     alpha: ArrayLike,
-    Xs: ArrayLike,
     ns: ArrayLike,
+    Xs: ArrayLike = None,
+    lds: ArrayLike = None,
     threshold: float = 0.9,
     purity: float = 0.5,
+    purity_method: str = "weighted",
     max_select: int = 500,
     seed: int = 12345,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, Array, Array]:
@@ -784,10 +793,12 @@ def make_cs(
     Args:
         alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
             (i.e., :math:`\\alpha` in :ref:`Model`).
-        Xs: Genotype data for multiple ancestries.
+        Xs: Genotype data for multiple ancestries. It cannot be None if lds is None.
+        lds: LD matrix for multiple ancestries. It cannot be None if Xs is None.
         ns: Sample size for each ancestry.
         threshold: The credible set threshold.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
+        purity_method: The method to compute purity across ancestries.
         max_select: The maximum number of selected SNPs to compute purity.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
@@ -800,8 +811,13 @@ def make_cs(
                 are pruned.
 
     """
+    if Xs is None and lds is None:
+        raise ValueError(
+            "Both Xs and lds are None. Please specify at least one of them."
+        )
+
     rng_key = random.PRNGKey(seed)
-    n_l, n_snps = alpha.shape
+    n_l, _ = alpha.shape
     t_alpha = pd.DataFrame(alpha.T).reset_index()
 
     cs = pd.DataFrame(columns=["CSIndex", "SNPIndex", "alpha", "c_alpha"])
@@ -852,14 +868,26 @@ def make_cs(
             )
 
         # update the genotype data and LD
-        ld_Xs = Xs[:, :, snp_idx]
-        ld = jnp.einsum("ijk,ijm->ikm", ld_Xs, ld_Xs) / ns[:, jnp.newaxis]
+        if Xs is not None:
+            ld_Xs = Xs[:, :, snp_idx]
+            ld = jnp.einsum("ijk,ijm->ikm", ld_Xs, ld_Xs) / ns[:, jnp.newaxis]
+        elif lds is not None:
+            ld = lds[:, snp_idx, :][:, :, snp_idx]
 
-        ss_weight = ns / jnp.sum(ns)
+        if purity_method == "weighted":
+            ss_weight = ns / jnp.sum(ns)
 
-        avg_corr = jnp.sum(
-            jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
-        )
+            avg_corr = jnp.sum(
+                jnp.min(jnp.abs(ld), axis=(1, 2))[:, jnp.newaxis] * ss_weight
+            )
+        elif purity_method == "max":
+            avg_corr = jnp.max(jnp.min(jnp.abs(ld), axis=(1, 2)))
+        elif purity_method == "min":
+            avg_corr = jnp.min(jnp.min(jnp.abs(ld), axis=(1, 2)))
+        else:
+            raise ValueError(
+                f"Invalid purity method {purity_method}. Choose from 'weighted', 'max', or 'min'."
+            )
 
         full_alphas[f"purity_l{ldx + 1}"] = avg_corr
 

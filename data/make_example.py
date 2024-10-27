@@ -1,11 +1,43 @@
 import pandas as pd
 from pandas_plink import read_plink
+from scipy import stats
 
 import jax.numpy as jnp
 from jax import random
+from jax.config import config
 
 # set key
 rng_key = random.PRNGKey(1234)
+config.update("jax_enable_x64", True)
+
+
+def regress(Z, pheno):
+    betas = []
+    ses = []
+    pvals = []
+    zs = []
+    for snp in Z.T:
+        beta, inter, rval, pval, se = stats.linregress(snp, pheno)
+        betas.append(beta)
+        ses.append(se)
+        pvals.append(pval)
+        zs.append(beta / se)
+
+    res = pd.DataFrame({"beta": betas, "se": ses, "pval": pvals, "zs": zs})
+
+    return res
+
+
+def _compute_ld(G):
+    G = G.T
+    n, p = [float(x) for x in G.shape]
+    mafs = jnp.mean(G, axis=0) / 2
+    G -= mafs * 2
+    G /= jnp.std(G, axis=0)
+
+    # regularize so that LD is PSD
+    LD = jnp.dot(G.T, G) / n
+    return LD
 
 
 # flip allele if necessary
@@ -35,8 +67,13 @@ fam_index = []
 
 for idx in range(n_pop):
     tmp_bim, tmp_fam, tmp_bed = read_plink(f"./plink/{pop[idx]}", verbose=False)
-    tmp_bim = tmp_bim[["chrom", "snp", "a0", "a1", "i"]].rename(
-        columns={"i": f"bimIDX_{idx}", "a0": f"a0_{idx}", "a1": f"a1_{idx}"}
+    tmp_bim = tmp_bim[["chrom", "snp", "pos", "a0", "a1", "i"]].rename(
+        columns={
+            "pos": f"pos_{idx}",
+            "i": f"bimIDX_{idx}",
+            "a0": f"a0_{idx}",
+            "a1": f"a1_{idx}",
+        }
     )
     bim.append(tmp_bim)
     fam.append(tmp_fam)
@@ -60,14 +97,21 @@ if n_pop > 1:
         )
         flip_idx.append(tmp_flip_idx)
         snps = snps.drop(columns=[f"a0_{idx}", f"a1_{idx}"])
-    snps = snps.rename(columns={"a0_0": "a0", "a1_0": "a1"})
+    snps = snps.rename(columns={"a0_0": "a0", "a1_0": "a1", "pos_0": "pos"})
 
+lds = []
 for idx in range(n_pop):
     # subset genotype file to common snps
     bed[idx] = bed[idx][snps[f"bimIDX_{idx}"].values, :].compute()
     # flip the mismatched allele
     if idx > 0:
         bed[idx][flip_idx[idx - 1]] = 2 - bed[idx][flip_idx[idx - 1]]
+    lds.append(_compute_ld(bed[idx]))
+
+for idx in range(n_pop):
+    tmp_ld = pd.DataFrame(_compute_ld(bed[idx]))
+    tmp_ld.columns = snps.snp
+    tmp_ld.round(4).to_csv(f"{pop[idx]}.ld", sep="\t", index=False)
 
 # we assume there exists 2 causal snps, and the heritability is 0.5 (we make it large as demonstrating purpose)
 # we also assume the qtl effect size correlations are 0.8 for all ancestry pairs
@@ -92,6 +136,7 @@ print(
 
 all_pheno = []
 all_covar = []
+all_gwas = []
 for idx in range(n_pop):
     tmp_pheno = fam[idx][["iid"]].copy()
     # make some random noises
@@ -117,10 +162,23 @@ for idx in range(n_pop):
     tmp_covar["other"] = covar_other
     all_covar.append(tmp_covar)
     tmp_covar.to_csv(f"./{pop[idx]}.covar", index=False, header=None, sep="\t")
+    # run gwas
+    gwas_bed = bed[idx].T
+    gwas_bed -= jnp.mean(gwas_bed, axis=0)
+    gwas_bed /= jnp.std(gwas_bed, axis=0)
+    tmp_y -= jnp.mean(tmp_y)
+    tmp_y /= jnp.std(tmp_y)
+    df_gwas = regress(gwas_bed, tmp_y)
+    all_gwas.append(df_gwas)
 
 pd.concat(all_pheno).to_csv("./all.pheno", index=False, header=None, sep="\t")
 pd.concat(all_covar).to_csv("./all.covar", index=False, header=None, sep="\t")
 pd.concat(fam_index).to_csv("./all.ancestry.index", index=False, header=None, sep="\t")
+
+for idx in range(n_pop):
+    pd.concat(
+        [snps[["chrom", "snp", "pos", "a0", "a1"]], all_gwas[idx]], axis=1
+    ).to_csv(f"./{pop[idx]}.gwas", index=False, header=True, sep="\t")
 
 # create keep.subject file, randomly 1500 from 1609 individuals
 rng_key, pt_key = random.split(rng_key, 2)

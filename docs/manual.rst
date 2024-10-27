@@ -36,7 +36,10 @@ Users can download the latest repository and then use ``pip``:
 Data Preparation
 ================
 
-SuShiE performs SNP fine-mapping on molecular data (e.g., gene expressions). Therefore, it requires at least phenotype and genotype data specified with the option to specify covariates.
+Fine-mapping using individual-level data
+-----------------------------------------
+
+To fine-map using individual-level data, SuShiE requires at least phenotype and genotype data specified with the option to specify covariates.
 
 Although we highly recommend users to perform high-quality QC on their own genotype, phenotype, and covariate data, we implement following basic QCs in the software:
 
@@ -47,10 +50,24 @@ Although we highly recommend users to perform high-quality QC on their own genot
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
 #. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
-# Users also have an option to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--remove-ambiguous`` (Default is NOT to remove them).
+#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
 #. For single ancestry SuSiE or Mega-SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
 
 See :func:`sushie.cli.process_raw` for these QCs' source codes.
+
+Fine-mapping using summary-level data (GWAS statistics)
+-------------------------------------------------------
+
+To fine-map using summary-level data, SuShiE requires at least GWAS z statistics, sample sizes, and LD data. For LD data, users can provide individual-level genotype in PLINK1.9, VCF, or BGEN format and let SuShiE compute the LD matrix, or provide pre-computed LD matrix in tsv format.
+
+Although we highly recommend users to perform high-quality QC on their own summary-level data, we implement following basic QCs in the software:
+
+#. Remove SNPs with N/A values in GWAS.
+#. Only keep SNPs that are available in all the ancestries.
+#. Adjust GWAS and genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
+#. Remove SNPs (for LD computation) that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
+#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
+
 
 Testing Data
 ------------
@@ -75,6 +92,8 @@ See :ref:`Param` for the detailed explanation of parameters.
 We make a bash script ``./misc/run_sushie.sh`` to show a more general working flow of running SuShiE.
 
 If users still have questions, feel free to contact the developers.
+
+Here are some examples for fine-mapping using individual-level data:
 
 1. Two-Ancestry SuShiE
 ----------------------
@@ -271,6 +290,50 @@ Users can use ``--pi`` command to specify a tsv file that contains the SNP ID an
     cd ./data/
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --pi prior_weights --output ./test_result
 
+Here are some examples for fine-mapping using individual-level data:
+
+1. I want to perform fine-mapping on summary-level data and I provide individual-level reference panels for LD.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --output ./test_result
+
+2. I want to perform fine-mapping on summary-level data and I provide pre-computed LD matrix.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --ld EUR.ld AFR.ld --sample-size 489 639 --output ./test_result
+
+3. I want to only focus on SNPs with GWAS P values less than 5e-8 across ``all`` ancestries.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --gwas-sig 5e-8 --gwas-sig-type all --output ./test_result
+
+4. I want to only focus on SNPs between 1bp and 1Mbp on chromsome 6
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --chrom 6 --start 1 --end 1000000 --output ./test_result
+
+5. My GWAS data has different column names.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --gwas-header CHR SNP BP A1 A2 STAT --output ./test_result
+
+6. I want to add small number to diagonal of my LD matrix to make it positive definite.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --ld EUR.ld AFR.ld --sample-size 489 639 --ld-adjust 1e-3 --output ./test_result
+
 .. _Param:
 
 Parameters
@@ -284,6 +347,11 @@ Parameters
      - Default
      - Example
      - Notes
+   * - ``--summary``
+     - Boolean
+     - False
+     - ``--summary # will store as True``
+     - Indicator whether to run fine-mapping on summary statistics. Default is False. If True, the software will need GWAS files as input data by specifying --gwas and need LD matrix by specifying either --ld or one of the --plink, --vcf, or --bgen. If False, the software will need phenotype data by specifying --pheno and genotype data by specifying either --plink, --vcf, or --bgen.
    * - ``--pheno``
      - String
      - Required, no default
@@ -319,13 +387,53 @@ Parameters
      - None
      - ``--covar EUR.covar AFR.covar``
      - Covariates that will be accounted in the fine-mapping. It has to be a tsv file that contains at least two columns where the first column is the subject ID. It can be a compressed file (e.g., tsv.gz). **No headers**. All the columns will be counted. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's. Pre-converting the categorical covariates into dummy variables is required. If the categorical covariate has ``n`` levels, make sure the dummy variables have ``n-1`` columns.
+   * - ``--ld``
+     - String
+     - None
+     - ``--ld EUR.ld AFR.ld``
+     - LD files that will be used in the fine-mapping. Default is None. Keep the same ancestry order as GWAS files. It has to be a tsv or comparessed file (e.g., tsv.gz). The header has to be the SNP name matching the GWAS data in --gwas. It can have less or more SNPs than the GWAS data, and the software will find the overlap SNPs. Users must ensure that the LD and GWAS z statistics are computed using the same counting alleles.
+   * - ``--chrom``
+     - Integer
+     - None
+     - ``--chrom 6``
+     - Chromsome number to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be an integer number between 1 and 22.
+   * - ``--start``
+     - Integer
+     - None
+     - ``--start 1``
+     - Base-pair start position to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be a positive integer number.
+   * - ``--end``
+     - Integer
+     - None
+     - ``--end 1000000``
+     - Base-pair end position to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be a positive integer number.
+   * - ``--sample-size``
+     - Integer
+     - None
+     - ``--sample-size 489 639``
+     - GWAS sample size of each ancestry. Default is None. Values have to be positive integer. Use 'space' to separate ancestries if more than two. The order has to be the same as the GWAS data in --gwas.
+   * - ``--gwas-header``
+     - String
+     - chrom snp pos a1 a2 z
+     - ``--gwas-header CHR SNP BP A1 A2 Z``
+     - GWAS file header names. Default is ['chrom', 'snp', 'pos', 'a1', 'a0', 'z']. Users can specify the header names for the GWAS data in this order.
+   * - ``--gwas-sig``
+     - Float
+     - None
+     - ``--gwas-sig 5e-8``
+     - The significance threshold for SNPs to be included in the fine-mapping. Default is 1.0. Only SNPs with P value less than this threshold will be included. It has to be a float number between 0 and 1.
+   * - ``--gwas-sig-type``
+     - String
+     - at-least
+     - ``--gwas-sig-type all``
+     - The cases how to include significant SNPs in the fine-mapping across ancestries. If it is 'at-least', the software will include SNPs that are significant in at least one ancestry. If it is 'all', the software will include SNPs that are significant in all ancestries. Default is 'at-least'. The significant threshold is specified by --gwas-sig.
    * - ``--L``
      - Integer
      - 10
      - ``--L 5``
      - Integer number of shared effects pre-specified. Larger number may cause slow inference.
    * - ``--pi``
-     - str
+     - String
      - "uniform"
      - ``--pi ./prior_weights``
      - Prior probability for each SNP to be causal (:math:`\pi` in :ref:`Model`). Default is uniform (i.e., ``1/p`` where ``p`` is the number of SNPs in the region. It is the fixed across all ancestries. Alternatively, users can specify the file path that contains the prior weights for each SNP. The weights have to be positive value. The weights will be normalized to sum to 1 before inference. The file has to be a tsv file that contains two columns where the first column is the SNP ID and the second column is the prior weights. Additional columns will be ignored. For SNPs do not have prior weights in the file, it will be assigned the average value of the rest. It can be a compressed file (e.g., tsv.gz). No headers.
@@ -371,14 +479,24 @@ Parameters
      - Minimum tolerance for the convergence. Smaller number may slow the inference while larger may cause different inference.
    * - ``--threshold``
      - Float
-     - 0.9
-     - ``--threshold 0.8``
+     - 0.95
+     - ``--threshold 0.9``
      - Specify the PIP threshold for SNPs to be included in the credible sets. It has to be a float number between 0 and 1.
    * - ``--purity``
      - Float
      - 0.5
      - ``--purity 0.5``
      - Specify the purity threshold for credible sets to be output. It has to be a float number between 0 and 1.
+   * - ``--purity_method``
+     - String
+     - "weighted"
+     - ``--purity_method max``
+     - Specify the method to compute purity across ancestries. Users choose 'weighted', 'max', or 'min'. `weighted` is the sum of the purity of each ancestry weighted by the sample size.", `max` is the maximum purity value across ancestries. `min` is the minimum purity value across ancestries. Default is weighted.
+   * - ``--ld-adjust``
+     - Float
+     - 0
+     - ``--ld-adjust 1e-3``
+     - The adjusting number to LD diagonal to ensure the positive definiteness. It has to be positive integer number between 0 and 0.1. Default is 0.
    * - ``--max-select``
      - Integer
      - 250
@@ -404,11 +522,11 @@ Parameters
      - False
      - ``--no-reorder``
      - Indicator to re-order single effects based on Frobenius norm of alpha-weighted posterior mean square. Default is False (to re-order). Specify --no-reorder will store 'True' value.
-   * - ``--remove-ambiguous``
+   * - ``--keep-ambiguous``
      - Boolean
      - False
-     - ``--remove-ambiguous``
-     - Indicator to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) from the genotypes. Recommend to remove these SNPs if each ancestry data is from different studies. Default is False (do not remove). Specify --remove-ambiguous will store 'True' value.
+     - ``--keep-ambiguous``
+     - Indicator to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) from the genotypes. Recommend to remove these SNPs if each ancestry data is from different studies or plan to use the inference results for downstream analysis with other datasets. Default is False (do not keep). Specify --keep-ambiguous will store 'True' value.
    * - ``--meta``
      - Boolean
      - False

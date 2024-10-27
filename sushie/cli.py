@@ -12,10 +12,11 @@ from importlib import metadata
 from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
+from scipy.stats import norm
 
 from jax import config, random
 
-from . import infer, io, log, utils
+from . import infer, infer_ss, io, log, utils
 
 warnings.filterwarnings("ignore")
 with warnings.catch_warnings():
@@ -30,10 +31,130 @@ __all__ = [
 ]
 
 
-def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
+def _keep_file_subjects(
+    rawData: io.RawData, keep_subject: List[str], idx: int
+) -> io.RawData:
+    _, _, _, pheno, _ = rawData
+
+    # we just need to filter out the subjects in phenotype file
+    # because later pheno and covar will be inner merged with fam file
+    old_pheno_num = pheno.shape[0]
+    pheno = pheno[pheno.iid.isin(keep_subject)].reset_index(drop=True)
+    new_pheno_num = pheno.shape[0]
+    del_num = old_pheno_num - new_pheno_num
+    if del_num != 0:
+        log.logger.debug(
+            f"Ancestry {idx + 1}:Drop {del_num} out of {old_pheno_num} subjects because of the keep subject file."
+        )
+    if new_pheno_num == 0:
+        raise ValueError(
+            f"Ancestry {idx + 1}: All subjects are removed because of the keep subject file. Check the source."
+        )
+
+    rawData = rawData._replace(
+        pheno=pheno,
+    )
+
+    return rawData
+
+
+def _drop_na_subjects(rawData: io.RawData, idx: int) -> io.RawData:
+    _, _, _, pheno, covar = rawData
+
+    old_pheno_num = pheno.shape[0]
+    pheno = pheno.dropna().reset_index(drop=True)
+    new_pheno_num = pheno.shape[0]
+    del_pheno_num = old_pheno_num - new_pheno_num
+
+    if del_pheno_num != 0:
+        log.logger.debug(
+            f"Ancestry {idx + 1}: Drop {del_pheno_num} out of {old_pheno_num} subjects"
+            + " because of INF or NAN value in phenotype data."
+        )
+
+    if new_pheno_num == 0:
+        raise ValueError(
+            f"Ancestry {idx + 1}: All subjects have INF or NAN value in phenotype data."
+            + " Check the source."
+        )
+
+    if covar is not None:
+        old_covar_num = covar.shape[0]
+        covar = covar.dropna().reset_index(drop=True)
+        new_covar_num = covar.shape[0]
+        del_covar_num = old_covar_num - new_covar_num
+
+        if del_covar_num != 0:
+            log.logger.debug(
+                f"Ancestry {idx + 1}: Drop {del_covar_num} out of {old_covar_num} subjects"
+                + " because of INF or NAN value in covariates data."
+            )
+
+        if new_covar_num == 0:
+            raise ValueError(
+                f"Ancestry {idx + 1}: All subjects have INF or NAN value in covariates data."
+                + " Check the source."
+            )
+
+    rawData = rawData._replace(
+        pheno=pheno,
+        covar=covar,
+    )
+
+    return rawData
+
+
+def _impute_geno(rawData: io.RawData, idx: int) -> io.RawData:
+    bim, _, bed, _, _ = rawData
+    old_bim_num = bim.shape[0]
+
+    # to make sure that the bim index is continuous
+    bim = bim.reset_index(drop=True)
+    # if we observe SNPs have nan value for all participants (although not likely), drop them
+    (del_idx,) = jnp.where(jnp.all(jnp.isnan(bed), axis=0))
+    # this is the first time we modify the bim and bed file
+    # it's okay just to directly drop them
+    bim = bim.drop(del_idx).reset_index(drop=True)
+    bed = jnp.delete(bed, del_idx, 1)
+
+    if len(del_idx) == bim.shape[0]:
+        raise ValueError(
+            f"Ancestry {idx + 1}: All SNPs have INF or NAN value in genotype data. Check the source."
+        )
+
+    if len(del_idx) != 0:
+        log.logger.debug(
+            f"Ancestry {idx + 1}: Drop {len(del_idx)} out of {old_bim_num} SNPs because all subjects have NAN value"
+            + " in genotype data."
+        )
+
+    # if we observe SNPs that partially have nan value, impute them with column mean
+    col_mean = jnp.nanmean(bed, axis=0)
+    # it gives the dimension index of the nan value
+    imp_idx = jnp.where(jnp.isnan(bed))
+
+    old_bim_num = bim.shape[0]
+    # column is the SNP index
+    if len(imp_idx[1]) != 0:
+        # based on the column index of imp_idx, we used jnp.take to get the (multiple) value
+        bed = bed.at[imp_idx].set(jnp.take(col_mean, imp_idx[1]))
+        log.logger.debug(
+            f"Ancestry {idx + 1}: Impute {len(imp_idx[1])} out of {old_bim_num} SNPs with NAN value based on allele"
+            + " frequency."
+        )
+
+    rawData = rawData._replace(
+        bim=bim,
+        bed=bed,
+    )
+
+    return rawData
+
+
+def _filter_maf(rawData: io.RawData, maf: float, idx: int) -> io.RawData:
     bim, _, bed, _, _ = rawData
 
-    old_num = bim.shape[0]
+    old_bim_num = bim.shape[0]
 
     # calculate maf
     snp_maf = jnp.mean(bed, axis=0) / 2
@@ -41,7 +162,7 @@ def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
 
     (sel_idx,) = jnp.where(snp_maf >= maf)
 
-    bim = bim.iloc[sel_idx, :]
+    bim = bim.iloc[sel_idx, :].reset_index(drop=True)
     bed = bed[:, sel_idx]
 
     rawData = rawData._replace(
@@ -49,141 +170,45 @@ def _filter_maf(rawData: io.RawData, maf: float) -> Tuple[io.RawData, int]:
         bed=bed,
     )
 
-    del_num = old_num - len(sel_idx)
+    del_num = old_bim_num - len(sel_idx)
 
-    return rawData, del_num
-
-
-def _keep_file_subjects(
-    rawData: io.RawData, keep_subject: List[str]
-) -> Tuple[io.RawData, int, int]:
-    _, fam, bed, pheno, covar = rawData
-
-    old_fam_num = fam.shape[0]
-    old_pheno_num = pheno.shape[0]
-
-    bed = bed[fam.iid.isin(keep_subject).values, :]
-    fam = fam.loc[fam.iid.isin(keep_subject)].reset_index(drop=True)
-    pheno = pheno.loc[pheno.iid.isin(keep_subject)].reset_index(drop=True)
-
-    if covar is not None:
-        covar = covar.loc[covar.iid.isin(keep_subject)].reset_index(drop=True)
-
-    del_fam_num = old_fam_num - fam.shape[0]
-    del_pheno_num = old_pheno_num - pheno.shape[0]
-
-    rawData = rawData._replace(
-        fam=fam,
-        pheno=pheno,
-        bed=bed,
-        covar=covar,
-    )
-
-    return rawData, del_fam_num, del_pheno_num
-
-
-def _drop_na_subjects(rawData: io.RawData) -> Tuple[io.RawData, int]:
-    _, fam, bed, pheno, covar = rawData
-
-    val = jnp.array(pheno["pheno"])
-    del_idx = jnp.logical_or(jnp.isnan(val), jnp.isinf(val))
-
-    if covar is not None:
-        val = jnp.array(covar.drop(columns="iid"))
-        covar_del = jnp.logical_or(
-            jnp.any(jnp.isinf(val), axis=1), jnp.any(jnp.isnan(val), axis=1)
+    if del_num == old_bim_num:
+        raise ValueError(
+            f"Ancestry {idx + 1}: All SNPs cannot pass the MAF threshold at {maf}."
         )
-        del_idx = jnp.logical_or(del_idx, covar_del)
 
-    (drop_idx_name,) = jnp.where(del_idx)
+    if del_num != 0:
+        log.logger.debug(
+            f"Ancestry {idx + 1}: Drop {del_num} out of {old_bim_num} SNPs because of maf threshold at {maf}."
+        )
 
-    # ambiguous_idx is the positional index, but drop use the index label, so we need to convert it
-    fam_drop_idx = fam.index[drop_idx_name]
-    pheno_drop_idx = pheno.index[drop_idx_name]
-
-    fam = fam.drop(fam_drop_idx).reset_index(drop=True)
-    pheno = pheno.drop(pheno_drop_idx).reset_index(drop=True)
-    bed = jnp.delete(bed, drop_idx_name, 0)
-
-    if covar is not None:
-        covar_drop_idx = pheno.index[drop_idx_name]
-        covar = covar.drop(covar_drop_idx).reset_index(drop=True)
-
-    rawData = rawData._replace(
-        fam=fam,
-        pheno=pheno,
-        bed=bed,
-        covar=covar,
-    )
-
-    return rawData, len(drop_idx_name)
+    return rawData
 
 
-def _remove_ambiguous_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
+def _remove_dup_geno(rawData: io.RawData, idx: int) -> io.RawData:
     bim, _, bed, _, _ = rawData
-
-    ambiguous_snps = ["AT", "TA", "CG", "GC"]
-    ambiguous_idx = jnp.where((bim.a0.values + bim.a1.values).isin(ambiguous_snps))[0]
-
-    # ambiguous_idx is the positional index, but drop use the index label, so we need to convert it
-    drop_idx = bim.index[ambiguous_idx]
-    bim = bim.drop(drop_idx).reset_index(drop=True)
-
-    bed = jnp.delete(bed, ambiguous_idx, 1)
-
-    rawData = rawData._replace(
-        bim=bim,
-        bed=bed,
-    )
-
-    return rawData, len(drop_idx)
-
-
-def _remove_dup_geno(rawData: io.RawData) -> Tuple[io.RawData, int]:
-    bim, _, bed, _, _ = rawData
+    old_bim_num = bim.shape[0]
+    # to make sure that the bim index is continuous
+    bim = bim.reset_index(drop=True)
 
     (dup_idx,) = jnp.where(bim.snp.duplicated().values)
 
-    # dup_idx is the positional index, but drop use the index label, so we need to convert it
-    dup_idx_name = bim.index[dup_idx]
-
-    bim = bim.drop(dup_idx_name).reset_index(drop=True)
+    bim = bim.drop(dup_idx).reset_index(drop=True)
     bed = jnp.delete(bed, dup_idx, 1)
+    del_num = len(dup_idx)
+
+    if del_num != 0:
+        log.logger.debug(
+            f"Ancestry {idx + 1}: Drop {del_num} out of {old_bim_num} SNPs because of duplicates in the rsID"
+            + " in genotype data."
+        )
 
     rawData = rawData._replace(
         bim=bim,
         bed=bed,
     )
 
-    return rawData, len(dup_idx)
-
-
-def _impute_geno(rawData: io.RawData) -> Tuple[io.RawData, int, int]:
-    bim, _, bed, _, _ = rawData
-
-    # if we observe SNPs have nan value for all participants (although not likely), drop them
-    (del_idx,) = jnp.where(jnp.all(jnp.isnan(bed), axis=0))
-
-    # del_idx is the positional index, but drop use the index label, so we need to convert it
-    del_idx_name = bim.index[del_idx]
-
-    bim = bim.drop(del_idx_name).reset_index(drop=True)
-    bed = jnp.delete(bed, del_idx, 1)
-
-    # if we observe SNPs that partially have nan value, impute them with column mean
-    col_mean = jnp.nanmean(bed, axis=0)
-    imp_idx = jnp.where(jnp.isnan(bed))
-
-    # column is the SNP index
-    if len(imp_idx[1]) != 0:
-        bed = bed.at[imp_idx].set(jnp.take(col_mean, imp_idx[1]))
-
-    rawData = rawData._replace(
-        bim=bim,
-        bed=bed,
-    )
-
-    return rawData, len(del_idx), len(jnp.unique(imp_idx[1]))
+    return rawData
 
 
 def _reset_idx(rawData: io.RawData, idx: int) -> io.RawData:
@@ -232,14 +257,27 @@ def _reset_idx(rawData: io.RawData, idx: int) -> io.RawData:
 def _filter_common_ind(rawData: io.RawData, idx: int) -> io.RawData:
     _, fam, _, pheno, covar = rawData
 
-    common_fam = pd.merge(
-        fam, pheno[[f"phenoIDX_{idx + 1}", "iid"]], how="inner", on=["iid"]
+    common_fam = fam.merge(
+        pheno[[f"phenoIDX_{idx + 1}", "iid"]], how="inner", on=["iid"]
     )
+
     if covar is not None:
         # match fam id and covar id
-        common_fam = pd.merge(
-            common_fam, covar[[f"covarIDX_{idx + 1}", "iid"]], how="inner", on=["iid"]
+        common_fam = common_fam.merge(
+            covar[[f"covarIDX_{idx + 1}", "iid"]], how="inner", on=["iid"]
         )
+
+    if common_fam.shape[0] == 0:
+        raise ValueError(
+            f"Ancestry {idx + 1}: No common individuals across phenotype, covariates,"
+            + " genotype found. Check the source.",
+        )
+    else:
+        log.logger.debug(
+            f"Ancestry {idx + 1}: Found {common_fam.shape[0]} common individuals"
+            + " across phenotype, covariates, and genotype.",
+        )
+
     rawData = rawData._replace(fam=common_fam)
 
     return rawData
@@ -364,9 +402,10 @@ def _run_cv(args, cv_data, pi) -> List[List[jnp.ndarray]]:
 
 
 def parameter_check(
-    args,
+    args: argparse.Namespace,
 ) -> Tuple[int, pd.DataFrame, List[str], pd.DataFrame, List[str], Callable]:
-    """The function to process raw phenotype, genotype, covariates data across ancestries.
+    """The function to process raw phenotype, genotype, covariates data across ancestries
+        for individual-level data fine-mapping.
 
     Args:
         args: The command line parameter input.
@@ -382,6 +421,11 @@ def parameter_check(
                 #. genotype read-in function (:py:obj:`Callable`).
 
     """
+    if args.pheno is None:
+        raise ValueError(
+            "No phenotype file specified. Specify --summary if summary-level fine-mapping is wanted."
+        )
+
     if args.ancestry_index is not None:
         ancestry_index = pd.read_csv(args.ancestry_index[0], header=None, sep="\t")
         old_pt = ancestry_index.shape[0]
@@ -423,7 +467,7 @@ def parameter_check(
 
     name_ancestry = "ancestry" if n_pop == 1 else "ancestries"
 
-    log.logger.info(f"Detect phenotypes for {args.trait} from {n_pop} {name_ancestry}.")
+    log.logger.info(f"Detect phenotypes for {args.trait} for {n_pop} {name_ancestry}.")
 
     n_geno = (
         int(args.plink is not None)
@@ -433,7 +477,7 @@ def parameter_check(
 
     if n_geno > 1:
         log.logger.info(
-            f"Detect {n_geno} genotypes, will only use one genotypes in the order of 'plink, vcf, and bgen'"
+            f"Detect {n_geno} genotypes, will only use one type of genotypes in the order of 'plink, vcf, and bgen'"
         )
 
     # decide genotype data
@@ -449,7 +493,9 @@ def parameter_check(
                     "The numbers of ancestries in plink geno and pheno data does not match. Check the source."
                 )
 
-        log.logger.info("Detect genotype data in plink format.")
+        log.logger.info(
+            f"Detect genotype data in plink format for {n_pop} {name_ancestry}."
+        )
         geno_path = args.plink
         geno_func = io.read_triplet
     elif args.vcf is not None:
@@ -463,7 +509,9 @@ def parameter_check(
                 raise ValueError(
                     "The numbers of ancestries in vcf geno and pheno data does not match. Check the source."
                 )
-        log.logger.info("Detect genotype data in vcf format.")
+        log.logger.info(
+            f"Detect genotype data in vcf format for {n_pop} {name_ancestry}."
+        )
         geno_path = args.vcf
         geno_func = io.read_vcf
     elif args.bgen is not None:
@@ -478,7 +526,9 @@ def parameter_check(
                     "The numbers of ancestries in bgen geno and pheno data does not match. Check the source."
                 )
 
-        log.logger.info("Detect genotype data in bgen format.")
+        log.logger.info(
+            f"Detect genotype data in bgen format for {n_pop} {name_ancestry}."
+        )
         geno_path = args.bgen
         geno_func = io.read_bgen
     else:
@@ -572,11 +622,198 @@ def parameter_check(
     return n_pop, ancestry_index, keep_subject, pi, geno_path, geno_func
 
 
+def parameter_check_ss(
+    args: argparse.Namespace,
+) -> Tuple[int, pd.DataFrame, List[str], Callable, bool]:
+    """The function to process raw phenotype, genotype, covariates data across ancestries
+        for summary-level fine-mapping.
+
+    Args:
+        args: The command line parameter input.
+
+    Returns:
+        :py:obj:`Tuple[int, pd.DataFrame, List[str], Callable]`:
+            A tuple of
+                #. an integer to indicate how many ancestries,
+                #. a DataFrame that contains prior probability for each SNP to be causal.
+                #. a list of genotype data paths (:py:obj:`List[str]`),
+                #. genotype read-in function (:py:obj:`Callable`).
+                #. a boolean to indicate whether the genotype data is in LD format.
+
+    """
+    if args.gwas is None:
+        raise ValueError("No GWAS summary statistics file specified. Check the source.")
+    else:
+        n_pop = len(args.gwas)
+
+    name_ancestry = "ancestry" if n_pop == 1 else "ancestries"
+
+    log.logger.info(f"Detect GWAS files for {args.trait} for {n_pop} {name_ancestry}.")
+
+    n_geno = (
+        int(args.plink is not None)
+        + int(args.vcf is not None)
+        + int(args.bgen is not None)
+        + int(args.ld is not None)
+    )
+
+    if n_geno > 1:
+        log.logger.info(
+            f"Detect {n_geno} genotype or LD files,"
+            + " will only use one type of file in the order of 'plink, vcf, bgen, and ld'",
+        )
+
+    # decide genotype data
+    ld_file = False
+    if args.plink is not None:
+        if len(args.plink) != n_pop:
+            raise ValueError(
+                "The numbers of ancestries in plink geno and GWAS data does not match. Check the source."
+            )
+
+        log.logger.info(
+            f"Detect genotype data in plink format for {n_pop} {name_ancestry}."
+        )
+        geno_path = args.plink
+        geno_func = io.read_triplet
+    elif args.vcf is not None:
+        if len(args.vcf) != n_pop:
+            raise ValueError(
+                "The numbers of ancestries in vcf geno and GWAS data does not match. Check the source."
+            )
+        log.logger.info(
+            f"Detect genotype data in vcf format for {n_pop} {name_ancestry}."
+        )
+        geno_path = args.vcf
+        geno_func = io.read_vcf
+    elif args.bgen is not None:
+        if len(args.bgen) != n_pop:
+            raise ValueError(
+                "The numbers of ancestries in bgen geno and GWAS data does not match. Check the source."
+            )
+
+        log.logger.info(
+            f"Detect genotype data in bgen format for {n_pop} {name_ancestry}."
+        )
+        geno_path = args.bgen
+        geno_func = io.read_bgen
+    elif args.ld is not None:
+        if len(args.ld) != n_pop:
+            raise ValueError(
+                "The numbers of ancestries in ld geno and pheno data does not match. Check the source."
+            )
+
+        log.logger.info(f"Detect LD data in tsv files for {n_pop} {name_ancestry}.")
+        geno_path = args.ld
+        geno_func = io.read_ld
+        ld_file = True
+    else:
+        raise ValueError(
+            "No genotype/LD data specified in either plink, vcf, bgen, or LD files. Check the source."
+        )
+
+    if args.sample_size is not None:
+        if len(args.sample_size) != n_pop:
+            raise ValueError(
+                "The numbers of ancestries in sample size and GWAS data does not match. Check the source."
+            )
+
+        if not all(sample_size > 0 for sample_size in args.sample_size):
+            raise ValueError(
+                "The sample size specified for summary-level fine-mapping is invalid. Choose a positive integer."
+            )
+
+        log.logger.info(f"Detect sample sizes for {n_pop} {name_ancestry}.")
+    else:
+        raise ValueError(
+            "No sample size specified for summary-level fine-mapping. Check the source."
+        )
+
+    if args.pi != "uniform":
+        log.logger.info(
+            "Detect file that contains prior weights for each SNP to be causal."
+        )
+        pi = pd.read_csv(args.pi, header=None, sep="\t")
+
+        # remove dupliate rows
+        pi = pi.drop_duplicates(subset=pi.columns[0])
+
+        if pi.shape[0] == 0:
+            raise ValueError(
+                "No prior weights are listed in the prior file. Check the source."
+            )
+
+        if pi.shape[1] < 2:
+            raise ValueError(
+                "The prior file has less than 2 columns. It has to be at least two columns."
+                + " The first column is the SNP ID, and the second column the prior probability."
+            )
+
+        if pi.shape[1] > 2:
+            log.logger.debug(
+                "The prior file has more than 2 columns. Will only use the first two columns."
+            )
+
+        pi = pi.iloc[:, 0:2]
+        pi.columns = ["snp", "pi"]
+    else:
+        pi = pd.DataFrame()
+
+    if args.seed <= 0:
+        raise ValueError(
+            "The seed specified for randomization is invalid. Choose a positive integer."
+        )
+
+    if args.maf <= 0 or args.maf > 0.5:
+        raise ValueError(
+            "The minor allele frequency (MAF) has to be between 0 (exclusive) and 0.5 (inclusive)."
+            + " Choose a valid float."
+        )
+
+    if args.meta and n_pop == 1:
+        log.logger.info(
+            "The number of ancestry is 1, but --meta is specified. Will skip meta or mega SuSiE."
+        )
+
+    if args.start is not None:
+        if args.start <= 0:
+            raise ValueError(
+                "The start position for the region is invalid. Choose a positive integer."
+            )
+
+        if args.end is not None:
+            if args.end <= args.start:
+                raise ValueError(
+                    "The end position for the region is invalid. Choose a positive integer"
+                    + " greater than the start position."
+                )
+
+    if args.end is not None:
+        if args.end <= 0:
+            raise ValueError(
+                "The end position for the region is invalid. Choose a positive integer."
+            )
+
+    if args.gwas_sig <= 0 or args.gwas_sig > 1:
+        raise ValueError(
+            "The P value significance threshold for GWAS summary statistics has to be between 0 and 1."
+            + " Choose a valid number."
+        )
+
+    if args.ld_adjust > 0.1 or args.ld_adjust < 0:
+        raise ValueError(
+            "The LD adjustment parameter has to be between 0 and 0.1."
+            + " Choose a valid number."
+        )
+
+    return n_pop, pi, geno_path, geno_func, ld_file
+
+
 def process_raw(
     rawData: List[io.RawData],
     keep_subject: List[str],
     pi: pd.DataFrame,
-    remove_ambiguous: bool,
+    keep_ambiguous: bool,
     maf: float,
     rint: bool,
     no_regress: bool,
@@ -596,7 +833,7 @@ def process_raw(
         rawData: Raw data for phenotypes, genotypes, covariates across ancestries.
         keep_subject: The DataFrame that contains subject ID that fine-mapping performs on.
         pi: The DataFrame that contains prior weights for each SNP to be causal.
-        remove_ambiguous: The indicator whether to remove ambiguous SNPs.
+        keep_ambiguous: The indicator whether to keep ambiguous SNPs.
         maf: The minor allele frequency threshold to filter the genotypes.
         rint: The indicator whether to perform rank inverse normalization on each phenotype data.
         no_regress: The indicator whether to regress genotypes on covariates.
@@ -619,118 +856,21 @@ def process_raw(
     n_pop = len(rawData)
 
     for idx in range(n_pop):
-
-        # remove subjects that are not in the keep file
+        # keep subjects that are listed in the keep subject file
         if len(keep_subject) != 0:
-            old_fam_num = rawData[idx].fam.shape[0]
-            old_pheno_num = rawData[idx].pheno.shape[0]
-
-            (
-                rawData[idx],
-                del_fam_num,
-                del_pheno_num,
-            ) = _keep_file_subjects(rawData[idx], keep_subject)
-
-            if len(rawData[idx].fam) == 0:
-                raise ValueError(
-                    f"Ancestry {idx + 1}: No subjects in the genotype data are listed in the keep file."
-                    + " Check the source."
-                )
-
-            if len(rawData[idx].pheno) == 0:
-                raise ValueError(
-                    f"Ancestry {idx + 1}: No subjects in the pheno data are listed in the keep file."
-                    + " Check the source."
-                )
-
-            if del_fam_num != 0:
-                log.logger.debug(
-                    f"Ancestry {idx + 1}: Drop {del_fam_num} out of {old_fam_num} subjects in the genotype data"
-                    + " because these subjects are not listed in the subject keep file."
-                )
-
-            if del_pheno_num != 0:
-                log.logger.debug(
-                    f"Ancestry {idx + 1}: Drop {del_pheno_num} out of {old_pheno_num} subjects in the phenotype data"
-                    + " because these subjects are not listed in the subject keep file."
-                )
+            rawData[idx] = _keep_file_subjects(rawData[idx], keep_subject, idx)
 
         # remove NA/inf value for subjects across phenotype or covariates data
-        old_subject_num = rawData[idx].fam.shape[0]
-        rawData[idx], del_num = _drop_na_subjects(rawData[idx])
+        rawData[idx] = _drop_na_subjects(rawData[idx], idx)
 
-        if del_num != 0:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Drop {del_num} out of {old_subject_num} subjects because of INF or NAN value"
-                + " in either phenotype or covariates data."
-            )
-
-        if del_num == old_subject_num:
-            raise ValueError(
-                f"Ancestry {idx + 1}: All subjects have INF or NAN value in either phenotype or covariates data."
-                + " Check the source."
-            )
-
-        # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
-        # we just need to remove it for the first ancestry, later ancestries will be merged into first ancestry
-        if remove_ambiguous and idx == 0:
-            old_snp_num = rawData[idx].bim.shape[0]
-            rawData[idx], del_num = _remove_ambiguous_geno(rawData[idx])
-
-            if del_num == old_snp_num:
-                raise ValueError(
-                    f"Ancestry {idx + 1}: All SNPs are ambiguous in genotype data. Check the source."
-                )
-
-            if del_num != 0:
-                log.logger.debug(
-                    f"Ancestry {idx + 1}: Drop {del_num} ambiguous SNPs out of {old_snp_num} in genotype data."
-                )
-
-        old_snp_num = rawData[idx].bim.shape[0]
         # impute genotype data even though we suggest users to impute the genotypes beforehand
-        rawData[idx], del_num, imp_num = _impute_geno(rawData[idx])
+        rawData[idx] = _impute_geno(rawData[idx], idx)
 
-        if del_num == old_snp_num:
-            raise ValueError(
-                f"Ancestry {idx + 1}: All SNPs have INF or NAN value in genotype data. Check the source."
-            )
-
-        if del_num != 0:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because all subjects have NAN value"
-                + " in genotype data."
-            )
-
-        if imp_num != 0:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Impute {imp_num} out of {old_snp_num} SNPs with NAN value based on allele"
-                + " frequency."
-            )
-
-        old_snp_num = rawData[idx].bim.shape[0]
         # remove SNPs that cannot pass MAF threshold
-        rawData[idx], del_num = _filter_maf(rawData[idx], maf)
+        rawData[idx] = _filter_maf(rawData[idx], maf, idx)
 
-        if del_num == old_snp_num:
-            raise ValueError(
-                f"Ancestry {idx + 1}: All SNPs cannot pass the MAF threshold at {maf}."
-            )
-
-        if del_num != 0:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of maf threshold at {maf}."
-            )
-
-        old_snp_num = rawData[idx].bim.shape[0]
         # remove duplicates SNPs based on rsid even though we suggest users to do some QC on this
-        rawData[idx], del_num = _remove_dup_geno(rawData[idx])
-
-        if del_num != 0:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Drop {del_num} out of {old_snp_num} SNPs because of duplicates in the rs ID"
-                + " in genotype data."
-            )
+        rawData[idx] = _remove_dup_geno(rawData[idx], idx)
 
         # reset index and add index column to all dataset for future inter-ancestry or inter-dataset processing
         rawData[idx] = _reset_idx(rawData[idx], idx)
@@ -738,26 +878,18 @@ def process_raw(
         # find common individuals across geno, pheno, and covar within an ancestry
         rawData[idx] = _filter_common_ind(rawData[idx], idx)
 
-        if rawData[idx].fam.shape[0] == 0:
-            raise ValueError(
-                f"Ancestry {idx + 1}: No common individuals across phenotype, covariates,"
-                + " genotype found. Check the source.",
-            )
-        else:
-            log.logger.debug(
-                f"Ancestry {idx + 1}: Found {rawData[idx].fam.shape[0]} common individuals"
-                + " across phenotype, covariates, and genotype.",
-            )
-
     # find common snps across ancestries
     if n_pop > 1:
-        snps = pd.merge(
-            rawData[0].bim, rawData[1].bim, how="inner", on=["chrom", "snp"]
+        snps = (
+            rawData[0]
+            .bim.merge(rawData[1].bim, how="inner", on=["chrom", "snp"])
+            .reset_index(drop=True)
         )
+
         for idx in range(n_pop - 2):
-            snps = pd.merge(
-                snps, rawData[idx + 2].bim, how="inner", on=["chrom", "snp"]
-            )
+            snps = snps.merge(
+                rawData[idx + 2].bim, how="inner", on=["chrom", "snp"]
+            ).reset_index(drop=True)
         if snps.shape[0] == 0:
             raise ValueError("Ancestries have no common SNPs. Check the source.")
         # report how many snps we removed due to independent SNPs
@@ -770,7 +902,8 @@ def process_raw(
     else:
         snps = rawData[0].bim
 
-    # remove non-biallelic SNPs across ancestries
+    # remove biallelic SNPs dont match across ancestries
+    # e.g., A/T for EUR but A/C for AFR
     if n_pop > 1:
         for idx in range(1, n_pop):
             _, _, remove_idx = _allele_check(
@@ -781,7 +914,7 @@ def process_raw(
             )
 
             if len(remove_idx) != 0:
-                snps = snps.drop(index=remove_idx).reset_index(drop=True)
+                snps = snps.drop(remove_idx).reset_index(drop=True)
                 log.logger.debug(
                     f"Ancestry{idx + 1} has {len(remove_idx)} alleles that"
                     + "couldn't match to ancestry 1 and couldn't be flipped. Will remove these SNPs."
@@ -789,16 +922,30 @@ def process_raw(
 
             if snps.shape[0] == 0:
                 raise ValueError(
-                    f"Ancestry {idx + 1} has none of correct or flippable SNPs from ancestry 1. Check the source.",
+                    f"Ancestry {idx + 1} has none of correct or flippable SNPs matching to ancestry 1."
+                    + "Check the source.",
                 )
 
-    snps = snps.reset_index(drop=True)
+    # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
+    if not keep_ambiguous:
+        ambiguous_snps = ["AT", "TA", "CG", "GC"]
+        if_ambig = (snps.a0_1 + snps.a1_1).isin(ambiguous_snps)
+        del_num = if_ambig.sum()
+        snps = snps[~if_ambig].reset_index(drop=True)
+
+        if snps.shape[0] == 0:
+            raise ValueError(
+                "All SNPs are ambiguous in genotype data. Check the source."
+            )
+
+        if del_num != 0:
+            log.logger.debug(f"Drop {del_num} ambiguous SNPs in genotype data.")
 
     # find flipped reference alleles across ancestries
     flip_idx = []
     if n_pop > 1:
         for idx in range(1, n_pop):
-            correct_idx, tmp_flip_idx, _ = _allele_check(
+            _, tmp_flip_idx, _ = _allele_check(
                 snps["a0_1"].values,
                 snps["a1_1"].values,
                 snps[f"a0_{idx + 1}"].values,
@@ -828,7 +975,7 @@ def process_raw(
         snps = pd.merge(snps, pi, how="left", on="snp")
         nan_count = snps["pi"].isna().sum()
         if nan_count > 0:
-            log.logger.warning(
+            log.logger.debug(
                 f"{nan_count} SNP(s) have missing prior weights. Will replace them with the mean value of the rest."
             )
         # if the column pi has nan value, replace it with the mean value of the rest of the column
@@ -931,6 +1078,483 @@ def process_raw(
     return snps, regular_data, mega_data, cv_data
 
 
+def process_raw_ss(
+    geno_path: List[str],
+    geno_func: Callable,
+    ld_file: bool,
+    pi: pd.DataFrame,
+    args: argparse.Namespace,
+) -> Tuple[pd.DataFrame, io.ssData]:
+    """The function to process raw phenotype, genotype, covariates data across ancestries.
+
+    Args:
+        geno_paths: The path for genotype data across ancestries.
+        geno_func: The function to read in genotypes depending on the format.
+        ld_file: The indicator whether LD matrix in provided.
+        pi: The DataFrame that contains prior weights for each SNP to be causal.
+        args: The command line parameter input.
+
+    Returns:
+        :py:obj:`Tuple[pd.DataFrame, io.ssData]`:
+        A tuple of
+            #. SNP information (:py:obj:`pd.DataFrame`),
+            #. dataset for running summary-level SuShiE (:py:obj:`io.ssData`),
+
+    """
+
+    n_pop = len(geno_path)
+
+    ld_geno_list = []
+    gwas_list = []
+    for idx in range(n_pop):
+        # read in GWAS data
+        df_gwas = io.read_gwas(
+            args.gwas[idx], args.gwas_header, args.chrom, args.start, args.end
+        )
+
+        df_gwas = df_gwas.rename(
+            columns={
+                "pos": f"pos_{idx + 1}",
+                "a0": f"a0_{idx + 1}",
+                "a1": f"a1_{idx + 1}",
+                "z": f"z_{idx + 1}",
+            }
+        )
+
+        # read in genotype data or LD data
+        if ld_file:
+            df_ld = geno_func(geno_path[idx])
+            if not (df_ld.values == df_ld.values.T).all():
+                if (df_ld.round(4).values == df_ld.round(4).values.T).all():
+                    df_ld = df_ld.round(4)
+                    log.logger.debug(
+                        f"Ancestry {idx + 1}: The LD matrix is not symmetric. Will symmetrize it"
+                        + " by rounding to 4 digits."
+                    )
+                else:
+                    raise ValueError(
+                        f"Ancestry {idx + 1}: The LD matrix is still not symmetric after rounding 4 digits."
+                        + " Check the source."
+                    )
+
+            if df_ld.shape[0] == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: No SNPs in the LD data. Check the source."
+                )
+
+            if df_gwas["snp"].isin(df_ld.columns).sum() == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: No common SNPs between GWAS and LD data. Check the source."
+                )
+
+            # make sure the diagonal of the LD matrix is 1
+            # and add a small value to the diagonal to avoid singular matrix
+            # default is 0
+            df_ld.values[range(df_ld.shape[0]), range(df_ld.shape[0])] = (
+                1 + args.ld_adjust
+            )
+
+            ld_geno_list.append(df_ld)
+        else:
+            bim, fam, bed = geno_func(geno_path[idx])
+            bim.chrom = bim.chrom.astype(int)
+
+            if bed.shape[0] == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: No SNPs in the genotype data. Check the source."
+                )
+
+            tmp_rawData = io.RawData(
+                bim=bim, fam=fam, bed=bed, pheno=pd.DataFrame([]), covar=None
+            )
+
+            # impute genotype data even though we suggest users to impute the genotypes beforehand
+            tmp_rawData = _impute_geno(tmp_rawData, idx)
+
+            # remove SNPs that cannot pass MAF threshold
+            tmp_rawData = _filter_maf(tmp_rawData, args.maf, idx)
+
+            # remove duplicates SNPs based on rsid even though we suggest users to do some QC on this
+            tmp_rawData = _remove_dup_geno(tmp_rawData, idx)
+
+            # find overlap between GWAS snps and genotype snps
+            tmp_bim = (
+                tmp_rawData.bim.reset_index(drop=True)
+                .reset_index()
+                .rename(
+                    columns={
+                        "index": f"bimIDX_{idx + 1}",
+                        "pos": f"pos_{idx + 1}",
+                        "a0": f"a0_{idx + 1}",
+                        "a1": f"a1_{idx + 1}",
+                    }
+                )
+            )
+
+            if df_gwas["snp"].isin(tmp_bim["snp"]).sum() == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: No common SNPs between GWAS and genotype data. Check the source."
+                )
+
+            tmp_rawData = tmp_rawData._replace(bim=tmp_bim)
+            ld_geno_list.append(tmp_rawData)
+
+        gwas_list.append(df_gwas)
+
+    # find common snps across ancestries
+    if n_pop > 1:
+        snps_gwas = (
+            gwas_list[0]
+            .merge(gwas_list[1], how="inner", on=["chrom", "snp"])
+            .reset_index(drop=True)
+        )
+        for idx in range(n_pop - 2):
+            snps_gwas = snps_gwas.merge(
+                gwas_list[idx + 2], how="inner", on=["chrom", "snp"]
+            ).reset_index(drop=True)
+
+        if snps_gwas.shape[0] == 0:
+            raise ValueError(
+                "GWAS data have no common SNPs across ancestries. Check the source."
+            )
+
+        # report how many snps we removed due to independent SNPs
+        for idx in range(n_pop):
+            snps_num_diff = gwas_list[idx].shape[0] - snps_gwas.shape[0]
+            log.logger.debug(
+                f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps_gwas.shape[0]}"
+                + " common SNPs. Inference only performs on common SNPs.",
+            )
+
+        if ld_file:
+            snps_ld = pd.DataFrame({"snps": ld_geno_list[0].columns})
+            snps_ld = snps_ld[snps_ld.snps.isin(ld_geno_list[1].columns)]
+
+            for idx in range(n_pop - 2):
+                snps_ld = snps_ld[snps_ld.snps.isin(ld_geno_list[idx + 2].columns)]
+
+            if snps_ld.shape[0] == 0:
+                raise ValueError(
+                    "LD data have no common SNPs across ancestries. Check the source."
+                )
+
+            for idx in range(n_pop):
+                snps_num_diff = ld_geno_list[idx].shape[0] - snps_ld.shape[0]
+                log.logger.debug(
+                    f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps_ld.shape[0]}"
+                    + " common SNPs. Inference only performs on common SNPs.",
+                )
+        else:
+            snps_bim = (
+                ld_geno_list[0]
+                .bim.merge(ld_geno_list[1].bim, how="inner", on=["chrom", "snp"])
+                .reset_index(drop=True)
+            )
+            for idx in range(n_pop - 2):
+                snps_bim = snps_bim.merge(
+                    ld_geno_list[idx + 2].bim, how="inner", on=["chrom", "snp"]
+                ).reset_index(drop=True)
+
+            if snps_bim.shape[0] == 0:
+                raise ValueError(
+                    "Genotype data have no common SNPs across ancestries. Check the source."
+                )
+
+            for idx in range(n_pop):
+                snps_num_diff = ld_geno_list[idx].bim.shape[0] - snps_bim.shape[0]
+                log.logger.debug(
+                    f"Ancestry{idx + 1} has {snps_num_diff} independent SNPs and {snps_bim.shape[0]}"
+                    + " common SNPs. Inference only performs on common SNPs.",
+                )
+    else:
+        snps_gwas = gwas_list[0].reset_index(drop=True)
+        if ld_file:
+            snps_ld = pd.DataFrame({"snps": ld_geno_list[0].columns})
+        else:
+            snps_bim = ld_geno_list[0].bim.reset_index(drop=True)
+
+    # filter GWAS SNPs based on signficiant threshold
+    z_threshold = norm.ppf(1 - args.gwas_sig / 2)
+    # Select columns with names starting with "z_"
+    z_cols = snps_gwas.filter(regex="^z_")
+    old_num = snps_gwas.shape[0]
+    if args.gwas_sig_type == "at-least":
+        sel_snps = z_cols.abs().gt(z_threshold).any(axis=1)
+    else:
+        sel_snps = z_cols.abs().gt(z_threshold).all(axis=1)
+
+    snps_gwas = snps_gwas[sel_snps].copy().reset_index(drop=True)
+    new_num = snps_gwas.shape[0]
+
+    log.logger.debug(
+        f"Drop {old_num - new_num} SNPs with GWAS P value less than {args.gwas_sig}"
+        + f" based on {args.gwas_sig_type} method."
+    )
+
+    # remove non-biallelic SNPs across ancestries
+    if n_pop > 1:
+        for idx in range(1, n_pop):
+            _, _, remove_idx = _allele_check(
+                snps_gwas["a0_1"].values,
+                snps_gwas["a1_1"].values,
+                snps_gwas[f"a0_{idx + 1}"].values,
+                snps_gwas[f"a1_{idx + 1}"].values,
+            )
+
+            if len(remove_idx) != 0:
+                snps_gwas = snps_gwas.drop(index=remove_idx).reset_index(drop=True)
+                log.logger.debug(
+                    f"Ancestry{idx + 1} GWAS has {len(remove_idx)} alleles that"
+                    + "couldn't match to ancestry 1 and couldn't be flipped. Will remove these SNPs."
+                )
+
+            if snps_gwas.shape[0] == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1} has none of correct or flippable SNPs matching to ancestry 1."
+                    + "Check the source.",
+                )
+
+            if not ld_file:
+                _, _, remove_idx = _allele_check(
+                    snps_bim["a0_1"].values,
+                    snps_bim["a1_1"].values,
+                    snps_bim[f"a0_{idx + 1}"].values,
+                    snps_bim[f"a1_{idx + 1}"].values,
+                )
+
+                if len(remove_idx) != 0:
+                    snps_bim = snps_bim.drop(index=remove_idx).reset_index(drop=True)
+                    log.logger.debug(
+                        f"Ancestry{idx + 1} Genotype data has {len(remove_idx)} alleles that"
+                        + "couldn't match to ancestry 1 and couldn't be flipped. Will remove these SNPs."
+                    )
+
+                if snps_bim.shape[0] == 0:
+                    raise ValueError(
+                        f"Ancestry {idx + 1} genotype data has none of correct or flippable SNPs matching"
+                        + "to ancestry 1. Check the source."
+                    )
+
+    # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
+    if not args.keep_ambiguous:
+        ambiguous_snps = ["AT", "TA", "CG", "GC"]
+        if_ambig = (snps_gwas.a0_1 + snps_gwas.a1_1).isin(ambiguous_snps)
+        del_num = if_ambig.sum()
+        snps_gwas = snps_gwas[~if_ambig].reset_index(drop=True)
+
+        if snps_gwas.shape[0] == 0:
+            raise ValueError(
+                "All SNPs are ambiguous in genotype data. Check the source."
+            )
+
+        if del_num != 0:
+            log.logger.debug(f"Drop {del_num} ambiguous SNPs in genotype data.")
+
+    # find flipped reference alleles across ancestries
+    if n_pop > 1:
+        for idx in range(1, n_pop):
+            _, tmp_flip_idx, _ = _allele_check(
+                snps_gwas["a0_1"].values,
+                snps_gwas["a1_1"].values,
+                snps_gwas[f"a0_{idx + 1}"].values,
+                snps_gwas[f"a1_{idx + 1}"].values,
+            )
+
+            if len(tmp_flip_idx) != 0:
+                log.logger.debug(
+                    f"Ancestry{idx + 1} has {len(tmp_flip_idx)} flipped alleles in GWAS from ancestry 1."
+                    + " Will flip these SNPs."
+                )
+
+                snps_gwas.loc[tmp_flip_idx, f"z_{idx + 1}"] *= -1
+
+            # drop unused columns
+            snps_gwas = snps_gwas.drop(
+                columns=[f"a0_{idx + 1}", f"a1_{idx + 1}", f"pos_{idx + 1}"]
+            )
+
+            if not ld_file:
+                _, tmp_flip_idx, _ = _allele_check(
+                    snps_bim["a0_1"].values,
+                    snps_bim["a1_1"].values,
+                    snps_bim[f"a0_{idx + 1}"].values,
+                    snps_bim[f"a1_{idx + 1}"].values,
+                )
+
+                if len(tmp_flip_idx) != 0:
+                    log.logger.debug(
+                        f"Ancestry{idx + 1} has {len(tmp_flip_idx)} flipped alleles in genotype from ancestry 1."
+                        + " Will flip these SNPs."
+                    )
+
+                _, _, tmp_geno, _, _ = ld_geno_list[idx]
+
+                common_snp_id = snps_bim[f"bimIDX_{idx + 1}"].values
+                tmp_geno = tmp_geno[:, common_snp_id]
+
+                # flip genotypes for bed files starting second ancestry
+                # flip index is the positional index based on snps data frame, so we have to subset genotype
+                # data based on the common snps (i.e., snps data frame).
+                if len(tmp_flip_idx) != 0:
+                    tmp_geno[:, tmp_flip_idx] = 2 - tmp_geno[:, tmp_flip_idx]
+
+                ld_geno_list[idx] = ld_geno_list[idx]._replace(bed=tmp_geno)
+
+                # drop unused columns
+                snps_bim = snps_bim.drop(
+                    columns=[
+                        f"a0_{idx + 1}",
+                        f"a1_{idx + 1}",
+                        f"pos_{idx + 1}",
+                        f"bimIDX_{idx + 1}",
+                    ]
+                )
+
+    snps_gwas = snps_gwas.rename(columns={"pos_1": "pos", "a0_1": "a0", "a1_1": "a1"})
+
+    if not ld_file:
+        # in the above codes, we only subset for idx = 1 to n_pop, but we haven't subset for idx = 0
+        _, _, tmp_geno, _, _ = ld_geno_list[0]
+        common_snp_id = snps_bim["bimIDX_1"].values
+        tmp_geno = tmp_geno[:, common_snp_id]
+        ld_geno_list[0] = ld_geno_list[0]._replace(bed=tmp_geno)
+        snps_bim = snps_bim.rename(columns={"pos_1": "pos", "a0_1": "a0", "a1_1": "a1"})
+        snps_bim = snps_bim.drop(columns=["bimIDX_1"])
+
+    # merge gwas with LD or bim data
+    gwas_list = []
+    ld_list = []
+    if ld_file:
+        # users have to ensure that the counting allele is the same across GWAS and LD data
+        overlap_snps = snps_gwas["snp"][snps_gwas["snp"].isin(snps_ld.snps)]
+
+        if overlap_snps.shape[0] == 0:
+            raise ValueError(
+                "No common SNPs between GWAS and LD data. Check the source."
+            )
+
+        df_gwas = (
+            snps_gwas.set_index("snp", drop=False)
+            .loc[overlap_snps]
+            .reset_index(drop=True)
+        )
+        for idx in range(n_pop):
+            gwas_list.append(jnp.array(df_gwas[f"z_{idx + 1}"].values))
+            tmp_ld = ld_geno_list[idx]
+            tmp_ld = tmp_ld.loc[overlap_snps, overlap_snps]
+            if (tmp_ld.values == tmp_ld.values.T).all():
+                ld_list.append(jnp.array(tmp_ld))
+            else:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix becomes asymmetric during QC. Contact devleoper."
+                )
+    else:
+        snps_bim = snps_bim.rename(columns={"a0": "a0_bim", "a1": "a1_bim"})
+
+        # merge between GWAS and bim files
+        all_snps = snps_gwas.merge(
+            snps_bim[["chrom", "snp", "a0_bim", "a1_bim"]],
+            how="inner",
+            on=["chrom", "snp"],
+        ).reset_index(drop=True)
+
+        _, _, tmp_wrong_idx = _allele_check(
+            all_snps["a0"].values,
+            all_snps["a1"].values,
+            all_snps["a0_bim"].values,
+            all_snps["a1_bim"].values,
+        )
+
+        if len(tmp_wrong_idx) != 0:
+            all_snps = all_snps.drop(index=tmp_wrong_idx).reset_index(drop=True)
+            log.logger.debug(
+                f"Drop {len(tmp_wrong_idx)} SNPs with wrong alleles between GWAS and genotype data."
+            )
+
+        overlap_snps = all_snps["snp"]
+
+        if overlap_snps.shape[0] == 0:
+            raise ValueError(
+                "No common SNPs between GWAS and genotype data. Check the source."
+            )
+
+        # re-order bim files based on the order of all_snps
+        snps_bim = (
+            snps_bim.reset_index(names="SNPIndex")
+            .set_index("snp", drop=False)
+            .loc[overlap_snps]
+            .reset_index(drop=True)
+        )
+
+        # here it's just easier to flip GWAS z scores
+        _, tmp_flip_idx, _ = _allele_check(
+            all_snps["a0_bim"].values,
+            all_snps["a1_bim"].values,
+            all_snps["a0"].values,
+            all_snps["a1"].values,
+        )
+
+        if len(tmp_flip_idx) != 0:
+            for idx in range(n_pop):
+                all_snps.loc[tmp_flip_idx, f"z_{idx + 1}"] *= -1
+                log.logger.debug(
+                    f"Flip {len(tmp_flip_idx)} SNPs alleles in GWAS data to match genotype data."
+                )
+
+        df_gwas = all_snps.drop(columns=["a0", "a1"]).rename(
+            columns={"a0_bim": "a0", "a1_bim": "a1"}
+        )[
+            ["chrom", "snp", "pos", "a0", "a1"]
+            + [f"z_{idx + 1}" for idx in range(n_pop)]
+        ]
+
+        for idx in range(n_pop):
+
+            gwas_list.append(jnp.array(df_gwas[f"z_{idx + 1}"].values))
+            _, _, tmp_geno, _, _ = ld_geno_list[idx]
+            tmp_geno = tmp_geno[:, snps_bim["SNPIndex"].values]
+            tmp_geno -= tmp_geno.mean(axis=0)
+            tmp_geno /= tmp_geno.std(axis=0)
+            tmp_ld = tmp_geno.T @ tmp_geno / tmp_geno.shape[0]
+            tmp_ld = tmp_ld + jnp.eye(tmp_ld.shape[0]) * args.ld_adjust
+            ld_list.append(tmp_ld)
+
+    snps = (
+        df_gwas[["chrom", "snp", "pos", "a0", "a1"]]
+        .reset_index(drop=True)
+        .reset_index(names="SNPIndex")
+        .copy()
+    )
+
+    if pi.shape[0] != 0:
+        # append prior weights to the snps
+        snps = pd.merge(snps, pi, how="left", on="snp")
+        nan_count = snps["pi"].isna().sum()
+        if nan_count > 0:
+            log.logger.debug(
+                f"{nan_count} SNP(s) have missing prior weights. Will replace them with the mean value of the rest."
+            )
+        # if the column pi has nan value, replace it with the mean value of the rest of the column
+        snps["pi"] = snps["pi"].fillna(snps["pi"].mean())
+        pi = jnp.array(snps["pi"].values)
+    else:
+        snps["pi"] = jnp.ones(snps.shape[0]) / float(snps.shape[0])
+        pi = None
+
+    regular_data = io.ssData(
+        zs=gwas_list, lds=ld_list, ns=jnp.array(args.sample_size)[:, jnp.newaxis], pi=pi
+    )
+
+    name_ancestry = "ancestry" if n_pop == 1 else "ancestries"
+
+    log.logger.info(
+        f"Prepare {snps.shape[0]} SNPs from {n_pop} {name_ancestry} after"
+        + " data cleaning. Specify --verbose for details.",
+    )
+
+    return snps, regular_data
+
+
 def sushie_wrapper(
     data: io.CleanData,
     cv_data: Optional[List[io.CVData]],
@@ -1013,6 +1637,7 @@ def sushie_wrapper(
                 min_tol=args.min_tol,
                 threshold=args.threshold,
                 purity=args.purity,
+                purity_method=args.purity_method,
                 max_select=args.max_select,
                 min_snps=args.min_snps,
                 no_reorder=args.no_reorder,
@@ -1049,6 +1674,7 @@ def sushie_wrapper(
             min_tol=args.min_tol,
             threshold=args.threshold,
             purity=args.purity,
+            purity_method=args.purity_method,
             max_select=args.max_select,
             min_snps=args.min_snps,
             no_reorder=args.no_reorder,
@@ -1102,6 +1728,137 @@ def sushie_wrapper(
     return None
 
 
+def sushie_wrapper_ss(
+    data: io.ssData,
+    args: argparse.Namespace,
+    snps: pd.DataFrame,
+    meta: bool = False,
+) -> None:
+    """The wrapper function to run SuShiE in regular, meta, or mega.
+
+    Args:
+        data: The clean summary data for SuShiE inference.
+        args: The command line parameter input.
+        snps: The SNP information.
+        meta: The indicator whether to prepare datasets for meta SuShiE.
+
+    """
+
+    n_pop = len(data.lds)
+
+    if meta:
+        output = f"{args.output}.meta"
+        method_type = "meta"
+    else:
+        output = f"{args.output}.sushie"
+        method_type = "sushie"
+
+    # keeps track of single-ancestry PIP to get meta-PIP
+    pips_all = []
+    pips_cs = []
+    result = []
+    if meta:
+        # if this is meta, run it ancestry by ancestry
+        for idx in range(n_pop):
+            if args.resid_var is None:
+                resid_var = None
+            else:
+                resid_var = [args.resid_var[idx]]
+
+            if args.effect_var is None:
+                effect_var = None
+            else:
+                effect_var = [args.effect_var[idx]]
+
+            log.logger.info(
+                f"Start fine-mapping using SuSiE on ancestry {idx + 1} with {args.L} effects"
+                + " because --meta is specified."
+            )
+
+            tmp_result = infer_ss.infer_sushie_ss(
+                lds=[data.lds[idx]],
+                ns=data.ns[idx][:, jnp.newaxis],
+                zs=[data.zs[idx]],
+                L=args.L,
+                no_update=args.no_update,
+                pi=data.pi,
+                resid_var=resid_var,
+                effect_var=effect_var,
+                rho=None,
+                max_iter=args.max_iter,
+                min_tol=args.min_tol,
+                threshold=args.threshold,
+                purity=args.purity,
+                purity_method=args.purity_method,
+                max_select=args.max_select,
+                min_snps=args.min_snps,
+                no_reorder=args.no_reorder,
+                seed=args.seed,
+            )
+            pips_all.append(tmp_result.pip_all[:, jnp.newaxis])
+            pips_cs.append(tmp_result.pip_cs[:, jnp.newaxis])
+            result.append(tmp_result)
+
+        pips_all = utils.make_pip(jnp.concatenate(pips_all, axis=1).T)
+        pips_cs = utils.make_pip(jnp.concatenate(pips_cs, axis=1).T)
+    else:
+        log.logger.info(f"Start fine-mapping using SuShiE with {args.L} effects.")
+        tmp_result = infer_ss.infer_sushie_ss(
+            lds=data.lds,
+            ns=data.ns,
+            zs=data.zs,
+            L=args.L,
+            no_update=args.no_update,
+            pi=data.pi,
+            resid_var=args.resid_var,
+            effect_var=args.effect_var,
+            rho=args.rho,
+            max_iter=args.max_iter,
+            min_tol=args.min_tol,
+            threshold=args.threshold,
+            purity=args.purity,
+            purity_method=args.purity_method,
+            max_select=args.max_select,
+            min_snps=args.min_snps,
+            no_reorder=args.no_reorder,
+            seed=args.seed,
+        )
+        result.append(tmp_result)
+
+    pips = [pips_all, pips_cs] if meta else None
+
+    io.output_cs(result, pips, snps, output, args.trait, args.compress, method_type)
+    io.output_weights(
+        result, pips, snps, output, args.trait, args.compress, method_type
+    )
+
+    if args.numpy:
+        log.logger.info(
+            "Save all the inference results in numpy file because --numpy is specified "
+        )
+        io.output_numpy(result, snps, output)
+
+    if args.alphas:
+        log.logger.info(
+            "Save all credible set results before pruning as --alphas is specified "
+        )
+
+        io.output_alphas(
+            result,
+            snps,
+            output,
+            args.trait,
+            args.compress,
+            method_type,
+            args.purity,
+        )
+
+    if not meta:
+        io.output_corr(result, output, args.trait, args.compress)
+
+    return None
+
+
 def run_finemap(args):
     """The umbrella function to run SuShiE.
 
@@ -1116,46 +1873,74 @@ def run_finemap(args):
             config.update("jax_default_matmul_precision", "highest")
 
         config.update("jax_platform_name", args.platform)
+        if args.summary is True:
+            log.logger.info("Start fine-mapping using SuShiE on summary-level data.")
 
-        n_pop, ancestry_index, keep_subject, pi, geno_path, geno_func = parameter_check(
-            args
-        )
+            n_pop, pi, geno_path, geno_func, ld_file = parameter_check_ss(args)
 
-        rawData = io.read_data(
-            n_pop,
-            ancestry_index,
-            args.pheno,
-            args.covar,
-            geno_path,
-            geno_func,
-        )
+            snps, ss_data = process_raw_ss(
+                geno_path,
+                geno_func,
+                ld_file,
+                pi,
+                args,
+            )
 
-        snps, regular_data, mega_data, cv_data = process_raw(
-            rawData,
-            keep_subject,
-            pi,
-            args.remove_ambiguous,
-            args.maf,
-            args.rint,
-            args.no_regress,
-            args.mega,
-            args.cv,
-            args.cv_num,
-            args.seed,
-        )
+            normal_data = copy.deepcopy(ss_data)
+            sushie_wrapper_ss(normal_data, args, snps, meta=False)
 
-        normal_data = copy.deepcopy(regular_data)
-        sushie_wrapper(normal_data, cv_data, args, snps, meta=False, mega=False)
+            # if only one ancestry, no need to run mega or meta
+            if n_pop != 1:
+                if args.meta:
+                    meta_data = copy.deepcopy(ss_data)
+                    sushie_wrapper_ss(meta_data, args, snps, meta=True)
 
-        # if only one ancestry, need to run mega or meta
-        n_pop = len(regular_data.geno)
-        if n_pop != 1:
-            if args.meta:
-                meta_data = copy.deepcopy(regular_data)
-                sushie_wrapper(meta_data, None, args, snps, meta=True, mega=False)
+        else:
+            log.logger.info("Start fine-mapping using SuShiE on individual-level data.")
 
-            if args.mega:
-                sushie_wrapper(mega_data, None, args, snps, meta=False, mega=True)
+            (
+                n_pop,
+                ancestry_index,
+                keep_subject,
+                pi,
+                geno_path,
+                geno_func,
+            ) = parameter_check(args)
+
+            rawData = io.read_data(
+                n_pop,
+                ancestry_index,
+                args.pheno,
+                args.covar,
+                geno_path,
+                geno_func,
+            )
+
+            snps, regular_data, mega_data, cv_data = process_raw(
+                rawData,
+                keep_subject,
+                pi,
+                args.keep_ambiguous,
+                args.maf,
+                args.rint,
+                args.no_regress,
+                args.mega,
+                args.cv,
+                args.cv_num,
+                args.seed,
+            )
+
+            normal_data = copy.deepcopy(regular_data)
+            sushie_wrapper(normal_data, cv_data, args, snps, meta=False, mega=False)
+
+            # if only one ancestry, no need to run mega or meta
+            if n_pop != 1:
+                if args.meta:
+                    meta_data = copy.deepcopy(regular_data)
+                    sushie_wrapper(meta_data, None, args, snps, meta=True, mega=False)
+
+                if args.mega:
+                    sushie_wrapper(mega_data, None, args, snps, meta=False, mega=True)
 
     except Exception as err:
         import traceback
@@ -1186,18 +1971,48 @@ def build_finemap_parser(subp):
             " individual genotype and phenotype data using SuShiE.",
         ),
     )
+
+    finemap.add_argument(
+        "--summary",
+        action="store_true",
+        default=False,
+        help=(
+            "Indicator whether to run fine-mapping on summary statistics.",
+            " Default is False.",
+            " If True, the software will need GWAS files as input data by specifying --gwas",
+            " and need LD matrix by specifying either --ld or one of the --plink, --vcf, or --bgen.",
+            " If False, the software will need phenotype data by specifying --pheno",
+            " and genotype data by specifying either --plink, --vcf, or --bgen.",
+        ),
+    )
+
     finemap.add_argument(
         "--pheno",
         nargs="+",
         type=str,
-        required=True,
         help=(
             "Phenotype data. It has to be a tsv file that contains at least two",
             " columns where the first column is subject ID and",
             " the second column is the continuous phenotypic value. It can be a compressed file (e.g., tsv.gz).",
             " It is okay to have additional columns, but only the first two columns will be used."
             " No headers. Use 'space' to separate ancestries if more than two.",
-            " SuShiE currently only fine-maps on continuous data.",
+            " For individual-level data fine-mapping, SuShiE currently only fine-maps on continuous data.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--gwas",
+        nargs="+",
+        type=str,
+        help=(
+            "GWAS data. It has to be a tsv file that contains at least six columns.",
+            " The six columns are chromsome number, SNP ID, base-pair position, counting allele,",
+            " non-counting allele, and the z-score. Users can can specify column names using --gwas-header.",
+            " The chromsome number needs to be integer number instead of 'chr1' or 'chrom1'.",
+            " By default, the software assumes the header names are 'chrom', 'snp', 'pos', 'a1', 'a0', 'z'.",
+            " It can be a compressed file (e.g., tsv.gz).",
+            " It is okay to have additional columns, but only the mentioned columns will be used."
+            " Use 'space' to separate ancestries if more than two.",
         ),
     )
 
@@ -1214,6 +2029,8 @@ def build_finemap_parser(subp):
             " Keep the same ancestry order as phenotype's.",
             " SuShiE currently does not take plink 2 format.",
             " Data has to only contain bialleic variant.",
+            " If used in summary-level fine-mapping, the SNP ID has to match the GWAS data in --gwas.",
+            " The software will flip the alleles if the counting allele in GWAS data is different from the plink data.",
         ),
     )
 
@@ -1227,6 +2044,8 @@ def build_finemap_parser(subp):
             " Keep the same ancestry order as phenotype's. The software will count RFE allele.",
             " If gt_types is UNKNOWN, it will be coded as NA, and be imputed by allele frequency.",
             " Data has to only contain bialleic variant.",
+            " If used in summary-level fine-mapping, the SNP ID has to match the GWAS data in --gwas.",
+            " The software will flip the alleles if the counting allele in GWAS data is different from the plink data.",
         ),
     )
 
@@ -1239,6 +2058,8 @@ def build_finemap_parser(subp):
             "Genotype data in bgen 1.3 format. Use 'space' to separate ancestries if more than two.",
             " Keep the same ancestry order as phenotype's.",
             " Data has to only contain bialleic variant.",
+            " If used in summary-level fine-mapping, the SNP ID has to match the GWAS data in --gwas.",
+            " The software will flip the alleles if the counting allele in GWAS data is different from the plink data.",
         ),
     )
 
@@ -1287,6 +2108,100 @@ def build_finemap_parser(subp):
             " Keep the same ancestry order as phenotype's.",
             " Pre-converting the categorical covariates into dummy variables is required. No headers.",
             "If your categorical covariates have n levels, make sure the dummy variables have n-1 columns.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--ld",
+        nargs="+",
+        default=None,
+        type=str,
+        help=(
+            "LD files that will be used in the fine-mapping. Default is None."
+            " Keep the same ancestry order as GWAS files.",
+            " It has to be a tsv or comparessed file (e.g., tsv.gz).",
+            " The header has to be the SNP name matching the GWAS data in --gwas",
+            " It can have less or more SNPs than the GWAS data,",
+            " and the software will find the overlap SNPs.",
+            " Users must ensure that the LD and GWAS z statistics are computed using the same counting alleles.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--chrom",
+        default=None,
+        type=int,
+        choices=list(range(1, 23)),
+        help=(
+            "Chromsome number to subset GWAS SNPs in the fine-mapping. Default is None."
+            " Value has to be an integer number between 1 and 22.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--start",
+        default=None,
+        type=int,
+        help=(
+            "Base-pair start position to subset GWAS SNPs in the fine-mapping. Default is None."
+            " Value has to be a positive integer number.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--end",
+        default=None,
+        type=int,
+        help=(
+            "Base-pair end position to subset GWAS SNPs in the fine-mapping. Default is None."
+            " Value has to be a positive integer number and larger than --start.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--sample-size",
+        default=None,
+        nargs="+",
+        type=int,
+        help=(
+            "GWAS sample size of each ancestry. Default is None."
+            " Values have to be positive integer. Use 'space' to separate ancestries if more than two.",
+            " The order has to be the same as the GWAS data in --gwas.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--gwas-header",
+        nargs="+",
+        default=["chrom", "snp", "pos", "a1", "a0", "z"],
+        type=str,
+        help=(
+            "GWAS file header names. Default is ['chrom', 'snp', 'pos', 'a1', 'a0', 'z'].",
+            " Users can specify the header names for the GWAS data in this order.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--gwas-sig",
+        default=1.0,
+        type=float,
+        help=(
+            "The significance threshold for SNPs to be included in the fine-mapping.",
+            " Default is 1.0. Only SNPs with P value less than this threshold will be included.",
+            " It has to be a float number between 0 and 1.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--gwas-sig-type",
+        default="at-least",
+        choices=["at-least", "all"],
+        help=(
+            "The cases how to include significant SNPs in the fine-mapping across ancestries.",
+            " If it is 'at-least', the software will include SNPs that are significant in at least one ancestry.",
+            " If it is 'all', the software will include SNPs that are significant in all ancestries.",
+            " Default is 'at-least'.",
+            " The significant threshold is specified by --gwas-sig.",
         ),
     )
 
@@ -1425,10 +2340,10 @@ def build_finemap_parser(subp):
 
     finemap.add_argument(
         "--threshold",
-        default=0.9,
+        default=0.95,
         type=float,
         help=(
-            "Specify the PIP threshold for SNPs to be included in the credible sets. Default is 0.9.",
+            "Specify the PIP threshold for SNPs to be included in the credible sets. Default is 0.95.",
             " It has to be a float number between 0 and 1.",
         ),
     )
@@ -1440,6 +2355,31 @@ def build_finemap_parser(subp):
         help=(
             "Specify the purity threshold for credible sets to be output. Default is 0.5.",
             " It has to be a float number between 0 and 1.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--purity_method",
+        default="weighted",
+        type=str,
+        choices=["weighted", "max", "min"],
+        help=(
+            "Specify the method to compute purity across ancestries.",
+            " Users choose 'weighted', 'max', or 'min'.",
+            " `weighted` is the sum of the purity of each ancestry weighted by the sample size.",
+            " `max` is the maximum purity value across ancestries.",
+            " `min` is the minimum purity value across ancestries.",
+            " Default is weighted.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--ld-adjust",
+        default=0,
+        type=float,
+        help=(
+            "The adjusting number to LD diagonal to ensure the positive definiteness.",
+            " It has to be positive integer number between 0 and 0.1. Default is 0.",
         ),
     )
 
@@ -1498,14 +2438,15 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--remove-ambiguous",
+        "--keep-ambiguous",
         default=False,
         action="store_true",
         help=(
-            "Indicator to remove ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C pairs) from the genotypes.",
-            " Recommend to remove these SNPs if each ancestry data is from different studies.",
-            " Default is False (not to remove).",
-            " Specify --remove-ambiguous will store 'True' value.",
+            "Indicator to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C pairs) from the genotypes.",
+            " Recommend to remove these SNPs if each ancestry data is from different studies",
+            " or plan to use the inference results for downstream analysis with other datasets."
+            " Default is False (not to keep).",
+            " Specify --keep-ambiguous will store 'True' value.",
         ),
     )
 
@@ -1693,6 +2634,8 @@ def _get_command_string(args):
                 "--cv",
                 "--alphas",
                 "--rint",
+                "--keep-ambiguous",
+                "--summary",
             ]:
                 rest_strs.append(f"\t{cmd}{os.linesep}")
                 needs_tab = True

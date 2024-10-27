@@ -14,6 +14,7 @@ __all__ = [
     "make_pip",
     "rint",
     "ListFloatOrNone",
+    "IntOrNone",
     "ols",
     "estimate_her",
     "regress_covar",
@@ -29,6 +30,8 @@ ArrayOrFloat = ArrayLike
 ListStrOrNone = Optional[List[str]]
 # covar raw data
 PDOrNone = Optional[pd.DataFrame]
+# int or none
+IntOrNone = Optional[int]
 
 
 def make_pip(alpha: ArrayLike) -> Array:

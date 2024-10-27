@@ -49,9 +49,16 @@ software versions of the other projects.
 
 SuShiE software is very easy to use:
 
+For fine-mapping using individual-level data:
 ``` bash
 cd ./data/
 sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --covar EUR.covar AFR.covar --output ./test_result
+```
+
+For fine-mapping using summary-level data:
+``` bash
+cd ./data/
+sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-header chrom snp pos a1 a0 zs --output ./test_result
 ```
 
 It can perform:
@@ -63,33 +70,36 @@ It can perform:
     correlation
 -   Meta-SuSiE: single-ancestry SuSiE followed by meta-analysis
 -   Mega-SuSiE: single-ancestry SuSiE on row-wise stacked data across
-    ancestries
--   QTL effect size correlation estimation
--   cis-SNP heritability estimation
--   Cross-validation for SuShiE prediction weights
+    ancestries (individual-level data only)
+-   *cis*-molQTL effect size correlation estimation
+-   *cis*-SNP heritability estimation (individual-level data only)
+-   Cross-validation for SuShiE prediction weights (individual-level data only)
 -   Convert prediction results to
     [FUSION](http://gusevlab.org/projects/fusion/) format, thus can be
-    used in [TWAS](https://www.nature.com/articles/ng.3506)
+    used in [TWAS](https://www.nature.com/articles/ng.3506) (individual-level data only)
 
 See [here](https://mancusolab.github.io/sushie/) for more details on how
 to use SuShiE.
 
 If you want to use in-software SuShiE inference function, you can use
-following code as an example:
+following Python code as an example:
 
 ``` python
 from sushie.infer import infer_sushie
 # Xs is for genotype data, and it should be a list of numpy array whose length is the number of ancestry.
 # ys is for phenotype data, and it should also be a list of numpy array whose length is the number of ancestry.
 infer_sushie(Xs=X, ys=y)
+# Or summary-level data
+# lds is for LD data, and it should be a list of p by p numpy array whose length is the number of ancestry.
+# zs is for GWAS data, and it should be a list of numpy array whose length is the number of ancestry/
+infer_sushie_ss(lds=LD, zs=GWAS, ns=np.array([100, 100]))
 ```
 
-You can play it with your own ideas!
+You can customize this function with your own ideas!
 
 ## Notes
 
--   SuShiE currently only supports **continuous** phenotype fine-mapping.
--   SuShiE currently only supports fine-mapping on autosomes.
+-   SuShiE currently only supports **continuous** phenotype fine-mapping for individual-level data.
 -   SuShiE uses [JAX](https://github.com/google/jax) with [Just In
     Time](https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html)
     compilation to achieve high-speed computation. However, there are
@@ -108,7 +118,7 @@ You can play it with your own ideas!
 | 0.13    | Add `--keep` command to enable user to specify a file that contains the subjects ID SuShiE will perform on. Add `--ancestry_index` command to enable user to specify a file that contains the ancestry index for fine-mapping. With this, user can input single phenotype, genotype, and covariate file that contains all the subjects across ancestries. Implement padding to increase inference time. Record elbo at each iteration and can access it in the `infer.SuShiEResult` object. The alphas table now outputs the average purity and KL divergence for each `L`. Change `--kl_threshold` to `--divergence`. Add `--maf` command to remove SNPs that less than minor allele frequency threshold within each ancestry. Add `--max_select` command to randomly select maximum number of SNPs to compute purity to avoid unnecessary memory spending. Add a QC function to remove duplicated SNPs. |
 | 0.14    | Remove KL-Divergence pruning. Enhance command line appearance and improve the output files contents. Fix small bugs on multivariate KL.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | 0.15    | Fix several typos; add a sanity check on reading vcf genotype data by assigning gt_types==Unknown as NA; Add preprint information.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 0.16  | Add option to remove ambiguous SNPs; fix several bugs and enhance codes quality.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 0.16  | Implement summary-level data inference. Add option to remove ambiguous SNPs; fix several bugs and enhance codes quality.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Support
 
