@@ -89,9 +89,9 @@ from sushie.infer import infer_sushie
 # Xs is for genotype data, and it should be a list of numpy array whose length is the number of ancestry.
 # ys is for phenotype data, and it should also be a list of numpy array whose length is the number of ancestry.
 infer_sushie(Xs=X, ys=y)
-# Or individual-level data
-# LD is for LD data, and it should be a list of p by p numpy array whose length is the number of ancestry.
-# GWAS is for GWAS data, and it should be a list of numpy array whose length is the number of ancestry/
+# Or summary-level data
+# lds is for LD data, and it should be a list of p by p numpy array whose length is the number of ancestry.
+# zs is for GWAS data, and it should be a list of numpy array whose length is the number of ancestry/
 infer_sushie_ss(lds=LD, zs=GWAS, ns=np.array([100, 100]))
 ```
 
