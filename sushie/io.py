@@ -338,15 +338,50 @@ def read_gwas(
     df_gwas[["pos"]] = df_gwas[["pos"]].astype(int)
 
     log.logger.debug("Filter GWAS data based on Chrom, Start, and End.")
-
     if chrom is not None:
+        old_num = df_gwas.shape[0]
         df_gwas = df_gwas[df_gwas.chrom == chrom]
+        del_num = old_num - df_gwas.shape[0]
 
-    if start is not None:
+        if df_gwas.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs remain after filtering on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are not on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        old_num = df_gwas.shape[0]
         df_gwas = df_gwas[df_gwas.pos >= start]
+        del_num = old_num - df_gwas.shape[0]
 
-    if end is not None:
+        if df_gwas.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located after position {start} on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located before position {start} on chromosome {chrom}."
+                + " for GWAS data from {path}."
+            )
+
+        old_num = df_gwas.shape[0]
         df_gwas = df_gwas[df_gwas.pos <= end]
+        del_num = old_num - df_gwas.shape[0]
+
+        if df_gwas.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located before position {end} on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located after position {end} on chromosome {chrom}."
+                + " for GWAS data from {path}."
+            )
 
     df_gwas = df_gwas.copy().reset_index(drop=True)
 

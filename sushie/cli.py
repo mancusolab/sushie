@@ -637,6 +637,37 @@ def parameter_check(
         log.logger.info(
             "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuSiE."
         )
+    if args.chrom is None and args.start is None and args.end is None:
+        log.logger.info(
+            "No region is specified. Will use all SNPs available in the data."
+        )
+
+    elif args.chrom is not None and args.start is not None and args.end is not None:
+        if args.start <= 0:
+            raise ValueError(
+                "The start position for the region is invalid. Choose a positive integer."
+            )
+
+        if args.end <= 0:
+            raise ValueError(
+                "The end position for the region is invalid. Choose a positive integer."
+            )
+
+        if args.end <= args.start:
+            raise ValueError(
+                "The end position for the region is invalid. Choose a positive integer"
+                + " greater than the start position."
+            )
+
+        log.logger.info(
+            f"Detect region (chrom{args.chrom}:{args.start}:{args.end}) to be fine-mapped."
+            + " Will only use SNPs within the region."
+        )
+    else:
+        raise ValueError(
+            "The region is not specified correctly. Please provide --chrom, --start, and --end together,"
+            + " or omit all of them."
+        )
 
     log.logger.debug("Finish parameter check for individual-level fine-mapping.")
 
@@ -796,24 +827,36 @@ def parameter_check_ss(
             "The number of ancestry is 1, but --meta is specified. Will skip meta or mega SuSiE."
         )
 
-    if args.start is not None:
+    if args.chrom is None and args.start is None and args.end is None:
+        log.logger.info(
+            "No region is specified. Will use all SNPs available in the data."
+        )
+    elif args.chrom is not None and args.start is not None and args.end is not None:
         if args.start <= 0:
             raise ValueError(
                 "The start position for the region is invalid. Choose a positive integer."
             )
 
-        if args.end is not None:
-            if args.end <= args.start:
-                raise ValueError(
-                    "The end position for the region is invalid. Choose a positive integer"
-                    + " greater than the start position."
-                )
-
-    if args.end is not None:
         if args.end <= 0:
             raise ValueError(
                 "The end position for the region is invalid. Choose a positive integer."
             )
+
+        if args.end <= args.start:
+            raise ValueError(
+                "The end position for the region is invalid. Choose a positive integer"
+                + " greater than the start position."
+            )
+
+        log.logger.info(
+            f"Detect region (chrom{args.chrom}:{args.start}:{args.end}) to be fine-mapped."
+            + " Will only use SNPs within the region."
+        )
+    else:
+        raise ValueError(
+            "The region is not specified correctly. Please provide --chrom, --start, and --end together,"
+            + " or omit all of them."
+        )
 
     if args.gwas_sig <= 0 or args.gwas_sig > 1:
         raise ValueError(
@@ -844,6 +887,9 @@ def process_raw(
     cv: bool,
     cv_num: int,
     seed: int,
+    chrom: utils.IntOrNone,
+    start: utils.IntOrNone,
+    end: utils.IntOrNone,
 ) -> Tuple[
     pd.DataFrame,
     io.CleanData,
@@ -864,6 +910,9 @@ def process_raw(
         cv: The indicator whether to prepare datasets for cross-validation.
         cv_num: The number for :math:`X`-fold cross-validation.
         seed: The random seed for row-wise shuffling the datasets for cross validation.
+        chrom: The chromosome to filter SNPs.
+        start: The start position to filter SNPs.
+        end: The end position to filter SNPs.
 
 
     Returns:
@@ -969,6 +1018,52 @@ def process_raw(
         if del_num != 0:
             log.logger.debug(f"Drop {del_num} ambiguous SNPs in genotype data.")
 
+    log.logger.debug(
+        "Filter SNPs based on Chrom, Start, and End using coordinates of first ancestry."
+    )
+    snps["chrom"] = snps["chrom"].astype("int64")
+
+    if chrom is not None:
+        old_num = snps.shape[0]
+        snps = snps[snps.chrom == chrom]
+        del_num = old_num - snps.shape[0]
+
+        if snps.shape[0] == 0:
+            raise ValueError(f"No SNPs remain after filtering on chromosome {chrom}.")
+
+        if del_num != 0:
+            log.logger.debug(f"Drop {del_num} SNPs that are not on chromosome {chrom}.")
+
+        old_num = snps.shape[0]
+        snps = snps[snps.pos_1 >= start]
+        del_num = old_num - snps.shape[0]
+
+        if snps.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located after position {start} on chromosome {chrom}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located before position {start} on chromosome {chrom}."
+            )
+
+        old_num = snps.shape[0]
+        snps = snps[snps.pos_1 <= end]
+        del_num = old_num - snps.shape[0]
+
+        if snps.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located before position {end} on chromosome {chrom}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located after position {end} on chromosome {chrom}."
+            )
+
+        snps = snps.reset_index(drop=True)
+
     # find flipped reference alleles across ancestries
     flip_idx = []
     if n_pop > 1:
@@ -1039,7 +1134,9 @@ def process_raw(
         # flip index is the positional index based on snps data frame, so we have to subset genotype
         # data based on the common snps (i.e., snps data frame).
         if idx > 0 and len(flip_idx[idx - 1]) != 0:
-            tmp_geno[:, flip_idx[idx - 1]] = 2 - tmp_geno[:, flip_idx[idx - 1]]
+            tmp_geno = tmp_geno.at[:, flip_idx[idx - 1]].set(
+                2 - tmp_geno[:, flip_idx[idx - 1]]
+            )
 
         # swap pheno and covar rows order to match fam/bed file, and then select the
         # values for future fine-mapping
@@ -1443,7 +1540,9 @@ def process_raw_ss(
                 # flip index is the positional index based on snps data frame, so we have to subset genotype
                 # data based on the common snps (i.e., snps data frame).
                 if len(tmp_flip_idx) != 0:
-                    tmp_geno[:, tmp_flip_idx] = 2 - tmp_geno[:, tmp_flip_idx]
+                    tmp_geno = tmp_geno.at[:, tmp_flip_idx].set(
+                        2 - tmp_geno[:, tmp_flip_idx]
+                    )
 
                 ld_geno_list[idx] = ld_geno_list[idx]._replace(bed=tmp_geno)
 
@@ -1976,6 +2075,9 @@ def run_finemap(args):
                 args.cv,
                 args.cv_num,
                 args.seed,
+                args.chrom,
+                args.start,
+                args.end,
             )
 
             normal_data = copy.deepcopy(regular_data)
@@ -2181,8 +2283,10 @@ def build_finemap_parser(subp):
         type=int,
         choices=list(range(1, 23)),
         help=(
-            "Chromsome number to subset GWAS SNPs in the fine-mapping. Default is None."
+            "Chromsome number to subset SNPs in the fine-mapping. Default is None."
             " Value has to be an integer number between 1 and 22.",
+            " The SNP position information from the first ancestry will be used for filtering.",
+            " If this flag is specified, --start and --end must also be provided.",
         ),
     )
 
@@ -2191,8 +2295,10 @@ def build_finemap_parser(subp):
         default=None,
         type=int,
         help=(
-            "Base-pair start position to subset GWAS SNPs in the fine-mapping. Default is None."
+            "Base-pair start position to subset SNPs in the fine-mapping. Default is None."
             " Value has to be a positive integer number.",
+            " The SNP position information from the first ancestry will be used for filtering.",
+            " If this flag is specified, --chrom and --end must also be provided.",
         ),
     )
 
@@ -2201,8 +2307,10 @@ def build_finemap_parser(subp):
         default=None,
         type=int,
         help=(
-            "Base-pair end position to subset GWAS SNPs in the fine-mapping. Default is None."
+            "Base-pair end position to subset SNPs in the fine-mapping. Default is None."
             " Value has to be a positive integer number and larger than --start.",
+            " The SNP position information from the first ancestry will be used for filtering.",
+            " If this flag is specified, --chrom and --start must also be provided.",
         ),
     )
 
@@ -2407,7 +2515,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--purity_method",
+        "--purity-method",
         default="weighted",
         type=str,
         choices=["weighted", "max", "min"],

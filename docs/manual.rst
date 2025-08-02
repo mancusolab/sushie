@@ -290,14 +290,14 @@ Users can use ``--pi`` command to specify a tsv file that contains the SNP ID an
     cd ./data/
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --pi prior_weights --output ./test_result
 
-Here are some examples for fine-mapping using individual-level data:
+Here are some examples for fine-mapping using summary-level data:
 
 1. I want to perform fine-mapping on summary-level data and I provide individual-level reference panels for LD.
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --output ./test_result
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --output ./test_result
 
 2. I want to perform fine-mapping on summary-level data and I provide pre-computed LD matrix.
 
@@ -311,21 +311,21 @@ Here are some examples for fine-mapping using individual-level data:
 .. code:: bash
 
     cd ./data/
-    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --gwas-sig 5e-8 --gwas-sig-type all --output ./test_result
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-sig 5e-8 --gwas-sig-type all --output ./test_result
 
-4. I want to only focus on SNPs between 1bp and 1Mbp on chromsome 6
+4. I want to only focus on SNPs between 34886700 and 35128637 on chromsome 1
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --chrom 6 --start 1 --end 1000000 --output ./test_result
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --chrom 1 --start 34886700 --end 35128637 --output ./test_result
 
 5. My GWAS data has different column names.
 
 .. code:: bash
 
     cd ./data/
-    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf AFR.vcf --sample-size 489 639 --gwas-header CHR SNP BP A1 A2 STAT --output ./test_result
+    sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-header CHR SNP BP A1 A2 STAT --output ./test_result
 
 6. I want to add small number to diagonal of my LD matrix to make it positive definite.
 
@@ -396,17 +396,17 @@ Parameters
      - Integer
      - None
      - ``--chrom 6``
-     - Chromsome number to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be an integer number between 1 and 22.
+     - Chromsome number to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be an integer number between 1 and 22. The SNP position information from the first ancestry will be used for filtering. If this flag is specified, --start and --end must also be provided.
    * - ``--start``
      - Integer
      - None
      - ``--start 1``
-     - Base-pair start position to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be a positive integer number.
+     - Base-pair start position to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be a positive integer number. The SNP position information from the first ancestry will be used for filtering. If this flag is specified, --chrom and --end must also be provided.
    * - ``--end``
      - Integer
      - None
      - ``--end 1000000``
-     - Base-pair end position to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be a positive integer number.
+     - Base-pair end position to subset GWAS SNPs in the fine-mapping. Default is None. Value has to be a positive integer number. The SNP position information from the first ancestry will be used for filtering. If this flag is specified, --chrom and --start must also be provided.
    * - ``--sample-size``
      - Integer
      - None
