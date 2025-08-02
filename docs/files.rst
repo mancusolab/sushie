@@ -59,11 +59,11 @@ For ``*.meta.cs.tsv``, it will row-bind the output for single-ancestry SuShiE di
    * - a0
      - String
      - A
-     - The alternative allele. It matches the entries in the original genotype data.
+     - The non-counting allele. It matches the entries in the original genotype data.
    * - a1
      - String
      - G
-     - The reference allele. It matches the entries in the original genotype data.
+     - The counting allele. If the counting allele is G, and genotype is GG, then it is coded as 2. It matches the entries in the original genotype data.
    * - CSIndex
      - Integer
      - 1, 2
@@ -135,11 +135,11 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
    * - a0
      - String
      - A
-     - The alternative allele. It matches the entries in the original genotype data.
+     - The non-counting allele. It matches the entries in the original genotype data.
    * - a1
      - String
      - G
-     - The reference allele. It matches the entries in the original genotype data.
+     - The counting allele. If the counting allele is G, and genotype is GG, then it is coded as 2. It matches the entries in the original genotype data.
    * - alpha_l1
      - Float
      - 0.8
@@ -208,11 +208,11 @@ If ``--meta`` and ``--mega`` are specified (see definitions in :ref:`meta`), it 
    * - a0
      - String
      - A
-     - The alternative allele. It matches the entries in the original genotype data.
+     - The non-counting allele. It matches the entries in the original genotype data.
    * - a1
      - String
      - G
-     - The reference allele. It matches the entries in the original genotype data.
+     - The counting allele. If the counting allele is G, and genotype is GG, then it is coded as 2. It matches the entries in the original genotype data.
    * - trait
      - String
      - GeneABC

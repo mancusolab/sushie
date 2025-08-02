@@ -5,19 +5,18 @@
 
 # SuShiE🍣
 
-SuShiE (Sum of Shared Single Effect) is a Python software to fine-map
-causal SNPs, compute prediction weights, and infer effect size
-correlation for molecular data (e.g., mRNA levels and protein levels
-etc.) across multiple ancestries.
+SuShiE (Sum of Shared Single Effect) is a Python package for multiancestry SNP fine-mapping, estimating effect size correlations across ancestries, and computing ancestry-specific prediction weights using either individual-level or summary-level data for molecular or complex traits.
 
 ``` diff
 - We detest usage of our software or scientific outcome to promote racial discrimination.
 ```
 
 SuShiE is described in
->  [Improved multi-ancestry fine-mapping identifies cis-regulatory variants underlying molecular traits and disease risk](https://www.medrxiv.org/content/10.1101/2024.04.15.24305836v1).
+>  [Improved multiancestry fine-mapping identifies cis-regulatory variants underlying molecular traits and disease risk](https://doi.org/10.1038/s41588-025-02262-7).
 >
-> Zeyun Lu,  Xinran Wang,  Matthew Carr,  Artem Kim,  Steven Gazal,  Pejman Mohammadi,  Lang Wu,  Alexander Gusev,  James Pirruccello,  Linda Kachuri,  Nicholas Mancuso.
+> Zeyun Lu,  Xinran Wang,  Matthew Carr,  Artem Kim,  Steven Gazal,  Pejman Mohammadi,  Lang Wu,  James Pirruccello,  Linda Kachuri,  Alexander Gusev,  Nicholas Mancuso.
+>
+> Nature Genetics. July, 2025.
 
 Check [here](https://mancusolab.github.io/sushie/) for full
 documentation.
@@ -58,7 +57,7 @@ sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --covar
 For fine-mapping using summary-level data:
 ``` bash
 cd ./data/
-sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-header chrom snp pos a1 a0 zs --output ./test_result
+sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-header chrom snp pos a1 a0 z --output ./test_result
 ```
 
 It can perform:
@@ -76,7 +75,7 @@ It can perform:
 -   Cross-validation for SuShiE prediction weights (individual-level data only)
 -   Convert prediction results to
     [FUSION](http://gusevlab.org/projects/fusion/) format, thus can be
-    used in [TWAS](https://www.nature.com/articles/ng.3506) (individual-level data only)
+    used in [TWAS](https://www.nature.com/articles/ng.3506)
 
 See [here](https://mancusolab.github.io/sushie/) for more details on how
 to use SuShiE.
@@ -119,6 +118,7 @@ You can customize this function with your own ideas!
 | 0.14    | Remove KL-Divergence pruning. Enhance command line appearance and improve the output files contents. Fix small bugs on multivariate KL.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | 0.15    | Fix several typos; add a sanity check on reading vcf genotype data by assigning gt_types==Unknown as NA; Add preprint information.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 0.16  | Implement summary-level data inference. Add option to remove ambiguous SNPs; fix several bugs and enhance codes quality.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 0.17 | Fix several bugs, add debug checkpoints, add chrom, start, and end filtering to individual-level fine-mapping, enhance codes quality, and update readme for official publication.
 
 ## Support
 
@@ -131,6 +131,7 @@ Tracker](https://github.com/mancusolab/sushie/issues).
 Feel free to use other software developed by [Mancuso
 Lab](https://www.mancusolab.com/):
 
+-   [jaxQTL](https://github.com/mancusolab/jaxqtl): a single-cell eQTL mapping tool using highly efficient count-based model (i.e., negative binomial or Poisson).
 -   [MA-FOCUS](https://github.com/mancusolab/ma-focus): a Bayesian
     fine-mapping framework using
     [TWAS](https://www.nature.com/articles/ng.3506) statistics across

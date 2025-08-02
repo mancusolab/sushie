@@ -36,6 +36,10 @@ def _keep_file_subjects(
 ) -> io.RawData:
     _, _, _, pheno, _ = rawData
 
+    log.logger.debug(
+        f"Remove individuals based on the keep file for ancestry {idx + 1}."
+    )
+
     # we just need to filter out the subjects in phenotype file
     # because later pheno and covar will be inner merged with fam file
     old_pheno_num = pheno.shape[0]
@@ -65,6 +69,8 @@ def _drop_na_subjects(rawData: io.RawData, idx: int) -> io.RawData:
     pheno = pheno.dropna().reset_index(drop=True)
     new_pheno_num = pheno.shape[0]
     del_pheno_num = old_pheno_num - new_pheno_num
+
+    log.logger.debug(f"Remove individuals based on NA value for ancestry {idx + 1}.")
 
     if del_pheno_num != 0:
         log.logger.debug(
@@ -107,6 +113,8 @@ def _drop_na_subjects(rawData: io.RawData, idx: int) -> io.RawData:
 def _impute_geno(rawData: io.RawData, idx: int) -> io.RawData:
     bim, _, bed, _, _ = rawData
     old_bim_num = bim.shape[0]
+
+    log.logger.debug(f"Impute genotypes for ancestry {idx + 1}.")
 
     # to make sure that the bim index is continuous
     bim = bim.reset_index(drop=True)
@@ -156,6 +164,8 @@ def _filter_maf(rawData: io.RawData, maf: float, idx: int) -> io.RawData:
 
     old_bim_num = bim.shape[0]
 
+    log.logger.debug(f"Filter genotypes based on MAF for ancestry {idx + 1}.")
+
     # calculate maf
     snp_maf = jnp.mean(bed, axis=0) / 2
     snp_maf = jnp.where(snp_maf > 0.5, 1 - snp_maf, snp_maf)
@@ -190,6 +200,10 @@ def _remove_dup_geno(rawData: io.RawData, idx: int) -> io.RawData:
     old_bim_num = bim.shape[0]
     # to make sure that the bim index is continuous
     bim = bim.reset_index(drop=True)
+
+    log.logger.debug(
+        f"Remove duplicated individuals based on genotype data for ancestry {idx + 1}."
+    )
 
     (dup_idx,) = jnp.where(bim.snp.duplicated().values)
 
@@ -256,6 +270,10 @@ def _reset_idx(rawData: io.RawData, idx: int) -> io.RawData:
 
 def _filter_common_ind(rawData: io.RawData, idx: int) -> io.RawData:
     _, fam, _, pheno, covar = rawData
+
+    log.logger.debug(
+        f"Keep common individuals based on genotype and phenotype data for ancestry {idx + 1}."
+    )
 
     common_fam = fam.merge(
         pheno[[f"phenoIDX_{idx + 1}", "iid"]], how="inner", on=["iid"]
@@ -427,6 +445,7 @@ def parameter_check(
         )
 
     if args.ancestry_index is not None:
+        log.logger.debug("Read in ancestry index file.")
         ancestry_index = pd.read_csv(args.ancestry_index[0], header=None, sep="\t")
         old_pt = ancestry_index.shape[0]
         ancestry_index = ancestry_index.drop_duplicates()
@@ -618,6 +637,39 @@ def parameter_check(
         log.logger.info(
             "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuSiE."
         )
+    if args.chrom is None and args.start is None and args.end is None:
+        log.logger.info(
+            "No region is specified. Will use all SNPs available in the data."
+        )
+
+    elif args.chrom is not None and args.start is not None and args.end is not None:
+        if args.start <= 0:
+            raise ValueError(
+                "The start position for the region is invalid. Choose a positive integer."
+            )
+
+        if args.end <= 0:
+            raise ValueError(
+                "The end position for the region is invalid. Choose a positive integer."
+            )
+
+        if args.end <= args.start:
+            raise ValueError(
+                "The end position for the region is invalid. Choose a positive integer"
+                + " greater than the start position."
+            )
+
+        log.logger.info(
+            f"Detect region (chrom{args.chrom}:{args.start}:{args.end}) to be fine-mapped."
+            + " Will only use SNPs within the region."
+        )
+    else:
+        raise ValueError(
+            "The region is not specified correctly. Please provide --chrom, --start, and --end together,"
+            + " or omit all of them."
+        )
+
+    log.logger.debug("Finish parameter check for individual-level fine-mapping.")
 
     return n_pop, ancestry_index, keep_subject, pi, geno_path, geno_func
 
@@ -775,24 +827,36 @@ def parameter_check_ss(
             "The number of ancestry is 1, but --meta is specified. Will skip meta or mega SuSiE."
         )
 
-    if args.start is not None:
+    if args.chrom is None and args.start is None and args.end is None:
+        log.logger.info(
+            "No region is specified. Will use all SNPs available in the data."
+        )
+    elif args.chrom is not None and args.start is not None and args.end is not None:
         if args.start <= 0:
             raise ValueError(
                 "The start position for the region is invalid. Choose a positive integer."
             )
 
-        if args.end is not None:
-            if args.end <= args.start:
-                raise ValueError(
-                    "The end position for the region is invalid. Choose a positive integer"
-                    + " greater than the start position."
-                )
-
-    if args.end is not None:
         if args.end <= 0:
             raise ValueError(
                 "The end position for the region is invalid. Choose a positive integer."
             )
+
+        if args.end <= args.start:
+            raise ValueError(
+                "The end position for the region is invalid. Choose a positive integer"
+                + " greater than the start position."
+            )
+
+        log.logger.info(
+            f"Detect region (chrom{args.chrom}:{args.start}:{args.end}) to be fine-mapped."
+            + " Will only use SNPs within the region."
+        )
+    else:
+        raise ValueError(
+            "The region is not specified correctly. Please provide --chrom, --start, and --end together,"
+            + " or omit all of them."
+        )
 
     if args.gwas_sig <= 0 or args.gwas_sig > 1:
         raise ValueError(
@@ -805,6 +869,8 @@ def parameter_check_ss(
             "The LD adjustment parameter has to be between 0 and 0.1."
             + " Choose a valid number."
         )
+
+    log.logger.debug("Finish parameter check for summary-level fine-mapping.")
 
     return n_pop, pi, geno_path, geno_func, ld_file
 
@@ -821,6 +887,9 @@ def process_raw(
     cv: bool,
     cv_num: int,
     seed: int,
+    chrom: utils.IntOrNone,
+    start: utils.IntOrNone,
+    end: utils.IntOrNone,
 ) -> Tuple[
     pd.DataFrame,
     io.CleanData,
@@ -841,6 +910,9 @@ def process_raw(
         cv: The indicator whether to prepare datasets for cross-validation.
         cv_num: The number for :math:`X`-fold cross-validation.
         seed: The random seed for row-wise shuffling the datasets for cross validation.
+        chrom: The chromosome to filter SNPs.
+        start: The start position to filter SNPs.
+        end: The end position to filter SNPs.
 
 
     Returns:
@@ -879,6 +951,8 @@ def process_raw(
         rawData[idx] = _filter_common_ind(rawData[idx], idx)
 
     # find common snps across ancestries
+    log.logger.debug("Fine common SNPs across ancestries.")
+
     if n_pop > 1:
         snps = (
             rawData[0]
@@ -905,6 +979,7 @@ def process_raw(
     # remove biallelic SNPs dont match across ancestries
     # e.g., A/T for EUR but A/C for AFR
     if n_pop > 1:
+        log.logger.debug("Remove SNPs that do not have same alleles across ancestries.")
         for idx in range(1, n_pop):
             _, _, remove_idx = _allele_check(
                 snps["a0_1"].values,
@@ -928,6 +1003,8 @@ def process_raw(
 
     # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
     if not keep_ambiguous:
+        log.logger.debug("Remove ambiguous SNPs.")
+
         ambiguous_snps = ["AT", "TA", "CG", "GC"]
         if_ambig = (snps.a0_1 + snps.a1_1).isin(ambiguous_snps)
         del_num = if_ambig.sum()
@@ -941,9 +1018,58 @@ def process_raw(
         if del_num != 0:
             log.logger.debug(f"Drop {del_num} ambiguous SNPs in genotype data.")
 
+    log.logger.debug(
+        "Filter SNPs based on Chrom, Start, and End using coordinates of first ancestry."
+    )
+    snps["chrom"] = snps["chrom"].astype("int64")
+
+    if chrom is not None:
+        old_num = snps.shape[0]
+        snps = snps[snps.chrom == chrom]
+        del_num = old_num - snps.shape[0]
+
+        if snps.shape[0] == 0:
+            raise ValueError(f"No SNPs remain after filtering on chromosome {chrom}.")
+
+        if del_num != 0:
+            log.logger.debug(f"Drop {del_num} SNPs that are not on chromosome {chrom}.")
+
+        old_num = snps.shape[0]
+        snps = snps[snps.pos_1 >= start]
+        del_num = old_num - snps.shape[0]
+
+        if snps.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located after position {start} on chromosome {chrom}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located before position {start} on chromosome {chrom}."
+            )
+
+        old_num = snps.shape[0]
+        snps = snps[snps.pos_1 <= end]
+        del_num = old_num - snps.shape[0]
+
+        if snps.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located before position {end} on chromosome {chrom}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located after position {end} on chromosome {chrom}."
+            )
+
+        snps = snps.reset_index(drop=True)
+
     # find flipped reference alleles across ancestries
     flip_idx = []
     if n_pop > 1:
+        log.logger.debug(
+            "Flip the alleles of subsequent ancestries to match those of the first ancestry."
+        )
         for idx in range(1, n_pop):
             _, tmp_flip_idx, _ = _allele_check(
                 snps["a0_1"].values,
@@ -972,6 +1098,7 @@ def process_raw(
 
     if pi.shape[0] != 0:
         # append prior weights to the snps
+        log.logger.debug("Process prior weight file.")
         snps = pd.merge(snps, pi, how="left", on="snp")
         nan_count = snps["pi"].isna().sum()
         if nan_count > 0:
@@ -991,6 +1118,7 @@ def process_raw(
     total_ind = 0
     # filter on geno, pheno, and covar
     for idx in range(n_pop):
+        log.logger.debug(f"Final process the rawdata for ancestry {idx + 1}.")
         _, tmp_fam, tmp_geno, tmp_pheno, tmp_covar = rawData[idx]
 
         # get common individual and snp id
@@ -1006,7 +1134,9 @@ def process_raw(
         # flip index is the positional index based on snps data frame, so we have to subset genotype
         # data based on the common snps (i.e., snps data frame).
         if idx > 0 and len(flip_idx[idx - 1]) != 0:
-            tmp_geno[:, flip_idx[idx - 1]] = 2 - tmp_geno[:, flip_idx[idx - 1]]
+            tmp_geno = tmp_geno.at[:, flip_idx[idx - 1]].set(
+                2 - tmp_geno[:, flip_idx[idx - 1]]
+            )
 
         # swap pheno and covar rows order to match fam/bed file, and then select the
         # values for future fine-mapping
@@ -1075,6 +1205,10 @@ def process_raw(
                 pi=pi,
             )
 
+    log.logger.debug(
+        "Finish preparing data for cross-validation and mega fine-mapping."
+    )
+
     return snps, regular_data, mega_data, cv_data
 
 
@@ -1108,6 +1242,8 @@ def process_raw_ss(
     gwas_list = []
     for idx in range(n_pop):
         # read in GWAS data
+        log.logger.debug(f"Read in GWAS data for ancestry {idx + 1}.")
+
         df_gwas = io.read_gwas(
             args.gwas[idx], args.gwas_header, args.chrom, args.start, args.end
         )
@@ -1123,6 +1259,7 @@ def process_raw_ss(
 
         # read in genotype data or LD data
         if ld_file:
+            log.logger.debug(f"Read in LD file for ancestry {idx + 1}.")
             df_ld = geno_func(geno_path[idx])
             if not (df_ld.values == df_ld.values.T).all():
                 if (df_ld.round(4).values == df_ld.round(4).values.T).all():
@@ -1156,6 +1293,9 @@ def process_raw_ss(
 
             ld_geno_list.append(df_ld)
         else:
+            log.logger.debug(
+                f"Read in genotype file to compute LD for ancestry {idx + 1}."
+            )
             bim, fam, bed = geno_func(geno_path[idx])
             bim.chrom = bim.chrom.astype(int)
 
@@ -1203,6 +1343,7 @@ def process_raw_ss(
 
     # find common snps across ancestries
     if n_pop > 1:
+        log.logger.debug("Find common GWAS SNPs across ancestries.")
         snps_gwas = (
             gwas_list[0]
             .merge(gwas_list[1], how="inner", on=["chrom", "snp"])
@@ -1293,6 +1434,7 @@ def process_raw_ss(
 
     # remove non-biallelic SNPs across ancestries
     if n_pop > 1:
+        log.logger.debug("Remove SNPs that do not have same alleles across ancestries.")
         for idx in range(1, n_pop):
             _, _, remove_idx = _allele_check(
                 snps_gwas["a0_1"].values,
@@ -1337,21 +1479,23 @@ def process_raw_ss(
 
     # remove ambiguous SNPs (i.e., A/T, T/A, C/G, G/C pairs) in genotype data
     if not args.keep_ambiguous:
+        log.logger.debug("Remove ambiguous SNPs from GWAS data.")
         ambiguous_snps = ["AT", "TA", "CG", "GC"]
         if_ambig = (snps_gwas.a0_1 + snps_gwas.a1_1).isin(ambiguous_snps)
         del_num = if_ambig.sum()
         snps_gwas = snps_gwas[~if_ambig].reset_index(drop=True)
 
         if snps_gwas.shape[0] == 0:
-            raise ValueError(
-                "All SNPs are ambiguous in genotype data. Check the source."
-            )
+            raise ValueError("All SNPs are ambiguous in GWAS data. Check the source.")
 
         if del_num != 0:
-            log.logger.debug(f"Drop {del_num} ambiguous SNPs in genotype data.")
+            log.logger.debug(f"Drop {del_num} ambiguous SNPs in GWAS data.")
 
     # find flipped reference alleles across ancestries
     if n_pop > 1:
+        log.logger.debug(
+            "Flip the alleles of subsequent ancestries to match those of the first ancestry."
+        )
         for idx in range(1, n_pop):
             _, tmp_flip_idx, _ = _allele_check(
                 snps_gwas["a0_1"].values,
@@ -1396,7 +1540,9 @@ def process_raw_ss(
                 # flip index is the positional index based on snps data frame, so we have to subset genotype
                 # data based on the common snps (i.e., snps data frame).
                 if len(tmp_flip_idx) != 0:
-                    tmp_geno[:, tmp_flip_idx] = 2 - tmp_geno[:, tmp_flip_idx]
+                    tmp_geno = tmp_geno.at[:, tmp_flip_idx].set(
+                        2 - tmp_geno[:, tmp_flip_idx]
+                    )
 
                 ld_geno_list[idx] = ld_geno_list[idx]._replace(bed=tmp_geno)
 
@@ -1424,6 +1570,7 @@ def process_raw_ss(
     # merge gwas with LD or bim data
     gwas_list = []
     ld_list = []
+    log.logger.debug("Merge GWAS and LD data across ancestries.")
     if ld_file:
         # users have to ensure that the counting allele is the same across GWAS and LD data
         overlap_snps = snps_gwas["snp"][snps_gwas["snp"].isin(snps_ld.snps)]
@@ -1928,6 +2075,9 @@ def run_finemap(args):
                 args.cv,
                 args.cv_num,
                 args.seed,
+                args.chrom,
+                args.start,
+                args.end,
             )
 
             normal_data = copy.deepcopy(regular_data)
@@ -1945,13 +2095,7 @@ def run_finemap(args):
     except Exception as err:
         import traceback
 
-        print(
-            "".join(
-                traceback.format_exception(
-                    etype=type(err), value=err, tb=err.__traceback__
-                )
-            )
-        )
+        print("".join(traceback.format_exception(type(err), err, err.__traceback__)))
         log.logger.error(err)
 
     finally:
@@ -2133,8 +2277,10 @@ def build_finemap_parser(subp):
         type=int,
         choices=list(range(1, 23)),
         help=(
-            "Chromsome number to subset GWAS SNPs in the fine-mapping. Default is None."
+            "Chromsome number to subset SNPs in the fine-mapping. Default is None."
             " Value has to be an integer number between 1 and 22.",
+            " The SNP position information from the first ancestry will be used for filtering.",
+            " If this flag is specified, --start and --end must also be provided.",
         ),
     )
 
@@ -2143,8 +2289,10 @@ def build_finemap_parser(subp):
         default=None,
         type=int,
         help=(
-            "Base-pair start position to subset GWAS SNPs in the fine-mapping. Default is None."
+            "Base-pair start position to subset SNPs in the fine-mapping. Default is None."
             " Value has to be a positive integer number.",
+            " The SNP position information from the first ancestry will be used for filtering.",
+            " If this flag is specified, --chrom and --end must also be provided.",
         ),
     )
 
@@ -2153,8 +2301,10 @@ def build_finemap_parser(subp):
         default=None,
         type=int,
         help=(
-            "Base-pair end position to subset GWAS SNPs in the fine-mapping. Default is None."
+            "Base-pair end position to subset SNPs in the fine-mapping. Default is None."
             " Value has to be a positive integer number and larger than --start.",
+            " The SNP position information from the first ancestry will be used for filtering.",
+            " If this flag is specified, --chrom and --start must also be provided.",
         ),
     )
 
@@ -2359,7 +2509,7 @@ def build_finemap_parser(subp):
     )
 
     finemap.add_argument(
-        "--purity_method",
+        "--purity-method",
         default="weighted",
         type=str,
         choices=["weighted", "max", "min"],

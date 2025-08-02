@@ -13,7 +13,7 @@ with warnings.catch_warnings():
     from bgen_reader import open_bgen
     import jax.numpy as jnp
 
-from . import infer, utils
+from . import infer, log, utils
 
 __all__ = [
     "CVData",
@@ -134,13 +134,19 @@ def read_data(
         # if there is no index file, we read in the data ancestry by ancestry
         # if there is index file, we just need to read in the data once at first
         if (not index_file) or (index_file and idx == 0):
+            log.logger.debug(f"Read in genotype data for ancestry {idx + 1}.")
+
             bim, fam, bed = geno_func(geno_paths[idx])
+
+            log.logger.debug(f"Read in phenotype data for ancestry {idx + 1}.")
 
             pheno = (
                 pd.read_csv(pheno_paths[idx], sep="\t", header=None, dtype={0: object})
                 .rename(columns={0: "iid", 1: "pheno"})
                 .reset_index(drop=True)
             )
+
+            log.logger.debug(f"Read in covariate data for ancestry {idx + 1}.")
 
             if covar_paths is not None:
                 covar = (
@@ -189,6 +195,8 @@ def read_data(
                 bim=tmp_bim, fam=tmp_fam, bed=tmp_bed, pheno=tmp_pheno, covar=tmp_covar
             )
         )
+
+    log.logger.debug("Finish read in data for all ancestries.")
 
     return rawData
 
@@ -329,14 +337,51 @@ def read_gwas(
     df_gwas[["chrom"]] = df_gwas[["chrom"]].astype(int)
     df_gwas[["pos"]] = df_gwas[["pos"]].astype(int)
 
+    log.logger.debug("Filter GWAS data based on Chrom, Start, and End.")
     if chrom is not None:
+        old_num = df_gwas.shape[0]
         df_gwas = df_gwas[df_gwas.chrom == chrom]
+        del_num = old_num - df_gwas.shape[0]
 
-    if start is not None:
+        if df_gwas.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs remain after filtering on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are not on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        old_num = df_gwas.shape[0]
         df_gwas = df_gwas[df_gwas.pos >= start]
+        del_num = old_num - df_gwas.shape[0]
 
-    if end is not None:
+        if df_gwas.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located after position {start} on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located before position {start} on chromosome {chrom}."
+                + " for GWAS data from {path}."
+            )
+
+        old_num = df_gwas.shape[0]
         df_gwas = df_gwas[df_gwas.pos <= end]
+        del_num = old_num - df_gwas.shape[0]
+
+        if df_gwas.shape[0] == 0:
+            raise ValueError(
+                f"No SNPs are located before position {end} on chromosome {chrom} for GWAS data from {path}."
+            )
+
+        if del_num != 0:
+            log.logger.debug(
+                f"Drop {del_num} SNPs that are located after position {end} on chromosome {chrom}."
+                + " for GWAS data from {path}."
+            )
 
     df_gwas = df_gwas.copy().reset_index(drop=True)
 
