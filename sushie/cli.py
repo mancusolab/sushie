@@ -2095,13 +2095,7 @@ def run_finemap(args):
     except Exception as err:
         import traceback
 
-        print(
-            "".join(
-                traceback.format_exception(
-                    etype=type(err), value=err, tb=err.__traceback__
-                )
-            )
-        )
+        print("".join(traceback.format_exception(type(err), err, err.__traceback__)))
         log.logger.error(err)
 
     finally:
