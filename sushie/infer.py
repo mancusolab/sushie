@@ -175,7 +175,7 @@ def infer_sushie(
     threshold: float = 0.95,
     purity: float = 0.5,
     purity_method: str = "weighted",
-    max_select: int = 500,
+    max_select: int = 250,
     min_snps: int = 100,
     no_reorder: bool = False,
     seed: int = 12345,
@@ -204,9 +204,9 @@ def infer_sushie(
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
             Default is :math:`0.5`.
         purity_method: The method to compute purity across ancestries. Default is ``weighted``.
-        max_select: The maximum number of selected SNPs to compute purity. Default is :math:`500`.
+        max_select: The maximum number of selected SNPs to compute purity. Default is :math:`250`.
         min_snps: The minimum number of SNPs to fine-map. Default is :math:`100`.
-        no_reorder: Do not re-order single effects based on Frobenius norm of alpha-weighted posterior mean square.
+        no_reorder: Do not re-order single effects based on Frobenius norm of effect size covariance prior.
             Default is to re-order.
         seed: The randomization seed for selecting SNPs in the credible set to compute purity. Default is :math:`12345`.
 
@@ -248,27 +248,30 @@ def infer_sushie(
 
     if not 0 < threshold < 1:
         raise ValueError(
-            f"CS threshold ({threshold}) is not between 0 and 1. Specify a valid one."
+            f"Credible set PIP threshold ({threshold}) must be greater than 0 and less than 1."
+            + " Specify a valid value using '--threshold' for command-line usage"
+            + " or 'threshold=' for in-Python function calls."
         )
 
     if not 0 < purity < 1:
         raise ValueError(
-            f"Purity threshold ({purity}) is not between 0 and 1. Specify a valid one."
+            f"Purity threshold ({purity}) must be greater than or equal to 0 and less than 1. "
+            + " Specify a valid value using '--purity' for command-line usage"
+            + " or 'purity=' for in-Python function calls."
         )
 
     if max_select <= 0:
         raise ValueError(
-            "The maximum selected number of SNPs for purity is invalid. Choose a positive integer."
+            "The maximum selected number of SNPs for purity must be greater than 0."
+            + " Specify a valid value using '--max-select' for command-line usage"
+            + " or 'max_select=' for in-Python function calls."
         )
 
-    if max_select <= 0:
+    if min_snps <= 0:
         raise ValueError(
-            "The minimum number of SNPs to fine-map is invalid. Choose a positive integer."
-        )
-
-    if max_select < 100:
-        raise ValueError(
-            "The maximum selected number of SNPs is too small thus may miss true positives. Choose a positive integer."
+            "The minimum number of SNPs to fine-map must be greater than 0."
+            + " Specify a valid value using '--min-snps' for command-line usage"
+            + " or 'min_snps=' for in-Python function calls."
         )
 
     _, n_snps = Xs[0].shape
@@ -277,9 +280,7 @@ def infer_sushie(
         pi = jnp.ones(n_snps) / float(n_snps)
     else:
         if not (pi > 0).all():
-            raise ValueError(
-                "Prior probability/weights contain negative value. Specify a valid pi prior."
-            )
+            raise ValueError("Prior probability/weights must be all positive values.")
 
         if pi.shape[0] != Xs[0].shape[1]:
             raise ValueError(
@@ -328,12 +329,16 @@ def infer_sushie(
     if min_snps < L:
         raise ValueError(
             f"The number of minimum common SNPs across ancestries ({min_snps}) is less than inferred L ({L})."
+            + " Specify a larger value using '--min-snps' for command-line usage"
+            + " or 'min_snps=' for in-Python function calls."
         )
 
     if n_snps < min_snps:
         raise ValueError(
-            f"The number of common SNPs across ancestries ({n_snps}) is less than minimum common "
-            + "number of SNPs specified."
+            f"The number of common SNPs across ancestries ({n_snps}) is less than minimum common"
+            + " number of SNPs (100) specified."
+            + " Users can specify a smaller value using '--min-snps' for command-line usage"
+            + " or 'min_snps=' for in-Python function calls."
         )
 
     param_effect_var = effect_var
@@ -347,7 +352,7 @@ def infer_sushie(
         effect_var = [float(i) for i in effect_var]
         if jnp.any(jnp.array(effect_var) <= 0):
             raise ValueError(
-                f"The input of effect size prior ({effect_var})is invalid (<0)."
+                f"The effect size prior variance ({effect_var}) must be positive."
             )
 
     exp_num_rho = math.comb(n_pop, 2)
@@ -356,20 +361,20 @@ def infer_sushie(
         rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
-            log.logger.info(
-                "Running single-ancestry SuShiE, but --rho is specified. Will ignore."
+            log.logger.debug(
+                "Running single-ancestry SuShiE. The '--rho' parameter is specified but will be ignored."
             )
 
         if (len(rho) != exp_num_rho) and n_pop != 1:
             raise ValueError(
                 f"Number of specified rho ({len(rho)}) does not match expected"
-                + f"number {exp_num_rho}.",
+                + f" number {exp_num_rho}.",
             )
         rho = [float(i) for i in rho]
         # double-check the if it's invalid rho
         if jnp.any(jnp.abs(jnp.array(rho)) >= 1):
             raise ValueError(
-                f"The input of rho ({rho}) is invalid (>=1 or <=-1). Check your input."
+                f"Effect size prior correlation ({rho}) must be between -1 and 1 (inclusive)."
             )
 
     effect_covar = jnp.diag(jnp.array(effect_var))
@@ -465,6 +470,8 @@ def infer_sushie(
     elbo_tracker = jnp.array([-jnp.inf])
     elbo_increase = True
     for o_iter in range(max_iter):
+        log.logger.debug(f"Starting optimization iteration {o_iter + 1}.")
+
         prev_priors = priors
         prev_posteriors = posteriors
 
@@ -478,6 +485,9 @@ def infer_sushie(
             prior_adjustor,
             opt_v_func,
         )
+
+        log.logger.debug(f"Iteration {o_iter + 1} finished.")
+
         elbo_last = elbo_tracker[o_iter]
         elbo_tracker = jnp.append(elbo_tracker, elbo_cur)
         elbo_increase = elbo_cur >= elbo_last or jnp.isclose(
@@ -486,11 +496,11 @@ def infer_sushie(
 
         if not elbo_increase:
             log.logger.warning(
-                f"Optimization concludes after {o_iter + 1} iterations."
-                + f" ELBO decreases. Final ELBO score: {elbo_cur}. Return last iteration's results."
+                f"Optimization finished after {o_iter + 1} iterations."
+                + f" ELBO decreased. Final ELBO score: {elbo_cur}. Return last iteration's results."
                 + " It can be precision issue,"
                 + " and adding 'import jax; jax.config.update('jax_enable_x64', True)' may fix it."
-                + " If this issue keeps rising for many genes, contact the developer."
+                + " If this issue keeps rising for many genes, contact the developers."
             )
             priors = prev_priors
             posteriors = prev_posteriors
@@ -513,7 +523,12 @@ def infer_sushie(
 
     l_order = jnp.arange(L)
     if not no_reorder:
+        log.logger.debug(
+            "Reordering effects based on Frobenius norm of effect size covariance prior."
+        )
         priors, posteriors, l_order = _reorder_l(priors, posteriors)
+
+    log.logger.debug("Computing credible sets.")
 
     cs, full_alphas, pip_all, pip_cs = make_cs(
         posteriors.alpha,
@@ -525,6 +540,10 @@ def infer_sushie(
         purity_method,
         max_select,
         seed,
+    )
+
+    log.logger.debug(
+        "Inference and credible set computation complete. Beginning to write results."
     )
 
     return SushieResult(

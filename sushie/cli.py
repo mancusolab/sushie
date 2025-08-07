@@ -617,46 +617,47 @@ def parameter_check(
 
     if args.seed <= 0:
         raise ValueError(
-            "The seed specified for randomization is invalid. Choose a positive integer."
+            "The seed specified for randomization must be greater than 0. Choose a positive integer using --seed."
         )
 
     if args.cv:
         if args.cv_num <= 1:
             raise ValueError(
-                "The number of folds in cross validation is invalid."
-                + " Choose some number greater than 1.",
+                "The number of folds in cross validation must be greater than 1."
+                + " Update with --cv-num.",
             )
 
     if args.maf <= 0 or args.maf > 0.5:
         raise ValueError(
             "The minor allele frequency (MAF) has to be between 0 (exclusive) and 0.5 (inclusive)."
-            + " Choose a valid float."
+            + " Choose a valid frequency using --maf."
         )
 
     if (args.meta or args.mega) and n_pop == 1:
-        log.logger.info(
+        log.logger.debug(
             "The number of ancestry is 1, but --meta or --mega is specified. Will skip meta or mega SuSiE."
         )
+
     if args.chrom is None and args.start is None and args.end is None:
-        log.logger.info(
+        log.logger.debug(
             "No region is specified. Will use all SNPs available in the data."
         )
 
     elif args.chrom is not None and args.start is not None and args.end is not None:
         if args.start <= 0:
             raise ValueError(
-                "The start position for the region is invalid. Choose a positive integer."
+                "The start position for the region must be greater than 0. Update with --start."
             )
 
         if args.end <= 0:
             raise ValueError(
-                "The end position for the region is invalid. Choose a positive integer."
+                "The end position for the region must be greater than 0. Update with --end."
             )
 
         if args.end <= args.start:
             raise ValueError(
-                "The end position for the region is invalid. Choose a positive integer"
-                + " greater than the start position."
+                "The end position for the region must be greater than --start. Update with"
+                + " --start or --end."
             )
 
         log.logger.info(
@@ -767,12 +768,14 @@ def parameter_check_ss(
     if args.sample_size is not None:
         if len(args.sample_size) != n_pop:
             raise ValueError(
-                "The numbers of ancestries in sample size and GWAS data does not match. Check the source."
+                "The numbers of ancestries in sample size and GWAS data does not match. Check the source"
+                + " and update --sample-size."
             )
 
         if not all(sample_size > 0 for sample_size in args.sample_size):
             raise ValueError(
-                "The sample size specified for summary-level fine-mapping is invalid. Choose a positive integer."
+                "The sample size specified for summary-level fine-mapping is invalid. Choose a positive integer"
+                + " using --sample-size."
             )
 
         log.logger.info(f"Detect sample sizes for {n_pop} {name_ancestry}.")
@@ -813,39 +816,39 @@ def parameter_check_ss(
 
     if args.seed <= 0:
         raise ValueError(
-            "The seed specified for randomization is invalid. Choose a positive integer."
+            "The seed specified for randomization is invalid. Choose a positive integer using --seed."
         )
 
     if args.maf <= 0 or args.maf > 0.5:
         raise ValueError(
             "The minor allele frequency (MAF) has to be between 0 (exclusive) and 0.5 (inclusive)."
-            + " Choose a valid float."
+            + " Choose a valid frequency using --maf."
         )
 
     if args.meta and n_pop == 1:
-        log.logger.info(
+        log.logger.debug(
             "The number of ancestry is 1, but --meta is specified. Will skip meta or mega SuSiE."
         )
 
     if args.chrom is None and args.start is None and args.end is None:
-        log.logger.info(
+        log.logger.debug(
             "No region is specified. Will use all SNPs available in the data."
         )
     elif args.chrom is not None and args.start is not None and args.end is not None:
         if args.start <= 0:
             raise ValueError(
-                "The start position for the region is invalid. Choose a positive integer."
+                "The start position for the region must be greater than 0. Update with --start."
             )
 
         if args.end <= 0:
             raise ValueError(
-                "The end position for the region is invalid. Choose a positive integer."
+                "The end position for the region must be greater than 0. Update with --end."
             )
 
         if args.end <= args.start:
             raise ValueError(
-                "The end position for the region is invalid. Choose a positive integer"
-                + " greater than the start position."
+                "The end position for the region must be greater than --start. Update with"
+                + " --start or --end."
             )
 
         log.logger.info(
@@ -860,14 +863,30 @@ def parameter_check_ss(
 
     if args.gwas_sig <= 0 or args.gwas_sig > 1:
         raise ValueError(
-            "The P value significance threshold for GWAS summary statistics has to be between 0 and 1."
-            + " Choose a valid number."
+            "The significance threshold for P-values in GWAS summary statistics must be greater than 0"
+            + " and less than or equal to 1. Choose a valid number using --gwas-sig."
         )
 
     if args.ld_adjust > 0.1 or args.ld_adjust < 0:
         raise ValueError(
-            "The LD adjustment parameter has to be between 0 and 0.1."
-            + " Choose a valid number."
+            "The LD adjustment parameter has to be greater than 0 and less than 0.1."
+            + " Choose a valid number using --ld-adjust."
+        )
+
+    if args.cv:
+        log.logger.debug(
+            "Cross-validation is not supported for summary-level fine-mapping. This flag (--cv) will be ignored."
+        )
+
+    if args.mega:
+        log.logger.debug(
+            "Mega SuShiE is not supported for summary-level fine-mapping. This flag (--mega) will be ignored."
+        )
+
+    if args.her:
+        log.logger.debug(
+            "Heritability estimation is not supported for summary-level fine-mapping."
+            + " This flag (--her) will be ignored."
         )
 
     log.logger.debug("Finish parameter check for summary-level fine-mapping.")
@@ -2580,8 +2599,7 @@ def build_finemap_parser(subp):
         default=False,
         action="store_true",
         help=(
-            "Indicator to re-order single effects based on Frobenius norm of alpha-weighted",
-            " posterior mean square.",
+            "Indicator to re-order single effects based on Frobenius norm of effect size covariance prior."
             " Default is False (to re-order).",
             " Specify --no-reorder will store 'True' value.",
         ),
@@ -2707,7 +2725,7 @@ def build_finemap_parser(subp):
         "--quiet",
         default=False,
         action="store_true",
-        help="Indicator to not print message to console. Default is False. Specify --numpy will store 'True' value.",
+        help="Indicator to not print message to console. Default is False. Specify --quiet will store 'True' value.",
     )
 
     finemap.add_argument(
@@ -2716,7 +2734,7 @@ def build_finemap_parser(subp):
         action="store_true",
         help=(
             "Indicator to include debug information in the log. Default is False.",
-            " Specify --numpy will store 'True' value.",
+            " Specify --verbose will store 'True' value.",
         ),
     )
 

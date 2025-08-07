@@ -521,7 +521,7 @@ Parameters
      - Boolean
      - False
      - ``--no-reorder``
-     - Indicator to re-order single effects based on Frobenius norm of alpha-weighted posterior mean square. Default is False (to re-order). Specify --no-reorder will store 'True' value.
+     - Indicator to re-order single effects based on Frobenius norm of effect size covariance prior. Default is False (to re-order). Specify --no-reorder will store 'True' value.
    * - ``--keep-ambiguous``
      - Boolean
      - False
