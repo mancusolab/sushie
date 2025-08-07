@@ -46,11 +46,11 @@ documentation.
 
 3. Last, users can download the latest repository and then use `pip`:
 
-``` bash
-git clone https://github.com/mancusolab/sushie.git
-cd sushie
-pip install .
-```
+    ``` bash
+    git clone https://github.com/mancusolab/sushie.git
+    cd sushie
+    pip install .
+    ```
 
 ## Get Started with Example
 
