@@ -30,19 +30,27 @@ documentation.
 
 ## Installation
 
-Users can download the latest repository and then use `pip`:
+1. **Before installation**, we *highly* recommend to create a new environment using [conda](https://docs.conda.io/en/latest/) so that it will not affect the software versions of the other projects. For example, use following codes:
 
-``` bash
-git clone https://github.com/mancusolab/sushie.git
-cd sushie
-pip install .
-```
+    ```bash
+    conda create -n env-sushie python=3.8
+    ```
 
-*We currently only support Python3.8+.*
+    *We currently only support Python3.8+.*
 
-Before installation, we recommend to create a new environment using
-[conda](https://docs.conda.io/en/latest/) so that it will not affect the
-software versions of the other projects.
+2. If you are using a Mac with an Apple M1 or newer chip, you should install `cbgen` package from conda-forge first to ensure compatibility (see this [link]((https://github.com/google/jax/issues/5501)) for previous issue). **On most HPC systems**, this is usually not necessary.
+
+    ```bash
+    conda install -c conda-forge cbgen
+    ```
+
+3. Last, users can download the latest repository and then use `pip`:
+
+    ``` bash
+    git clone https://github.com/mancusolab/sushie.git
+    cd sushie
+    pip install .
+    ```
 
 ## Get Started with Example
 
@@ -99,13 +107,6 @@ You can customize this function with your own ideas!
 ## Notes
 
 -   SuShiE currently only supports **continuous** phenotype fine-mapping for individual-level data.
--   SuShiE uses [JAX](https://github.com/google/jax) with [Just In
-    Time](https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html)
-    compilation to achieve high-speed computation. However, there are
-    some [issues](https://github.com/google/jax/issues/5501) for JAX
-    with Mac M1 chip. To solve this, users need to initiate conda using
-    [miniforge](https://github.com/conda-forge/miniforge), and then
-    install SuShiE using `pip` in the desired environment.
 
 ## Version History
 
