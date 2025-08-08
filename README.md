@@ -38,7 +38,7 @@ documentation.
 
     *We currently only support Python3.8+.*
 
-2. If you are using a Mac with an Apple M1 or newer chip, you should install `cbgen` package from conda-forge first to ensure compatibility (see this [link]((https://github.com/google/jax/issues/5501)) for previous issue). **On most HPC systems**, this is usually not necessary.
+2. If you are using a Mac with an Apple M1 or newer chip, you should install `cbgen` package or other required pacakges from conda-forge first to ensure compatibility (see this [link](https://github.com/google/jax/issues/5501) for previous issue). One easy workaround is to initiate your conda using `miniforge`. **On most HPC systems**, this is usually not necessary.
 
     ```bash
     conda install -c conda-forge cbgen
