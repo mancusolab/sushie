@@ -156,6 +156,10 @@ For ``*.meta.alphas.tsv``, it will row-bind the output for single-ancestry SuShi
      - Integer
      - 0, 1
      - The indicator whether the credible set is kept after pruning based on purity threshold. Depending on ``--L``, it can have extra columns.
+    * - log_bf_l1
+     - float
+     - 100.23
+      - The log Bayes factor for the first credible set. Depending on ``--L``, it can have extra columns.
    * - trait
      - String
      - GeneABC

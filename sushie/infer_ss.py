@@ -294,7 +294,10 @@ def infer_sushie_ss(
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
         # l x n x n
         weighted_sum_covar=jnp.zeros((L, n_pop, n_pop)),
+        # l
         kl=jnp.zeros((L,)),
+        # l x p
+        log_bf=jnp.zeros((L, n_snps)),
     )
 
     # since we use prior adjustor, this is really no need
@@ -370,6 +373,7 @@ def infer_sushie_ss(
 
     cs, full_alphas, pip_all, pip_cs = infer.make_cs(
         posteriors.alpha,
+        posteriors.log_bf,
         ns,
         None,
         lds,

@@ -8,7 +8,8 @@ SuShiE (Sum of Shared Single Effect) is a Python package for multiancestry SNP f
 
 SuShiE is described in
 
-**Improved multiancestry fine-mapping identifies cis-regulatory variants underlying molecular traits and disease risk** `medRxiv <https://doi.org/10.1038/s41588-025-02262-7>`_
+`Improved multiancestry fine-mapping identifies cis-regulatory variants underlying molecular traits and disease risk <https://www.nature.com/articles/s41588-025-02262-7>`_ Nature Genetics. July, 2025.
+
 
 *Zeyun Lu, Xinran Wang, Matthew Carr, Artem Kim, Steven Gazal, Pejman Mohammadi, Lang Wu, James Pirruccello, Linda Kachuri, Alexander Gusev, Nicholas Mancuso*
 

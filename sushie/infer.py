@@ -53,7 +53,7 @@ class Posterior(NamedTuple):
         weighted_sum_covar: The alpha-weighted sum of posterior effect covariance across SNPs
             (:math:`L \\times k \\times k`).
         kl: The Kullback–Leibler (KL) divergence for each :math:`L`.
-
+        log_bf: The log Bayes factor for each SNP (:math:`L \\times p`).
     """
 
     alpha: Array
@@ -61,6 +61,7 @@ class Posterior(NamedTuple):
     post_mean_sq: Array
     weighted_sum_covar: Array
     kl: Array
+    log_bf: Array
 
 
 class SushieResult(NamedTuple):
@@ -445,7 +446,10 @@ def infer_sushie(
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
         # l x n x n
         weighted_sum_covar=jnp.zeros((L, n_pop, n_pop)),
+        # l
         kl=jnp.zeros((L,)),
+        # l x p
+        log_bf=jnp.zeros((L, n_snps)),
     )
 
     # since we use prior adjustor, this is really no need
@@ -532,6 +536,7 @@ def infer_sushie(
 
     cs, full_alphas, pip_all, pip_cs = make_cs(
         posteriors.alpha,
+        posteriors.log_bf,
         ns,
         Xs,
         None,
@@ -680,12 +685,19 @@ def _compute_posterior(
     post_mean = jnp.einsum("pkm,pm->pk", post_covar, rTZDinv)
     post_mean_sq = post_covar + jnp.einsum("pk,pm->pkm", post_mean, post_mean)
 
-    alpha = nn.softmax(
-        jnp.log(priors.pi)
-        - stats.multivariate_normal.logpdf(
-            jnp.zeros((n_snps, n_pop)), post_mean, post_covar
-        )
+    # compute the ABF in the original susie paper
+    # which is equivalent to the inverse posterior density at 0
+    log_bf = -1 * stats.multivariate_normal.logpdf(
+        # origianlly it was logpdf(jnp.zeros((n_snps, n_pop)), post_mean, post_covar)
+        # but to match what our math derivation in the paper, we change it to following
+        # it will not change the result as N(0; 1, 1) is the same as N(1; 0, 1) in terms of density value
+        post_mean,
+        jnp.zeros((n_snps, n_pop)),
+        post_covar,
     )
+
+    alpha = nn.softmax(jnp.log(priors.pi) + log_bf)
+
     weighted_post_mean = post_mean * alpha[:, jnp.newaxis]
     weighted_post_mean_sq = post_mean_sq * alpha[:, jnp.newaxis, jnp.newaxis]
     # this is also the prior in our E step
@@ -705,6 +717,7 @@ def _compute_posterior(
             weighted_sum_covar
         ),
         kl=posteriors.kl.at[l_iter].set(kl_alpha + kl_betas),
+        log_bf=posteriors.log_bf.at[l_iter].set(log_bf),
     )
 
     return priors, posteriors
@@ -791,6 +804,7 @@ def _reorder_l(priors: Prior, posteriors: Posterior) -> Tuple[Prior, Posterior, 
         post_mean_sq=posteriors.post_mean_sq[l_order],
         weighted_sum_covar=posteriors.weighted_sum_covar[l_order],
         kl=posteriors.kl[l_order],
+        log_bf=posteriors.log_bf[l_order],
     )
 
     return priors, posteriors, l_order
@@ -798,6 +812,7 @@ def _reorder_l(priors: Prior, posteriors: Posterior) -> Tuple[Prior, Posterior, 
 
 def make_cs(
     alpha: ArrayLike,
+    log_bf: ArrayLike,
     ns: ArrayLike,
     Xs: ArrayLike = None,
     lds: ArrayLike = None,
@@ -812,6 +827,7 @@ def make_cs(
     Args:
         alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
             (i.e., :math:`\\alpha` in :ref:`Model`).
+        log_bf: :math:`L \\times p` matrix that contains log Bayes factor for each SNP in each effect.
         Xs: Genotype data for multiple ancestries. It cannot be None if lds is None.
         lds: LD matrix for multiple ancestries. It cannot be None if Xs is None.
         ns: Sample size for each ancestry.
@@ -915,6 +931,9 @@ def make_cs(
             full_alphas[f"kept_l{ldx + 1}"] = 1
         else:
             full_alphas[f"kept_l{ldx + 1}"] = 0
+
+        # add log bayes factor
+        full_alphas[f"log_bf_l{ldx + 1}"] = log_bf[ldx, :]
 
     pip_all = utils.make_pip(alpha)
 
