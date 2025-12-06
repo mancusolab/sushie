@@ -93,10 +93,12 @@ We make a bash script ``./misc/run_sushie.sh`` to show a more general working fl
 
 If users still have questions, feel free to contact the developers.
 
+Individual-level data example
+-----------------------------
 Here are some examples for fine-mapping using individual-level data:
 
 1. Two-Ancestry SuShiE
-----------------------
+~~~~~~~~~~~~~~~~~~~~~~
 
 In this example, we perform two-ancestry SuShiE with covariates regressed out from both phenotypes and genotypes while updating the prior effect size covariance matrix during the optimizations.
 
@@ -107,7 +109,7 @@ In this example, we perform two-ancestry SuShiE with covariates regressed out fr
 
 
 2. :math:`N`-Ancestry SuShiE
-----------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 In the example below, we perform single-ancestry SuShiE, which is equivalently to the SuSiE model (see :ref:`Reference`).
 
@@ -124,7 +126,7 @@ Or three-ancestry setting:
     sushie finemap --pheno EUR.pheno AFR.pheno EAS.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf vcf/EAS.vcf --covar EUR.covar AFR.covar EAS.covar --output ./test_result
 
 3. Can I use other formats of genotypes?
-----------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Yes! SuShiE can take either `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, or `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_, but not `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_.
 
@@ -144,7 +146,7 @@ For bgen data, users need to make sure that the latter allele shown up in the ``
 
 .. _index:
 4. My data contains all the participants and I do not want to separate them
-------------------------------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 No problem! If all the subjects are in single phenotype, genotype, and covariate files. Users just need to use ``--ancestry-index`` command to specify a file that subject ID on the first column, and the ancestry index on the second column. The ancestry index has to start from 1 continuously to the total number of ancestry.
 
@@ -155,7 +157,7 @@ No problem! If all the subjects are in single phenotype, genotype, and covariate
 
 .. _meta:
 5. How about mega or meta SuShiE?
----------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The software employs the function to run meta SuShiE and mega SuShiE by adding the parameter ``--meta`` or ``--mega``.
 
@@ -178,7 +180,7 @@ We define the mega SuShiE as running single-ancestry SuShiE on genotype and phen
 
 .. _cv:
 6. Let's estimate heritability, run CV, and make FUSION files!
---------------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 SuShiE incorporates codes in `limix <https://github.com/limix/limix>`_ to estimate the narrow-sense cis-heritability (:math:`h_g^2`) by specifying ``--her``.
 
@@ -196,7 +198,7 @@ With these two information (:math:`h_g^2` and CV), we prepare R codes ``./misc/m
 
 
 7. I don't want to scale my phenotype by its standard deviation
----------------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Fine-mapping inference sometimes can be sensitive to whether scaling the phenotypes and genotypes. SuShiE by default scales the phenotypes and genotypes by their respective standard deviations. However, if users want to disable it, simply add ``--no-scale`` to the command.
 
@@ -207,7 +209,7 @@ Fine-mapping inference sometimes can be sensitive to whether scaling the phenoty
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --no-scale --output ./test_result
 
 8. I have my own initial values for the hyperparameters
--------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 SuShiE has three hyperparameters (:ref:`Model`): the residual variance (:math:`\sigma^2_e`) prior, the QTL effect size variance (:math:`\sigma^2_{i,b}`) prior, and the ancestral effect size correlation (:math:`\rho`) prior. SuShiE by default initializes them as ``0.001``, ``0.001``, and ``0.8``. If users have their own initial values, simply specify them with ``--resid-var``, ``--effect-var``, and ``--rho``. Make sure the ancestry order has to match the phenotype file order.
 
@@ -226,7 +228,7 @@ By default, SuShiE will update :math:`\sigma^2_{i,b}` and :math:`\rho` during th
 In addition, with ``--no-update``, if users only specify ``--effect-var`` but not for ``--rho``, ``--effect-var`` will be fixed during the optimizations while ``--rho`` will get updated, vice versa. In other words, if users want to fix both priors, they have to specify both at the same time or specify neither of them (in the latter case, fixing the default values 0.001 and 0.2 as the priors).
 
 9. What if I assume no correlation across ancestries?
------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 SuShiE features that it accounts for ancestral quantitative trait loci (QTL) effect size correlation (:math:`\rho` in :ref:`Model`) in the inference, which is different from other SuSiE-extended multi-ancestry fine-mapping frameworks assuming no ancestral correlation (Joint SuShiE). However, it has the functions to make inference assuming no correlation across ancestries by simply specifying ``--no-update`` on the effect size covariance matrix and fixing the rho equal to zero ``--rho 0``. With this, the effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) will get updated while rho will not.
 
@@ -236,7 +238,7 @@ SuShiE features that it accounts for ancestral quantitative trait loci (QTL) eff
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --no-update --rho 0 --output ./test_result
 
 10. I want to improvise in post-hoc analysis
--------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 We understand :ref:`Files` output by SuShiE may not serve all users' post-hoc analysis. Therefore, we add the option to save all the inference results in ``*.npy`` file by specifying ``--numpy``.
 
@@ -249,7 +251,7 @@ The ``*.npy`` files include SNP information, prior estimators, posterior estimat
 
 
 11. I seek to use GPU or TPU to make inference faster
------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 SuShiE software uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation. Jax can be run on GPU or TPU.
 
@@ -259,7 +261,7 @@ SuShiE software uses `JAX <https://github.com/google/jax>`_ with `Just In Time  
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --platform gpu --output ./test_result
 
 12. I want to use 32-bit precision
-----------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 SuShiE uses 64-bit precision to assure an accurate inference. However, if users want to use 32-bit precision, they can specify it by having ``--precision 32``.
 
@@ -271,7 +273,7 @@ Unless necessarily needed, we do not recommend to use 32-bit precision as it may
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --precision 32 --output ./test_result
 
 13. I want to run fine-mapping on certain subjects
---------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Users can use ``--keep`` command to specify a file that contains the subject IDs. As a result, the following fine-mapping inference only performs on the subjects listed in the file.
 
@@ -281,7 +283,7 @@ Users can use ``--keep`` command to specify a file that contains the subject IDs
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --keep keep.subject --output ./test_result
 
 14. I want to assign the prior weights for each SNP
---------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Users can use ``--pi`` command to specify a tsv file that contains the SNP ID and their prior weights. The weights will be normalized to sum to 1 before inference.
 
@@ -290,23 +292,28 @@ Users can use ``--pi`` command to specify a tsv file that contains the SNP ID an
     cd ./data/
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --pi prior_weights --output ./test_result
 
+Summary-level data example
+-----------------------------
 Here are some examples for fine-mapping using summary-level data:
 
-1. I want to perform fine-mapping on summary-level data and I provide individual-level reference panels for LD.
+1. I want to perform fine-mapping on summary-level data and I provide individual-level reference panels for LD
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
     cd ./data/
     sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --output ./test_result
 
-2. I want to perform fine-mapping on summary-level data and I provide pre-computed LD matrix.
+2. I want to perform fine-mapping on summary-level data and I provide pre-computed LD matrix
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
     cd ./data/
     sushie finemap --summary --gwas EUR.gwas AFR.gwas --ld EUR.ld AFR.ld --sample-size 489 639 --output ./test_result
 
-3. I want to only focus on SNPs with GWAS P values less than 5e-8 across ``all`` ancestries.
+3. I want to only focus on SNPs with GWAS P values less than 5e-8 across ``all`` ancestries
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
@@ -314,20 +321,23 @@ Here are some examples for fine-mapping using summary-level data:
     sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-sig 5e-8 --gwas-sig-type all --output ./test_result
 
 4. I want to only focus on SNPs between 34886700 and 35128637 on chromsome 1
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
     cd ./data/
     sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --chrom 1 --start 34886700 --end 35128637 --output ./test_result
 
-5. My GWAS data has different column names.
+5. My GWAS data has different column names
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 
     cd ./data/
     sushie finemap --summary --gwas EUR.gwas AFR.gwas --vcf vcf/EUR.vcf vcf/AFR.vcf --sample-size 489 639 --gwas-header CHR SNP BP A1 A2 STAT --output ./test_result
 
-6. I want to add small number to diagonal of my LD matrix to make it positive definite.
+6. I want to add small number to diagonal of my LD matrix to make it positive definite
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code:: bash
 

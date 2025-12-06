@@ -121,9 +121,12 @@ You can customize this function with your own ideas!
 | 0.16  | Implement summary-level data inference. Add option to remove ambiguous SNPs; fix several bugs and enhance codes quality.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 0.17 | Fix several bugs, add debug checkpoints, add chrom, start, and end filtering to individual-level fine-mapping, enhance codes quality, and update readme for official publication.
 
+|
+| 0.18 | Add funciton that outputs log bayes factor in the alphas file. Update the documentation.
+
 ## Support
 
-For any questions, comments, bug reporting, and feature requests, please contact Zeyun Lu (<zeyunlu@usc.edu>) and
+For any questions, comments, bug reporting, and feature requests, please contact Zeyun Lu (<zeyun_lu@dfci.harvard.edu>) and
 Nicholas Mancuso (<nmancuso@usc.edu>), and open a new thread in the [Issue
 Tracker](https://github.com/mancusolab/sushie/issues).
 
