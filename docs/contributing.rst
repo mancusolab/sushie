@@ -72,6 +72,28 @@ and use Python's built-in web server for a preview in your web browser
 
     python3 -m http.server --directory 'docs/_build/html'
 
+.. important::
+
+   **Building API documentation locally:** The API reference documentation
+   requires importing the ``sushie`` package and all its dependencies. If you
+   see warnings like ``Failed to import module sushie.infer``, you need to
+   install the package first::
+
+       # Create and activate a conda environment with dependencies
+       conda create -n sushie-docs python=3.10
+       conda activate sushie-docs
+
+       # Install sushie and all dependencies
+       pip install -r requirements.txt -r requirements_dev.txt
+       pip install -e .
+
+       # Now build the docs
+       make -C docs html
+
+   Alternatively, using tox with the ``-r`` flag to recreate the environment::
+
+       tox -r -e docs
+
 
 Code Contributions
 ==================
