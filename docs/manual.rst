@@ -7,9 +7,20 @@ Users Manual
 Initialize Environment
 ======================
 
-SuShiE is a command-line software written in Python. Before installation, we recommend to create a new environment using `conda <https://docs.conda.io/en/latest/>`_ so that it will not affect the software versions of users' other projects.
+SuShiE is a command-line software written in Python. Before installation, we recommend to create a new environment using `conda <https://docs.conda.io/en/latest/>`_ so that it will not affect the software versions of users' other projects:
 
-SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, users need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and then install SuShiE using ``pip`` in the desired environment.
+.. code:: bash
+
+    conda create -n env-sushie python=3.8
+    conda activate env-sushie
+
+SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, users need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and install ``cbgen`` from conda-forge first:
+
+.. code:: bash
+
+    conda install -c conda-forge cbgen
+
+Then install SuShiE using ``pip`` in the desired environment.
 
 Installation
 ============
@@ -31,7 +42,7 @@ Users can download the latest repository and then use ``pip``:
     cd sushie
     pip install .
 
-*We currently support Python 3.9, 3.10, and 3.11 (stable versions).*
+*We currently support Python 3.8, 3.9, 3.10, and 3.11 (stable versions).*
 
 Data Preparation
 ================
