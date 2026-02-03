@@ -108,11 +108,11 @@ python_apigen_modules = {
 }
 
 python_apigen_default_groups = [
-    (r".*:sushie.cli.*", "CLI Public-members"),
-    (r".*:sushie.utils.*", "Utils Public-members"),
-    (r".*:sushie.infer.*", "Infer Public-members"),
+    (r".*:sushie.cli.*", "CLI Public-Members"),
+    (r".*:sushie.utils.*", "Utils Public-Members"),
+    (r".*:sushie.infer.*", "Infer Public-Members"),
     (r"class:sushie.infer.*", "Infer Classes"),
-    (r".*:sushie.io.*", "IO Public-members"),
+    (r".*:sushie.io.*", "IO Public-Members"),
     (r"class:sushie.io.*", "IO Classes"),
 ]
 
