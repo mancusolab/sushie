@@ -31,7 +31,7 @@ Users can download the latest repository and then use ``pip``:
     cd sushie
     pip install .
 
-*We currently only support Python3.8+.*
+*We currently support Python 3.9, 3.10, and 3.11 (stable versions).*
 
 Data Preparation
 ================
