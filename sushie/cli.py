@@ -18,10 +18,10 @@ from jax import config, random
 
 from . import infer, infer_ss, io, log, utils
 
-warnings.filterwarnings("ignore")
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    import jax.numpy as jnp
+# Filter ABSL and JAX warnings that clutter output (must be before JAX import)
+warnings.filterwarnings("ignore", module="absl")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="jax")
+import jax.numpy as jnp  # noqa: E402
 
 __all__ = [
     "parameter_check",

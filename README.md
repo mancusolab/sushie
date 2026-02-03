@@ -104,6 +104,50 @@ infer_sushie_ss(lds=LD, zs=GWAS, ns=np.array([100, 100]))
 
 You can customize this function with your own ideas!
 
+## Troubleshooting
+
+### Installation Issues
+
+**JAX installation fails on Apple M1/M2/M3 chips:**
+```bash
+# Use miniforge and install cbgen from conda-forge first
+conda install -c conda-forge cbgen
+pip install .
+```
+
+**Import errors with JAX:**
+```bash
+# Ensure you have compatible versions
+pip install --upgrade jax jaxlib
+```
+
+**Permission errors during installation:**
+```bash
+# Use a virtual environment or conda environment
+conda create -n env-sushie python=3.8
+conda activate env-sushie
+pip install .
+```
+
+### Runtime Issues
+
+**Out of memory errors:**
+- Reduce the number of SNPs in your analysis region
+- Use `--max-select` to limit SNPs for purity computation
+- Consider using summary-level data instead of individual-level data
+
+**Slow performance:**
+- Enable GPU acceleration if available: set `JAX_PLATFORM_NAME=gpu`
+- Use `--no-update` to skip prior updates if convergence is slow
+- Reduce `--max-iter` for initial testing
+
+**LD matrix errors (summary-level data):**
+- Ensure LD matrices are positive semi-definite
+- Check that SNP order matches between GWAS and LD files
+- Verify sample sizes are correctly specified with `--sample-size`
+
+For more help, see the [full documentation](https://mancusolab.github.io/sushie/) or open an [issue](https://github.com/mancusolab/sushie/issues).
+
 ## Notes
 
 -   SuShiE currently only supports **continuous** phenotype fine-mapping for individual-level data.
@@ -121,6 +165,7 @@ You can customize this function with your own ideas!
 | 0.16  | Implement summary-level data inference. Add option to remove ambiguous SNPs; fix several bugs and enhance codes quality.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 0.17 | Fix several bugs, add debug checkpoints, add chrom, start, and end filtering to individual-level fine-mapping, enhance codes quality, and update readme for official publication.  |
 | 0.18 | Add funciton that outputs log bayes factor in the alphas file. Update the documentation. |
+| 0.19 | Add CI/CD pipeline with GitHub Actions (testing across Python 3.8-3.12, linting, type checking, coverage). Improve code quality: fix PEP 8 violations, tighten mypy configuration, improve warning handling. Add troubleshooting section to README and comprehensive FAQ documentation. **This update was completely done using [Claude Code](https://claude.ai/claude-code).** |
 
 ## Support
 

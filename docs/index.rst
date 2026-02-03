@@ -24,6 +24,7 @@ Contents
    Model <model>
    Users Manual <manual>
    Files <files>
+   FAQ <faq>
 
 
 .. toctree::
