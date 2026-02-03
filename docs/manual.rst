@@ -456,12 +456,12 @@ Parameters
      - Float
      - 1e-3
      - ``--effect-var 5.21 0.99 ``
-     - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no-update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect-var`` as prior through optimizations and update ``rho``. If ``--effect-covar``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-covar`` nor ``--rho``, both ``--effect-covar`` and ``--rho`` will be fixed as default prior value through optimizations.
+     - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no-update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect-var`` as prior through optimizations and update ``rho``. If ``--effect-var``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-var`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-var`` nor ``--rho``, both ``--effect-var`` and ``--rho`` will be fixed as default prior value through optimizations.
    * - ``--rho``
      - Float
      - 0.1
      - ``--rho 0.05``
-     - Specify the prior for the effect correlation (:math:`\rho` in :ref:`Model`) for ancestries. Default is 0.1 for each pair of ancestries. Use space to separate ancestries if more than two. Each rho has to be a float number between -1 and 1. If there are ``N > 2`` ancestries, ``X = choose(N, 2)`` is required. The rho order has to be ``rho(1,2)``, ..., ``rho(1, N)``, ``rho(2,3)``, ..., ``rho(N-1. N)``. If ``--no-update`` is specified and ``--effect-covar`` is not, specifying this parameter will only fix ``rho`` as prior through optimizations and update ``effect-covar``. If ``--effect-covar``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-covar`` nor ``--rho``, both ``--effect-covar`` and ``--rho`` will be fixed as default prior value through optimizations.
+     - Specify the prior for the effect correlation (:math:`\rho` in :ref:`Model`) for ancestries. Default is 0.1 for each pair of ancestries. Use space to separate ancestries if more than two. Each rho has to be a float number between -1 and 1. If there are ``N > 2`` ancestries, ``X = choose(N, 2)`` is required. The rho order has to be ``rho(1,2)``, ..., ``rho(1, N)``, ``rho(2,3)``, ..., ``rho(N-1. N)``. If ``--no-update`` is specified and ``--effect-var`` is not, specifying this parameter will only fix ``rho`` as prior through optimizations and update ``effect-covar``. If ``--effect-var``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-var`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-var`` nor ``--rho``, both ``--effect-var`` and ``--rho`` will be fixed as default prior value through optimizations.
    * - ``--no-scale``
      - Boolean
      - False
@@ -556,7 +556,7 @@ Parameters
      - Boolean
      - False
      - ``--cv 0.5 # will store as True``
-     - Indicator to perform cross validation (CV) and output CV results (adjusted r-squared and its p-value) for future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipline. Specify ``--cv`` will store ``True`` value and increase running time.
+     - Indicator to perform cross validation (CV) and output CV results (adjusted r-squared and its p-value) for future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipeline. Specify ``--cv`` will store ``True`` value and increase running time.
    * - ``--cv-num``
      - Integer
      - 5

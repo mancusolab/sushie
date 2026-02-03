@@ -38,7 +38,7 @@ documentation.
 
     *We currently only support Python3.8+.*
 
-2. If you are using a Mac with an Apple M1 or newer chip, you should install `cbgen` package or other required pacakges from conda-forge first to ensure compatibility (see this [link](https://github.com/google/jax/issues/5501) for previous issue). One easy workaround is to initiate your conda using `miniforge`. **On most HPC systems**, this is usually not necessary.
+2. If you are using a Mac with an Apple M1 or newer chip, you should install `cbgen` package or other required packages from conda-forge first to ensure compatibility (see this [link](https://github.com/google/jax/issues/5501) for previous issue). One easy workaround is to initiate your conda using `miniforge`. **On most HPC systems**, this is usually not necessary.
 
     ```bash
     conda install -c conda-forge cbgen
@@ -134,7 +134,6 @@ pip install .
 **Out of memory errors:**
 - Reduce the number of SNPs in your analysis region
 - Use `--max-select` to limit SNPs for purity computation
-- Consider using summary-level data instead of individual-level data
 
 **Slow performance:**
 - Enable GPU acceleration if available: set `JAX_PLATFORM_NAME=gpu`
@@ -164,7 +163,7 @@ For more help, see the [full documentation](https://mancusolab.github.io/sushie/
 | 0.15    | Fix several typos; add a sanity check on reading vcf genotype data by assigning gt_types==Unknown as NA; Add preprint information.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 0.16  | Implement summary-level data inference. Add option to remove ambiguous SNPs; fix several bugs and enhance codes quality.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 0.17 | Fix several bugs, add debug checkpoints, add chrom, start, and end filtering to individual-level fine-mapping, enhance codes quality, and update readme for official publication.  |
-| 0.18 | Add funciton that outputs log bayes factor in the alphas file. Update the documentation. |
+| 0.18 | Add function that outputs log bayes factor in the alphas file. Update the documentation. |
 | 0.19 | Add CI/CD pipeline with GitHub Actions (testing across Python 3.8-3.12, linting, type checking, coverage). Improve code quality: fix PEP 8 violations, tighten mypy configuration, improve warning handling. Add troubleshooting section to README and comprehensive FAQ documentation. **This update was completely done using [Claude Code](https://claude.ai/claude-code).** |
 
 ## Support

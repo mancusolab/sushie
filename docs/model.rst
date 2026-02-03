@@ -27,12 +27,12 @@ The sum of single shared effect (SuShiE) extends the sum of single effect (SuSiE
 
 where :math:`\beta_i \in \mathbb{R}^{p \times1}` is the shared QTL effects, :math:`\epsilon_i \in \mathbb{R}^{n_i \times 1}` is the ancestry-specific effects and other environmental noises, :math:`L \in \mathbb{R}` is the number of shared effects, for  :math:`l^{\text{th}}`  single shared effect,  :math:`b_{i,l} \in \mathbb{R}` is a scaler representing effect size, :math:`C_l \in \mathbb{R}^{k \times k}` is the prior covariance matrix with :math:`\sigma^2_{i,b}` as variance and :math:`\rho` as correlation, :math:`\gamma_l` is an binary indicator vector specifying which single SNP is the QTL, :math:`\pi` is the prior probability for each SNP to be QTL, and :math:`\sigma^2_e` is the prior variance for noises.
 
-SuShiE runs `varitional inference <https://en.wikipedia.org/wiki/Variational_Bayesian_methods>`_ to estimate the posterior distribution for :math:`\beta_l` and :math:`\gamma_l` for each :math:`l^{\text{th}}` effect. We can quantify the probability of QTL for each SNP through Posterior Inclusion Probabilities (PIPs). If the posterior distribution of :math:`\gamma_l` is :math:`\text{Multi}(1, \alpha_l)`, then for each SNP :math:`j`, we have:
+SuShiE runs `variational inference <https://en.wikipedia.org/wiki/Variational_Bayesian_methods>`_ to estimate the posterior distribution for :math:`\beta_l` and :math:`\gamma_l` for each :math:`l^{\text{th}}` effect. We can quantify the probability of QTL for each SNP through Posterior Inclusion Probabilities (PIPs). If the posterior distribution of :math:`\gamma_l` is :math:`\text{Multi}(1, \alpha_l)`, then for each SNP :math:`j`, we have:
 
 .. math::
    \text{PIP}_j = 1 - \prod_{l=1}^L(1 - \alpha_{l, j})
 
-For more details in math derivation and algorithm, stay tuned for our upcoming manuscript.
+For more details on the mathematical derivation and algorithm, see our `Nature Genetics paper <https://www.nature.com/articles/s41588-025-02262-7>`_.
 
 .. _Reference:
 

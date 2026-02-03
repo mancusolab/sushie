@@ -2663,7 +2663,7 @@ def build_finemap_parser(subp):
         action="store_true",
         help=(
             "Indicator to perform cross validation (CV) and output CV results (adjusted r-squared and its p-value)",
-            " for future FUSION pipline. Default is False. ",
+            " for future FUSION pipeline. Default is False. ",
             " Specify --cv will store 'True' value and increase running time.",
         ),
     )

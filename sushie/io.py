@@ -718,7 +718,7 @@ def output_cv(
     compress: bool,
 ) -> pd.DataFrame:
     """Output cross validation file ``*cv.tsv`` for
-        future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipline (see :ref:`cvfile`).
+        future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipeline (see :ref:`cvfile`).
 
     Args:
         cv_res: The cross-validation result (adjusted :math:`r^2` and corresponding :math:`p` values).

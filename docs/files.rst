@@ -299,19 +299,19 @@ It contains two rounds of heritability estimation:
      - 1, 2
      - The ancestry index.
    * - genetic_var
-     - Flat
+     - Float
      - 1.32
      - The variance of genetic components contributing to the complex traits. ``s_genetic_var``, which is estimated only from the SNPs in the credible sets, will be appended if credible sets are not empty after pruning for purity.
    * - h2g
-     - Flat
+     - Float
      - 0.23
      - The narrow-sense cis-heritability of the traits based on `limix <https://github.com/limix/limix>`_ definition. This includes the variance of the fixed effects.
    * - lrt_stats
-     - Flat
+     - Float
      - -123.23
      - The likelihood ratio test statistics compared the linear mixed effects model to the fixed effects model (no genetic variance). ``s_lrt_stats``, which is estimated only from the SNPs in the credible sets, will be appended if credible sets are not empty after pruning for purity.
    * - p_value
-     - Flat
+     - Float
      - -123.23
      - The :math:`p` value for the likelihood ratio test statistics based on chi-square distribution with 1 dof. ``s_p_value``, which is estimated only from the SNPs in the credible sets, will be appended if credible sets are not empty after pruning for purity.
    * - trait
@@ -338,11 +338,11 @@ By specifying ``--cv``, SuShiE outputs a ``*.cv.tsv`` file that contains the res
      - 1, 2
      - The ancestry index.
    * - rsq
-     - Flat
+     - Float
      - 0.9
      - :math:`r^2` between predicted and measured expressions from cross-validations.
    * - p_value
-     - Flat
+     - Float
      - 0.23
      - The :math:`p` value for the :math:`r^2`.
    * - N
