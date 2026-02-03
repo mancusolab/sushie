@@ -215,6 +215,28 @@ def infer_sushie(
         :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
         posterior (:py:obj:`Posterior`), ``cs``, ``pip``, ``elbo``, and ``elbo_increase``.
 
+    Example:
+        Basic usage with two-ancestry data::
+
+            import numpy as np
+            from sushie.infer import infer_sushie
+
+            # Generate example data for 2 ancestries
+            # Ancestry 1: 100 samples, 500 SNPs
+            X1 = np.random.randn(100, 500)
+            y1 = np.random.randn(100)
+
+            # Ancestry 2: 150 samples, 500 SNPs
+            X2 = np.random.randn(150, 500)
+            y2 = np.random.randn(150)
+
+            # Run SuShiE fine-mapping
+            result = infer_sushie(Xs=[X1, X2], ys=[y1, y2], L=5)
+
+            # Access results
+            print(result.pip)       # Posterior inclusion probabilities
+            print(result.cs)        # Credible sets
+
     """
     if len(Xs) == len(ys):
         n_pop = len(Xs)
@@ -838,12 +860,30 @@ def make_cs(
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
     Returns:
-        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame]`: A tuple of
+        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array, Array]`: A tuple of
             #. credible set (:py:obj:`pd.DataFrame`) after pruning for purity,
-            #. full credible set (:py:obj:`pd.DataFrame`) before pruning for purity.
-            #. PIPs (:py:obj:`Array`) across :math:`L` credible sets.
+            #. full credible set (:py:obj:`pd.DataFrame`) before pruning for purity,
+            #. PIPs (:py:obj:`Array`) across :math:`L` credible sets,
             #. PIPs (:py:obj:`Array`) across credible sets that are not pruned. An array of zero if all credible sets
                 are pruned.
+
+    Example:
+        Compute credible sets from SuShiE posterior::
+
+            from sushie.infer import infer_sushie, make_cs
+
+            # Run SuShiE first
+            result = infer_sushie(Xs=[X1, X2], ys=[y1, y2], L=5)
+
+            # Extract credible sets with custom threshold
+            cs, full_cs, pip_all, pip_cs = make_cs(
+                alpha=result.posteriors.alpha,
+                log_bf=result.posteriors.log_bf,
+                ns=np.array([X1.shape[0], X2.shape[0]]),
+                Xs=[X1, X2],
+                threshold=0.9,
+                purity=0.5
+            )
 
     """
     if Xs is None and lds is None:
