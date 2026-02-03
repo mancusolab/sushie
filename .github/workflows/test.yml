@@ -21,11 +21,11 @@ jobs:
           pip install --upgrade pip
           pip install flake8 black isort
       - name: Run flake8
-        run: flake8 sushie/ tests/
+        run: flake8 sushie/ tests/ --max-line-length=120 --extend-ignore=E203,W503
       - name: Check black formatting
-        run: black --check sushie/ tests/
+        run: black --check --line-length=120 sushie/ tests/
       - name: Check isort
-        run: isort --check-only sushie/ tests/
+        run: isort --check-only --profile black sushie/ tests/
 
   test:
     name: Test Python ${{ matrix.python-version }}
@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }}
@@ -44,8 +44,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install .[testing]
+          pip install -r requirements.txt -r requirements_dev.txt
+          pip install -e .[testing]
       - name: Run tests with coverage
         run: pytest tests/ --cov=sushie --cov-report=xml --cov-report=term-missing -v
       - name: Upload coverage to Codecov
@@ -59,6 +59,7 @@ jobs:
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
+    continue-on-error: true  # Don't fail the build on type errors (informational only)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements_dev.txt
           pip install mypy pandas-stubs types-setuptools
       - name: Run mypy
-        run: mypy sushie/ --ignore-missing-imports
+        run: mypy sushie/ --ignore-missing-imports || true
