@@ -10,7 +10,7 @@ Version History
    * - Version
      - Description
    * - 0.19
-     - Add CI/CD pipeline with GitHub Actions (testing across Python 3.9-3.11, linting, type checking, coverage). Improve code quality: fix PEP 8 violations, tighten mypy configuration, improve warning handling. Add troubleshooting section to README and comprehensive FAQ documentation. **This update was completely done using** `Claude Code <https://claude.ai/claude-code>`_.
+     - Add CI/CD pipeline with GitHub Actions (testing across Python 3.9-3.11, linting, type checking, coverage). Improve code quality: fix PEP 8 violations, tighten mypy configuration, improve warning handling. Add troubleshooting section to README and comprehensive FAQ documentation. **This update was completely done using** `Claude Code <https://claude.ai/claude-code>`_ with human tuning.
    * - 0.18
      - Add function that outputs log bayes factor in the alphas file. Update the documentation.
    * - 0.17
