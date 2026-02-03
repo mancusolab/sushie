@@ -51,7 +51,7 @@ Although we highly recommend users to perform high-quality QC on their own genot
 #. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
 #. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
 #. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
-#. For single ancestry SuSiE or Mega-SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
+#. Users have the option to perform rank inverse normalization transformation on the phenotype data.
 
 See :func:`sushie.cli.process_raw` for these QCs' source codes.
 
@@ -66,7 +66,7 @@ Although we highly recommend users to perform high-quality QC on their own summa
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust GWAS and genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
 #. Remove SNPs (for LD computation) that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
-#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
+#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
 
 
 Testing Data

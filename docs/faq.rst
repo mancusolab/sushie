@@ -80,10 +80,10 @@ A credible set is a set of SNPs that contains the causal variant with high proba
 
 How do I interpret the PIP?
 ---------------------------
-The Posterior Inclusion Probability (PIP) represents the probability that a SNP is causal:
+The Posterior Inclusion Probability (PIP) represents the probability that a SNP is causal given SNPs in the model:
 
-- PIP > 0.9: Strong evidence for causality
-- PIP 0.5-0.9: Moderate evidence
+- PIP > 0.95: Strong evidence for causality
+- PIP 0.5-0.95: Moderate evidence
 - PIP < 0.5: Weak evidence
 
 Higher PIPs in credible sets indicate better fine-mapping resolution.
@@ -117,9 +117,7 @@ Several options to improve performance:
 
       sushie finemap --max-iter 100 ...
 
-3. **Use summary statistics** instead of individual-level data when available
-
-4. **Limit SNPs** for purity calculation:
+3. **Limit SNPs** for purity calculation:
 
    .. code-block:: bash
 
@@ -137,7 +135,6 @@ Rough estimate: ``N × P × K × 8 bytes`` for genotype storage.
 
 For large datasets, consider:
 
-- Using summary-level inference
 - Analyzing smaller genomic regions
 - Running on a high-memory compute node
 
