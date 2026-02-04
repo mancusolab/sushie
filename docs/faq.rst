@@ -104,12 +104,7 @@ How can I speed up SuShiE?
 --------------------------
 Several options to improve performance:
 
-1. **Use GPU acceleration:**
-
-   .. code-block:: bash
-
-      export JAX_PLATFORM_NAME=gpu
-      sushie finemap ...
+1. **Reduce genomic region size:**
 
 2. **Reduce iterations:**
 
