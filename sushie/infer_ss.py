@@ -75,6 +75,38 @@ def infer_sushie_ss(
         :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
         posterior (:py:obj:`Posterior`), ``cs``, ``pip``, ``elbo``, and ``elbo_increase``.
 
+    Example:
+        Basic usage with two-ancestry summary statistics::
+
+            import numpy as np
+            from sushie.infer_ss import infer_sushie_ss
+
+            # Generate example data for 2 ancestries, 500 SNPs
+            n_snps = 500
+
+            # LD matrices (correlation matrices)
+            LD1 = np.eye(n_snps)  # Identity for simplicity
+            LD2 = np.eye(n_snps)
+
+            # Z-scores from GWAS
+            z1 = np.random.randn(n_snps)
+            z2 = np.random.randn(n_snps)
+
+            # Sample sizes
+            ns = np.array([1000, 1500])
+
+            # Run SuShiE fine-mapping with summary statistics
+            result = infer_sushie_ss(
+                lds=[LD1, LD2],
+                zs=[z1, z2],
+                ns=ns,
+                L=5
+            )
+
+            # Access results
+            print(result.pip)       # Posterior inclusion probabilities
+            print(result.cs)        # Credible sets
+
     """
     n_pop = ns.shape[0]
 

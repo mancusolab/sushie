@@ -151,11 +151,26 @@ def estimate_her(
         normalize: Boolean value to indicate whether normalize X and y
 
     Returns:
-        :py:obj:`Tuple[float, float, float, float, float]`: A tuple of
+        :py:obj:`Tuple[float, Array, float, float]`: A tuple of
             #. genetic variance (:py:obj:`float`) of the complex trait,
-            #. :math:`h_g^2` (:py:obj:`float`) from `limix <https://github.com/limix/limix>`_ definition,
+            #. :math:`h_g^2` (:py:obj:`Array`) from `limix <https://github.com/limix/limix>`_ definition,
             #. LRT test statistics (:py:obj:`float`) for :math:`h_g^2`,
             #. LRT :math:`p` value (:py:obj:`float`) for :math:`h_g^2`.
+
+    Example:
+        Estimate cis-heritability for a gene::
+
+            import numpy as np
+            from sushie.utils import estimate_her
+
+            # Genotype matrix (100 samples, 500 SNPs)
+            X = np.random.randn(100, 500)
+            # Gene expression
+            y = np.random.randn(100)
+
+            # Estimate heritability
+            g, h2g, lrt_stat, p_value = estimate_her(X, y)
+            print(f"Heritability: {h2g:.3f}, p-value: {p_value:.4f}")
 
     """
     n, p = X.shape

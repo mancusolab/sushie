@@ -18,10 +18,10 @@ from jax import config, random
 
 from . import infer, infer_ss, io, log, utils
 
-warnings.filterwarnings("ignore")
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    import jax.numpy as jnp
+# Filter ABSL and JAX warnings that clutter output (must be before JAX import)
+warnings.filterwarnings("ignore", module="absl")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="jax")
+import jax.numpy as jnp  # noqa: E402
 
 __all__ = [
     "parameter_check",
@@ -473,7 +473,7 @@ def parameter_check(
 
         if len(args.pheno) > 1:
             raise ValueError(
-                "Multiple phenotype files are detected. Expectation is one when --ancestry_index is specified."
+                "Multiple phenotype files are detected. Expectation is one when --ancestry-index is specified."
             )
 
         log.logger.debug(
@@ -504,7 +504,7 @@ def parameter_check(
         if args.ancestry_index is not None:
             if len(args.plink) > 1:
                 raise ValueError(
-                    "Multiple plink files are detected. Expectation is one when --ancestry_index is specified."
+                    "Multiple plink files are detected. Expectation is one when --ancestry-index is specified."
                 )
         else:
             if len(args.plink) != n_pop:
@@ -521,7 +521,7 @@ def parameter_check(
         if args.ancestry_index is not None:
             if len(args.vcf) > 1:
                 raise ValueError(
-                    "Multiple vcf files are detected. Expectation is one when --ancestry_index is specified."
+                    "Multiple vcf files are detected. Expectation is one when --ancestry-index is specified."
                 )
         else:
             if len(args.vcf) != n_pop:
@@ -537,7 +537,7 @@ def parameter_check(
         if args.ancestry_index is not None:
             if len(args.bgen) > 1:
                 raise ValueError(
-                    "Multiple bgen files are detected. Expectation is one when --ancestry_index is specified."
+                    "Multiple bgen files are detected. Expectation is one when --ancestry-index is specified."
                 )
         else:
             if len(args.bgen) != n_pop:
@@ -559,7 +559,7 @@ def parameter_check(
         if args.ancestry_index is not None:
             if len(args.covar) > 1:
                 raise ValueError(
-                    "Multiple covariates files are detected. Expectation is one when --ancestry_index is specified."
+                    "Multiple covariates files are detected. Expectation is one when --ancestry-index is specified."
                 )
         else:
             if len(args.covar) != n_pop:
@@ -1280,22 +1280,38 @@ def process_raw_ss(
         if ld_file:
             log.logger.debug(f"Read in LD file for ancestry {idx + 1}.")
             df_ld = geno_func(geno_path[idx])
-            if not (df_ld.values == df_ld.values.T).all():
-                if (df_ld.round(4).values == df_ld.round(4).values.T).all():
-                    df_ld = df_ld.round(4)
-                    log.logger.debug(
-                        f"Ancestry {idx + 1}: The LD matrix is not symmetric. Will symmetrize it"
-                        + " by rounding to 4 digits."
-                    )
-                else:
-                    raise ValueError(
-                        f"Ancestry {idx + 1}: The LD matrix is still not symmetric after rounding 4 digits."
-                        + " Check the source."
-                    )
 
             if df_ld.shape[0] == 0:
                 raise ValueError(
                     f"Ancestry {idx + 1}: No SNPs in the LD data. Check the source."
+                )
+
+            if df_ld.shape[1] == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix has no columns. Check the source."
+                )
+
+            if df_ld.shape[0] != df_ld.shape[1]:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix is not square. Check the source."
+                )
+
+            # only keep 4 digits to avoid floating point issue
+            df_ld = df_ld.round(4)
+
+            # check if the LD matrix is valid correlation matrix
+            # positive semi-definite
+            if not jnp.all(jnp.linalg.eigvals(df_ld.values) >= -1e-8):
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix is not positive semi-definite. Check the source."
+                )
+
+            # check if the LD matrix diagonal is 1, if not, raise the error
+            if not jnp.allclose(
+                jnp.diag(df_ld.values), jnp.ones(df_ld.shape[0]), atol=1e-4
+            ):
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix diagonal is not all 1. Check the source."
                 )
 
             if df_gwas["snp"].isin(df_ld.columns).sum() == 0:
@@ -1306,9 +1322,7 @@ def process_raw_ss(
             # make sure the diagonal of the LD matrix is 1
             # and add a small value to the diagonal to avoid singular matrix
             # default is 0
-            df_ld.values[range(df_ld.shape[0]), range(df_ld.shape[0])] = (
-                1 + args.ld_adjust
-            )
+            df_ld.values[jnp.diag_indices_from(df_ld.values)] += args.ld_adjust
 
             ld_geno_list.append(df_ld)
         else:
@@ -2423,12 +2437,12 @@ def build_finemap_parser(subp):
         help=(
             "Specify the prior for the causal effect size variance for ancestries. Default is 1e-3 for each ancestry.",
             " Values have to be positive. Use 'space' to separate ancestries if more than two.",
-            " If --no_update is specified and --rho is not, specifying this parameter will",
+            " If --no-update is specified and --rho is not, specifying this parameter will",
             " only keep effect_var as prior through optimizations and update rho.",
-            " If --effect_covar, --rho, and --no_update all three are specified, both --effect_covar and --rho",
+            " If --effect-var, --rho, and --no-update all three are specified, both --effect-var and --rho",
             " will be fixed as prior through optimizations.",
-            " If --no_update is specified, but neither --effect_covar nor --rho,",
-            " both --effect_covar and --rho will be fixed as default prior value through optimizations.",
+            " If --no-update is specified, but neither --effect-var nor --rho,",
+            " both --effect-var and --rho will be fixed as default prior value through optimizations.",
         ),
     )
 
@@ -2442,12 +2456,12 @@ def build_finemap_parser(subp):
             " Use 'space' to separate ancestries if more than two. Each rho has to be a float number between -1 and 1.",
             " If there are N > 2 ancestries, X = choose(N, 2) is required.",
             " The rho order has to be rho(1,2), ..., rho(1, N), rho(2,3), ..., rho(N-1. N).",
-            " If --no_update is specified and --effect_covar is not, specifying this parameter will",
-            " only fix rho as prior through optimizations and update effect_covar.",
-            " If --effect_covar, --rho, and --no_update all three are specified, both --effect_covar and --rho",
+            " If --no-update is specified and --effect-var is not, specifying this parameter will",
+            " only fix rho as prior through optimizations and update effect-var.",
+            " If --effect-var, --rho, and --no-update all three are specified, both --effect-var and --rho",
             " will be fixed as prior through optimizations.",
-            " If --no_update is specified, but neither --effect_covar nor --rho,",
-            " both --effect_covar and --rho will be fixed as default prior value through optimizations.",
+            " If --no-update is specified, but neither --effect-var nor --rho,",
+            " both --effect-var and --rho will be fixed as default prior value through optimizations.",
         ),
     )
 
@@ -2459,7 +2473,7 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to scale the genotype and phenotype data by standard deviation.",
             " Default is False (to scale)."
-            " Specify --no_scale will store 'True' value, and may cause different inference.",
+            " Specify --no-scale will store 'True' value, and may cause different inference.",
         ),
     )
 
@@ -2469,7 +2483,7 @@ def build_finemap_parser(subp):
         action="store_true",
         help=(
             "Indicator to regress the covariates on each SNP. Default is False (to regress).",
-            " Specify --no_regress will store 'True' value.",
+            " Specify --no-regress will store 'True' value.",
             " It may slightly slow the inference, but can be more accurate.",
         ),
     )
@@ -2481,7 +2495,7 @@ def build_finemap_parser(subp):
         help=(
             "Indicator to update effect covariance prior before running single effect regression.",
             " Default is False (to update).",
-            " Specify --no_update will store 'True' value. The updating algorithm is similar to EM algorithm",
+            " Specify --no-update will store 'True' value. The updating algorithm is similar to EM algorithm",
             " that computes the prior covariance conditioned on other parameters.",
             " See the manuscript for more information.",
         ),
@@ -2663,7 +2677,7 @@ def build_finemap_parser(subp):
         action="store_true",
         help=(
             "Indicator to perform cross validation (CV) and output CV results (adjusted r-squared and its p-value)",
-            " for future FUSION pipline. Default is False. ",
+            " for future FUSION pipeline. Default is False. ",
             " Specify --cv will store 'True' value and increase running time.",
         ),
     )

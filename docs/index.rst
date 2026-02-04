@@ -24,6 +24,7 @@ Contents
    Model <model>
    Users Manual <manual>
    Files <files>
+   FAQ <faq>
 
 
 .. toctree::
@@ -51,7 +52,7 @@ Other Software
 Feel free to use other software developed by `Mancuso
 Lab <https://www.mancusolab.com/>`_:
 
-* `jaxQTL` <https://github.com/mancusolab/jaxqtl>: jaxQTL is a single-cell eQTL mapping tool using highly efficient count-based model (i.e., negative binomial or Poisson).
+* `jaxQTL <https://github.com/mancusolab/jaxqtl>`_: jaxQTL is a single-cell eQTL mapping tool using highly efficient count-based model (i.e., negative binomial or Poisson).
 * `MA-FOCUS <https://github.com/mancusolab/ma-focus>`_: a Bayesian fine-mapping framework using statistics across multiple ancestries to identify the causal genes for complex traits.
 * `SuSiE-PCA <https://github.com/mancusolab/susiepca>`_: a scalable Bayesian variable selection technique for sparse principal component analysis
 * `twas_sim <https://github.com/mancusolab/twas_sim>`_: a Python software to simulate statistics.

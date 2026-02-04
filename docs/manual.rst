@@ -7,9 +7,20 @@ Users Manual
 Initialize Environment
 ======================
 
-SuShiE is a command-line software written in Python. Before installation, we recommend to create a new environment using `conda <https://docs.conda.io/en/latest/>`_ so that it will not affect the software versions of users' other projects.
+SuShiE is a command-line software written in Python. Before installation, we recommend to create a new environment using `conda <https://docs.conda.io/en/latest/>`_ so that it will not affect the software versions of users' other projects:
 
-SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, users need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and then install SuShiE using ``pip`` in the desired environment.
+.. code:: bash
+
+    conda create -n env-sushie python=3.8
+    conda activate env-sushie
+
+SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, users need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and install ``cbgen`` from conda-forge first:
+
+.. code:: bash
+
+    conda install -c conda-forge cbgen
+
+Then install SuShiE using ``pip`` in the desired environment.
 
 Installation
 ============
@@ -31,7 +42,7 @@ Users can download the latest repository and then use ``pip``:
     cd sushie
     pip install .
 
-*We currently only support Python3.8+.*
+*We currently support Python 3.8, 3.9, 3.10, and 3.11 (stable versions).*
 
 Data Preparation
 ================
@@ -50,8 +61,8 @@ Although we highly recommend users to perform high-quality QC on their own genot
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
 #. Remove SNPs that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
-#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
-#. For single ancestry SuSiE or Mega-SuSiE, users have the option to perform rank inverse normalization transformation on the phenotype data.
+#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
+#. Users have the option to perform rank inverse normalization transformation on the phenotype data.
 
 See :func:`sushie.cli.process_raw` for these QCs' source codes.
 
@@ -66,7 +77,7 @@ Although we highly recommend users to perform high-quality QC on their own summa
 #. Only keep SNPs that are available in all the ancestries.
 #. Adjust GWAS and genotype data across ancestries based on the same reference alleles. Drop non-biallelic SNPs.
 #. Remove SNPs (for LD computation) that have minor allele frequency (MAF) less than 1% within each ancestry (users can change 1% with ``--maf``).
-#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or GC) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
+#. Users also have an option to keep ambiguous SNPs (i.e., A/T, T/A, C/G, or G/C) by specifying ``--keep-ambiguous`` (Default is NOT to keep them).
 
 
 Testing Data
@@ -456,12 +467,12 @@ Parameters
      - Float
      - 1e-3
      - ``--effect-var 5.21 0.99 ``
-     - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no-update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect-var`` as prior through optimizations and update ``rho``. If ``--effect-covar``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-covar`` nor ``--rho``, both ``--effect-covar`` and ``--rho`` will be fixed as default prior value through optimizations.
+     - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no-update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect-var`` as prior through optimizations and update ``rho``. If ``--effect-var``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-var`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-var`` nor ``--rho``, both ``--effect-var`` and ``--rho`` will be fixed as default prior value through optimizations.
    * - ``--rho``
      - Float
      - 0.1
      - ``--rho 0.05``
-     - Specify the prior for the effect correlation (:math:`\rho` in :ref:`Model`) for ancestries. Default is 0.1 for each pair of ancestries. Use space to separate ancestries if more than two. Each rho has to be a float number between -1 and 1. If there are ``N > 2`` ancestries, ``X = choose(N, 2)`` is required. The rho order has to be ``rho(1,2)``, ..., ``rho(1, N)``, ``rho(2,3)``, ..., ``rho(N-1. N)``. If ``--no-update`` is specified and ``--effect-covar`` is not, specifying this parameter will only fix ``rho`` as prior through optimizations and update ``effect-covar``. If ``--effect-covar``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-covar`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-covar`` nor ``--rho``, both ``--effect-covar`` and ``--rho`` will be fixed as default prior value through optimizations.
+     - Specify the prior for the effect correlation (:math:`\rho` in :ref:`Model`) for ancestries. Default is 0.1 for each pair of ancestries. Use space to separate ancestries if more than two. Each rho has to be a float number between -1 and 1. If there are ``N > 2`` ancestries, ``X = choose(N, 2)`` is required. The rho order has to be ``rho(1,2)``, ..., ``rho(1, N)``, ``rho(2,3)``, ..., ``rho(N-1. N)``. If ``--no-update`` is specified and ``--effect-var`` is not, specifying this parameter will only fix ``rho`` as prior through optimizations and update ``effect-covar``. If ``--effect-var``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-var`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-var`` nor ``--rho``, both ``--effect-var`` and ``--rho`` will be fixed as default prior value through optimizations.
    * - ``--no-scale``
      - Boolean
      - False
@@ -556,7 +567,7 @@ Parameters
      - Boolean
      - False
      - ``--cv 0.5 # will store as True``
-     - Indicator to perform cross validation (CV) and output CV results (adjusted r-squared and its p-value) for future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipline. Specify ``--cv`` will store ``True`` value and increase running time.
+     - Indicator to perform cross validation (CV) and output CV results (adjusted r-squared and its p-value) for future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipeline. Specify ``--cv`` will store ``True`` value and increase running time.
    * - ``--cv-num``
      - Integer
      - 5

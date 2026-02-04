@@ -389,13 +389,30 @@ def read_gwas(
 
 
 def read_ld(path: str) -> Array:
-    """Read in ld data in tsv file.
+    """Read in LD (linkage disequilibrium) matrix from a TSV file.
+
+    The LD matrix should be a symmetric correlation matrix where rows and columns
+    represent SNPs. The file should be tab-separated with SNP IDs as column headers.
+    Rows with infinite or NaN values are automatically removed.
 
     Args:
-        path: The path for bgen genotype data (full file name).
+        path: The path to the LD matrix file (tab-separated, .tsv format).
 
     Returns:
-        :py:obj:`Array`
+        :py:obj:`pd.DataFrame`: LD correlation matrix with SNP IDs as index and columns.
+
+    Example:
+        Read LD matrix for fine-mapping::
+
+            from sushie.io import read_ld
+
+            # Read LD matrix
+            ld = read_ld("path/to/ld_matrix.tsv")
+            print(ld.shape)  # Should be (n_snps, n_snps)
+
+    Note:
+        The LD matrix must be computed using the same reference alleles as the
+        GWAS summary statistics for correct fine-mapping results.
 
     """
 
@@ -718,7 +735,7 @@ def output_cv(
     compress: bool,
 ) -> pd.DataFrame:
     """Output cross validation file ``*cv.tsv`` for
-        future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipline (see :ref:`cvfile`).
+        future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipeline (see :ref:`cvfile`).
 
     Args:
         cv_res: The cross-validation result (adjusted :math:`r^2` and corresponding :math:`p` values).
