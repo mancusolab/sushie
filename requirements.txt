@@ -2,8 +2,8 @@ bgen-reader==4.0.8
 cyvcf2==0.30.18
 equinox==0.10.2
 glimix-core==3.1.13
-jax==0.4.13
-jaxlib==0.4.13
+jax==0.4.33
+jaxlib==0.4.33
 pandas==1.5.0
 pandas-plink==2.2.9
-scipy==1.9.3
+scipy==1.10
