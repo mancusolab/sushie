@@ -1280,22 +1280,38 @@ def process_raw_ss(
         if ld_file:
             log.logger.debug(f"Read in LD file for ancestry {idx + 1}.")
             df_ld = geno_func(geno_path[idx])
-            if not (df_ld.values == df_ld.values.T).all():
-                if (df_ld.round(4).values == df_ld.round(4).values.T).all():
-                    df_ld = df_ld.round(4)
-                    log.logger.debug(
-                        f"Ancestry {idx + 1}: The LD matrix is not symmetric. Will symmetrize it"
-                        + " by rounding to 4 digits."
-                    )
-                else:
-                    raise ValueError(
-                        f"Ancestry {idx + 1}: The LD matrix is still not symmetric after rounding 4 digits."
-                        + " Check the source."
-                    )
 
             if df_ld.shape[0] == 0:
                 raise ValueError(
                     f"Ancestry {idx + 1}: No SNPs in the LD data. Check the source."
+                )
+
+            if df_ld.shape[1] == 0:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix has no columns. Check the source."
+                )
+
+            if df_ld.shape[0] != df_ld.shape[1]:
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix is not square. Check the source."
+                )
+
+            # only keep 4 digits to avoid floating point issue
+            df_ld = df_ld.round(4)
+
+            # check if the LD matrix is valid correlation matrix
+            # positive semi-definite
+            if not jnp.all(jnp.linalg.eigvals(df_ld.values) >= -1e-8):
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix is not positive semi-definite. Check the source."
+                )
+
+            # check if the LD matrix diagonal is 1, if not, raise the error
+            if not jnp.allclose(
+                jnp.diag(df_ld.values), jnp.ones(df_ld.shape[0]), atol=1e-4
+            ):
+                raise ValueError(
+                    f"Ancestry {idx + 1}: The LD matrix diagonal is not all 1. Check the source."
                 )
 
             if df_gwas["snp"].isin(df_ld.columns).sum() == 0:
@@ -1306,9 +1322,7 @@ def process_raw_ss(
             # make sure the diagonal of the LD matrix is 1
             # and add a small value to the diagonal to avoid singular matrix
             # default is 0
-            df_ld.values[range(df_ld.shape[0]), range(df_ld.shape[0])] = (
-                1 + args.ld_adjust
-            )
+            df_ld.values[jnp.diag_indices_from(df_ld.values)] += args.ld_adjust
 
             ld_geno_list.append(df_ld)
         else:

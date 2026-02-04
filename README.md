@@ -124,11 +124,10 @@ pip install --upgrade jax jaxlib
 ### Runtime Issues
 
 **Out of memory errors:**
-- Reduce the number of SNPs in your analysis region
+- Reduce the number of SNPs by shortening your analysis region
 - Use `--max-select` to limit SNPs for purity computation
 
 **Slow performance:**
-- Enable GPU acceleration if available: set `JAX_PLATFORM_NAME=gpu`
 - Use `--no-update` to skip prior updates if convergence is slow
 - Reduce `--max-iter` for initial testing
 
