@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
-        with: {python-version: "3.10"}
+        with: {python-version: "3.8"}
       - name: Tools for docs build
         run: |
           pip install --upgrade pip
