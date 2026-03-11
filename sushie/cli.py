@@ -2834,12 +2834,14 @@ def _get_command_string(args):
 
     return base + "".join(rest_strs) + os.linesep
 
-
 def _main(argsv):
+    version = metadata.version("sushie")
+
     # setup main parser
     argp = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
+    argp.add_argument("--version", action="version", version=version)
     subp = argp.add_subparsers(
         help="Subcommands: finemap to perform gene expression fine-mapping using SuShiE"
     )
