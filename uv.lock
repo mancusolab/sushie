@@ -1464,12 +1464,12 @@ testing = [
 
 [package.metadata]
 requires-dist = [
-    { name = "equinox" },
-    { name = "genoio" },
-    { name = "glimix-core" },
-    { name = "jax" },
-    { name = "jaxlib" },
-    { name = "polars" },
+    { name = "equinox", specifier = ">=0.13,<0.14" },
+    { name = "genoio", specifier = ">=0.2,<0.3" },
+    { name = "glimix-core", specifier = ">=3.1,<4" },
+    { name = "jax", specifier = ">=0.10,<0.11" },
+    { name = "jaxlib", specifier = ">=0.10,<0.11" },
+    { name = "polars", specifier = ">=1.42,<2" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pymdown-extensions", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'testing'" },
@@ -1477,7 +1477,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'testing'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.0.243" },
-    { name = "scipy" },
+    { name = "scipy", specifier = ">=1.17,<2" },
     { name = "setuptools", marker = "extra == 'testing'" },
     { name = "sphinx", marker = "extra == 'dev'", specifier = ">=5" },
     { name = "sphinx-immaterial", marker = "extra == 'dev'" },

@@ -1,7 +1,6 @@
 [![Documentation-webpage](https://img.shields.io/badge/Docs-Available-brightgreen)](https://mancusolab.github.io/sushie/)
 [![Github](https://img.shields.io/github/stars/mancusolab/sushie?style=social)](https://github.com/mancusolab/sushie)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Project generated with PyScaffold](https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold)](https://pyscaffold.org/)
 
 # SuShiE🍣
 
@@ -30,20 +29,34 @@ documentation.
 
 ## Installation
 
-1. **Before installation**, we *highly* recommend to create a new environment using [conda](https://docs.conda.io/en/latest/) so that it will not affect the software versions of the other projects. For example, use following codes:
+Install the released package from PyPI:
 
-    ```bash
-    conda create -n env-sushie python=3.11
-    conda activate env-sushie
-    ```
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install sushie
+```
 
-2. Last, users can download the latest repository and then use `pip`:
+With `uv`, install the command-line tool directly:
 
-    ``` bash
-    git clone https://github.com/mancusolab/sushie.git
-    cd sushie
-    pip install .
-    ```
+```bash
+uv tool install sushie
+```
+
+To install from a source checkout:
+
+```bash
+git clone https://github.com/mancusolab/sushie.git
+cd sushie
+python -m pip install .
+```
+
+or with `uv`:
+
+```bash
+uv sync
+```
 
 ## Get Started with Example
 
@@ -172,8 +185,3 @@ Lab](https://www.mancusolab.com/):
     estimate heritability explained by local ancestry data from
     admixture mapping summary statistics.
 -   [Traceax](https://github.com/tszfungc/traceax): a Python library to perform stochastic trace estimation for linear operators.
-
-------------------------------------------------------------------------
-
-This project has been set up using PyScaffold 4.1.1. For details and
-usage information on PyScaffold see <https://pyscaffold.org/>.

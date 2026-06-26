@@ -7,36 +7,44 @@ Users Manual
 Initialize Environment
 ======================
 
-SuShiE is a command-line software written in Python. Before installation, we recommend to create a new environment using `conda <https://docs.conda.io/en/latest/>`_ so that it will not affect the software versions of users' other projects:
+SuShiE is a command-line software written in Python. We recommend installing it in an isolated Python environment:
 
 .. code:: bash
 
-    conda create -n env-sushie python=3.11
-    conda activate env-sushie
+    python -m venv .venv
+    source .venv/bin/activate
+    python -m pip install -U pip
 
 SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation.
-
-Then install SuShiE using ``pip`` in the desired environment.
 
 Installation
 ============
 
-..
-    The easiest way to install is with ``pip``:
+Install the released package from PyPI with ``pip``:
 
-    .. code:: bash
+.. code:: bash
 
     pip install sushie
 
-    Alternatively
+With ``uv``, install the command-line tool directly:
 
-Users can download the latest repository and then use ``pip``:
+.. code:: bash
+
+    uv tool install sushie
+
+To install from a source checkout with ``pip``:
 
 .. code:: bash
 
     git clone https://github.com/mancusolab/sushie.git
     cd sushie
     pip install .
+
+or with ``uv``:
+
+.. code:: bash
+
+    uv sync
 
 Data Preparation
 ================
@@ -150,6 +158,7 @@ For bgen data, users need to make sure that the latter allele shown up in the ``
     sushie finemap --pheno EUR.pheno AFR.pheno --bgen bgen/EUR.bgen bgen/AFR.bgen --output ./test_result
 
 .. _index:
+
 4. My data contains all the participants and I do not want to separate them
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -161,6 +170,7 @@ No problem! If all the subjects are in single phenotype, genotype, and covariate
     sushie finemap --pheno all.pheno --plink plink/all --ancestry-index all.ancestry.index --output ./test_result
 
 .. _meta:
+
 5. How about mega or meta SuShiE?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -184,6 +194,7 @@ We define the mega SuShiE as running single-ancestry SuShiE on genotype and phen
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --mega --output ./test_result
 
 .. _cv:
+
 6. Let's estimate heritability, run CV, and make FUSION files!
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -460,7 +471,7 @@ Parameters
    * - ``--effect-var``
      - Float
      - 1e-3
-     - ``--effect-var 5.21 0.99 ``
+     - ``--effect-var 5.21 0.99``
      - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no-update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect-var`` as prior through optimizations and update ``rho``. If ``--effect-var``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-var`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-var`` nor ``--rho``, both ``--effect-var`` and ``--rho`` will be fixed as default prior value through optimizations.
    * - ``--rho``
      - Float

@@ -63,9 +63,10 @@ that any documentation update is done in the same way was a code contribution.
     submit your proposal.
 
 When working on documentation changes in your local machine, you can
-compile them using |tox|_::
+build them with the project development dependencies::
 
-    tox -e docs
+    uv sync --extra dev
+    uv run make -C docs html
 
 and use Python's built-in web server for a preview in your web browser
 (``http://localhost:8000``)::
@@ -77,22 +78,10 @@ and use Python's built-in web server for a preview in your web browser
    **Building API documentation locally:** The API reference documentation
    requires importing the ``sushie`` package and all its dependencies. If you
    see warnings like ``Failed to import module sushie.infer``, you need to
-   install the package first::
+   install the development environment first::
 
-       # Create and activate a conda environment with dependencies
-       conda create -n sushie-docs python=3.11
-       conda activate sushie-docs
-
-       # Install sushie and all dependencies
-       pip install -r requirements.txt -r requirements_dev.txt
-       pip install -e .
-
-       # Now build the docs
-       make -C docs html
-
-   Alternatively, using tox with the ``-r`` flag to recreate the environment::
-
-       tox -r -e docs
+       uv sync --extra dev
+       uv run make -C docs html
 
 
 Code Contributions
@@ -114,17 +103,17 @@ This often provides additional considerations and avoids unnecessary work.
 Create an environment
 ---------------------
 
-Before you start coding, we recommend creating an isolated `virtual
-environment`_ to avoid any problems with your installed Python packages.
-This can easily be done via either |virtualenv|_::
+Before you start coding, create an isolated environment and install the project
+with development and testing dependencies. With ``pip``::
 
-    virtualenv <PATH TO VENV>
-    source <PATH TO VENV>/bin/activate
+    python -m venv .venv
+    source .venv/bin/activate
+    python -m pip install -U pip
+    python -m pip install -e ".[dev,testing]"
 
-or Miniconda_::
+With ``uv``::
 
-    conda create -n sushie python=3 six virtualenv pytest pytest-cov
-    conda activate sushie
+    uv sync --extra dev --extra testing
 
 Clone the repository
 --------------------
@@ -137,16 +126,17 @@ Clone the repository
     git clone git@github.com:YourLogin/sushie.git
     cd sushie
 
-#. You should run::
+#. If you did not already install the development environment, run::
 
-    pip install -U pip setuptools -e .
+    python -m pip install -e ".[dev,testing]"
 
-   to be able run ``putup --help``.
+   or::
+
+    uv sync --extra dev --extra testing
 
 #. Install |pre-commit|_::
 
-    pip install pre-commit
-    pre-commit install
+    uv run pre-commit install
 
    ``sushie`` comes with a lot of hooks configured to automatically help the
    developer to check the code being written.
@@ -174,8 +164,7 @@ Implement your changes
 
    Please make sure to see the validation messages from |pre-commit|_ and fix
    any eventual issues.
-   This should automatically use flake8_/black_ to check/fix the code style
-   in a way that is compatible with the project.
+   This project uses Ruff for linting/formatting and ty for type checking.
 
    .. important:: Don't forget to add unit tests and documentation in case your
       contribution adds an additional feature and is not just a bugfix.
@@ -189,12 +178,13 @@ Implement your changes
 
 #. Please check that your changes don't break any unit tests with::
 
-    tox
+    uv run --extra testing pytest -p no:capture
 
-   (after having installed |tox|_ with ``pip install tox`` or ``pipx``).
+   You can also run the main static checks locally::
 
-   You can also use |tox|_ to run several other pre-configured tasks in the
-   repository. Try ``tox -av`` to see a list of the available checks.
+    uv run ruff check sushie tests data
+    uv run ruff format --check sushie tests data
+    uv run ty check sushie tests data
 
 Submit your contribution
 ------------------------
@@ -221,40 +211,12 @@ package:
    The command ``git describe --abbrev=0 --tags`` should return the version you
    are expecting. If you are trying to run CI scripts in a fork repository,
    make sure to push all the tags.
-   You can also try to remove all the egg files or the complete egg folder, i.e.,
-   ``.eggs``, as well as the ``*.egg-info`` folders in the ``src`` folder or
-   potentially in the root of your project.
-
-#. Sometimes |tox|_ misses out when new dependencies are added, especially to
-   ``setup.cfg`` and ``requirements.txt``. If you find any problems with
-   missing dependencies when running a command with |tox|_, try to recreate the
-   ``tox`` environment using the ``-r`` flag. For example, instead of::
-
-    tox -e docs
-
-   Try running::
-
-    tox -r -e docs
-
-#. Make sure to have a reliable |tox|_ installation that uses the correct
-   Python version (e.g., 3.8+). When in doubt you can run::
-
-    tox --version
-    # OR
-    which tox
-
-   If you have trouble and are seeing weird errors upon running |tox|_, you can
-   also try to create a dedicated `virtual environment`_ with a |tox|_ binary
-   freshly installed. For example::
-
-    virtualenv .venv
-    source .venv/bin/activate
-    .venv/bin/pip install tox
-    .venv/bin/tox -e all
+   If versions look wrong, recreate the environment with ``uv sync --reinstall``
+   or remove ``.venv`` and run ``uv sync --extra dev --extra testing`` again.
 
 #. `Pytest can drop you`_ in an interactive session in the case an error occurs.
    In order to do that you need to pass a ``--pdb`` option (for example by
-   running ``tox -- -k <NAME OF THE FALLING TEST> --pdb``).
+   running ``uv run --extra testing pytest -p no:capture -k <TEST NAME> --pdb``).
    You can also setup breakpoints manually instead of using the ``--pdb`` option.
 
 
@@ -271,15 +233,13 @@ on PyPI_, the following steps can be used to release a new version for
 #. Make sure all unit tests are successful.
 #. Tag the current commit on the main branch with a release tag, e.g., ``v1.2.3``.
 #. Push the new tag to the upstream repository_, e.g., ``git push upstream v1.2.3``
-#. Clean up the ``dist`` and ``build`` folders with ``tox -e clean``
-   (or ``rm -rf dist build``)
-   to avoid confusion with old builds and Sphinx docs.
-#. Run ``tox -e build`` and check that the files in ``dist`` have
+#. Clean up the ``dist`` and ``build`` folders before building a release.
+#. Run ``uv build`` and check that the files in ``dist`` have
    the correct version (no ``.dirty`` or git_ hash) according to the git_ tag.
    Also check the sizes of the distributions, if they are too big (e.g., >
    500KB), unwanted clutter may have been accidentally included.
-#. Run ``tox -e publish -- --repository pypi`` and check that everything was
-   uploaded to PyPI_ correctly.
+#. Publish through the configured release workflow or with the PyPI publisher
+   used by the maintainers.
 
 
 
@@ -298,35 +258,27 @@ on PyPI_, the following steps can be used to release a new version for
 .. <-- end -->
 
 
-.. |virtualenv| replace:: ``virtualenv``
 .. |pre-commit| replace:: ``pre-commit``
-.. |tox| replace:: ``tox``
 
 
-.. _black: https://pypi.org/project/black/
 .. _CommonMark: https://commonmark.org/
 .. _contribution-guide.org: http://www.contribution-guide.org/
 .. _creating a PR: https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request
 .. _descriptive commit message: https://chris.beams.io/posts/git-commit
 .. _docstrings: https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html
 .. _first-contributions tutorial: https://github.com/firstcontributions/first-contributions
-.. _flake8: https://flake8.pycqa.org/en/stable/
 .. _git: https://git-scm.com
 .. _GitHub's fork and pull request workflow: https://guides.github.com/activities/forking/
 .. _guide created by FreeCodeCamp: https://github.com/FreeCodeCamp/how-to-contribute-to-open-source
-.. _Miniconda: https://docs.conda.io/en/latest/miniconda.html
 .. _MyST: https://myst-parser.readthedocs.io/en/latest/syntax/syntax.html
 .. _other kinds of contributions: https://opensource.guide/how-to-contribute
 .. _pre-commit: https://pre-commit.com/
 .. _PyPI: https://pypi.org/
-.. _PyScaffold's contributor's guide: https://pyscaffold.org/en/stable/contributing.html
 .. _Pytest can drop you: https://docs.pytest.org/en/stable/usage.html#dropping-to-pdb-python-debugger-at-the-start-of-a-test
 .. _Python Software Foundation's Code of Conduct: https://www.python.org/psf/conduct/
 .. _reStructuredText: https://www.sphinx-doc.org/en/master/usage/restructuredtext/
 .. _Sphinx: https://www.sphinx-doc.org/en/master/
-.. _tox: https://tox.readthedocs.io/en/stable/
 .. _virtual environment: https://realpython.com/python-virtual-environments-a-primer/
-.. _virtualenv: https://virtualenv.pypa.io/en/stable/
 
 .. _GitHub web interface: https://docs.github.com/en/github/managing-files-in-a-repository/managing-files-on-github/editing-files-in-your-repository
 .. _GitHub's code editor: https://docs.github.com/en/github/managing-files-in-a-repository/managing-files-on-github/editing-files-in-your-repository

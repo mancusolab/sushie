@@ -18,13 +18,13 @@ classifiers = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "jax",
-    "jaxlib",
-    "polars",
-    "equinox",
-    "scipy",
-    "glimix-core",
-    "genoio",
+    "jax>=0.10,<0.11",
+    "jaxlib>=0.10,<0.11",
+    "polars>=1.42,<2",
+    "equinox>=0.13,<0.14",
+    "scipy>=1.17,<2",
+    "glimix-core>=3.1,<4",
+    "genoio>=0.2,<0.3",
 ]
 
 [project.optional-dependencies]
@@ -66,7 +66,7 @@ packages = ["sushie"]
 
 [tool.pytest.ini_options]
 addopts = "--cov sushie --cov-report term-missing --verbose"
-norecursedirs = ["dist", "build", ".tox"]
+norecursedirs = ["dist", "build"]
 testpaths = ["tests"]
 
 [tool.ruff]

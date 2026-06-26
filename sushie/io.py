@@ -1,9 +1,9 @@
 # pattern: Mixed (needs refactoring)
 
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import Literal, NamedTuple
 
-import genoio as _genoio
+import genoio
 import numpy as np
 import polars as pl
 
@@ -13,8 +13,6 @@ from jax import Array
 
 from . import infer, log, utils
 
-
-genoio: Any = _genoio
 
 __all__ = [
     "CVData",
@@ -112,7 +110,7 @@ def read_data(
     pheno_paths: list[str],
     covar_paths: utils.ListStrOrNone,
     geno_paths: list[str],
-    geno_func: Callable,
+    geno_func: Callable[[str], tuple[pl.DataFrame, pl.DataFrame, Array]],
 ) -> list[RawData]:
     """Read in pheno, covar, and genotype data and convert it to raw data object.
 
@@ -196,15 +194,27 @@ def read_data(
     return rawData
 
 
-def _read_genoio_dataset(dataset, **read_options) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
+def _read_genoio_dataset(
+    dataset: genoio.Dataset,
+    *,
+    dosage: Literal["hardcall", "dosage"] = "hardcall",
+) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
     """Read a genoio dataset into SuShiE's canonical metadata and array types."""
-    bed, fam, bim = dataset.read(
-        missing="nan",
-        dtype="float64",
-        return_samples=True,
-        return_variants=True,
-        **read_options,
-    )
+    if dosage == "dosage":
+        bed, fam, bim = dataset.read(
+            dosage="dosage",
+            missing="nan",
+            dtype="float64",
+            return_samples=True,
+            return_variants=True,
+        )
+    else:
+        bed, fam, bim = dataset.read(
+            missing="nan",
+            dtype="float64",
+            return_samples=True,
+            return_variants=True,
+        )
 
     bim = bim.rename({"id": "snp"}).select(["chrom", "snp", "pos", "a0", "a1"])
     fam = fam.select(["iid"])
@@ -248,6 +258,7 @@ def read_vcf(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
     """
 
     bim, fam, bed = _read_genoio_dataset(genoio.vcf(path))
+    # this flipping behavior is to stay consistent with previous version of sushie
     bim = bim.select(
         "chrom",
         "snp",

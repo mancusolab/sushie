@@ -114,6 +114,11 @@ def infer_sushie_ss(
 
     """
     ns = jnp.asarray(ns)
+    if ns.ndim == 1:
+        ns = ns[:, jnp.newaxis]
+    elif ns.ndim != 2 or ns.shape[1] != 1:
+        raise ValueError("Sample sizes must be a vector or a single-column matrix. Check your input.")
+
     lds = [jnp.asarray(ld) for ld in lds]
     pi_array = None if pi is None else jnp.asarray(pi)
 

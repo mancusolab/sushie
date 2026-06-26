@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# specify conda environment
-conda activate sushie
+# activate the environment where sushie was installed, if needed
+# source .venv/bin/activate
 
 # suppose you want to perform sushie on 100 molecular phenotypes
-# you may want to have a metadata file that specify the gene name, window start, windown end, chromsome number etc.
+# you may want to have a metadata file that specify the gene name, window start, window end, chromosome number etc.
 start=1
 stop=100
 
