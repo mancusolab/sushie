@@ -177,4 +177,4 @@ Lab](https://www.mancusolab.com/):
 -   [HAMSTA](https://github.com/tszfungc/hamsta): a Python software to
     estimate heritability explained by local ancestry data from
     admixture mapping summary statistics.
--   [Traceax](https://github.com/tszfungc/traceax): a Python library to perform stochastic trace estimation for linear operators.
+-   [Traceax](https://github.com/mancusolab/traceax): a Python library to perform stochastic trace estimation for linear operators.
