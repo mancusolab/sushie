@@ -440,14 +440,6 @@ def read_ld(path: str) -> pl.DataFrame:
     return ld
 
 
-def _write_table(frame: pl.DataFrame, file_name: str, compress: bool) -> None:
-    frame.write_csv(
-        file_name,
-        separator="\t",
-        compression="gzip" if compress else "uncompressed",
-    )
-
-
 # output functions
 def output_cs(
     result: list[infer.SushieResult],
@@ -514,7 +506,7 @@ def output_cs(
 
     file_name = f"{output}.cs.tsv.gz" if compress else f"{output}.cs.tsv"
 
-    _write_table(cs, file_name, compress)
+    cs.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return cs
 
@@ -608,7 +600,7 @@ def output_weights(
 
     file_name = f"{output}.weights.tsv.gz" if compress else f"{output}.weights.tsv"
 
-    _write_table(weights, file_name, compress)
+    weights.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return weights
 
@@ -664,7 +656,7 @@ def output_alphas(
 
     file_name = f"{output}.alphas.tsv.gz" if compress else f"{output}.alphas.tsv"
 
-    _write_table(alphas, file_name, compress)
+    alphas.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return alphas
 
@@ -714,7 +706,7 @@ def output_her(
 
     file_name = f"{output}.her.tsv.gz" if compress else f"{output}.her.tsv"
 
-    _write_table(est_her, file_name, compress)
+    est_her.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return est_her
 
@@ -765,7 +757,7 @@ def output_corr(
 
     file_name = f"{output}.corr.tsv.gz" if compress else f"{output}.corr.tsv"
 
-    _write_table(corr, file_name, compress)
+    corr.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return corr
 
@@ -810,7 +802,7 @@ def output_cv(
 
     file_name = f"{output}.cv.tsv.gz" if compress else f"{output}.cv.tsv"
 
-    _write_table(cv_r2, file_name, compress)
+    cv_r2.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return cv_r2
 
