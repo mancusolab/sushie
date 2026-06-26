@@ -1,3 +1,4 @@
+import polars as pl
 import pytest
 
 import jax
@@ -7,6 +8,7 @@ import jax.random as rdm
 import jax.scipy.linalg as jsla
 
 import sushie
+
 
 jax.config.update("jax_enable_x64", True)
 
@@ -48,6 +50,8 @@ def test_infer_sushie_simple(N: int, K: int, seed: int = 0):
     res = sushie.infer.infer_sushie(Xs, ys, L=L, min_snps=L)
 
     assert res is not None
+    assert isinstance(res.cs, pl.DataFrame)
+    assert isinstance(res.alphas, pl.DataFrame)
 
 
 @pytest.mark.parametrize("N,P,K,L", [(50, 100, 2, 2), (100, 50, 3, 2)])
@@ -58,15 +62,12 @@ def test_infer_sushie(N: int, P: int, K: int, L: int, seed: int = 0):
 
     h2g = 0.1
     rho = 0.8 * h2g
-    covar = (
-        jnp.diag(h2g * jnp.ones(K))
-        + rho * jnp.ones((K, K))
-        - jnp.diag(rho * jnp.ones(K))
-    )
+    covar = jnp.diag(h2g * jnp.ones(K)) + rho * jnp.ones((K, K)) - jnp.diag(rho * jnp.ones(K))
 
     X = rdm.normal(g_key, shape=(K, N, P))
     snps = rdm.choice(s_key, P, shape=(L,), replace=False)
-    beta = rdm.multivariate_normal(b_key, mean=jnp.zeros(K), cov=covar, shape=(L,))
+    beta_mean = jnp.zeros(K)
+    beta = rdm.multivariate_normal(b_key, mean=beta_mean, cov=covar, shape=(L,))
 
     G = jnp.einsum("knl,lk->kn", X[:, :, snps], beta)
 

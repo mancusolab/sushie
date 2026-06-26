@@ -1,13 +1,18 @@
+# pattern: Functional Core
+
 import math
-from typing import NamedTuple, Tuple
+
+from collections.abc import Sequence
+from typing import NamedTuple
 
 import equinox as eqx
-
 import jax.numpy as jnp
+
 from jax import Array, lax
 from jax.typing import ArrayLike
 
 from . import infer, log, utils
+
 
 __all__ = [
     "infer_sushie_ss",
@@ -24,12 +29,12 @@ class _LResult_ss(NamedTuple):
 
 
 def infer_sushie_ss(
-    lds: ArrayLike,
+    lds: Sequence[ArrayLike],
     ns: ArrayLike,
-    zs: ArrayLike,
+    zs: Sequence[ArrayLike],
     L: int = 10,
     no_update: bool = False,
-    pi: ArrayLike = None,
+    pi: ArrayLike | None = None,
     resid_var: utils.ListFloatOrNone = None,
     effect_var: utils.ListFloatOrNone = None,
     rho: utils.ListFloatOrNone = None,
@@ -108,12 +113,14 @@ def infer_sushie_ss(
             print(result.cs)        # Credible sets
 
     """
+    ns = jnp.asarray(ns)
+    lds = [jnp.asarray(ld) for ld in lds]
+    pi_array = None if pi is None else jnp.asarray(pi)
+
     n_pop = ns.shape[0]
 
     if len(lds) != n_pop:
-        raise ValueError(
-            f"The number of LD matrices ({len(lds)}) does not match the number of ancestries ({n_pop})."
-        )
+        raise ValueError(f"The number of LD matrices ({len(lds)}) does not match the number of ancestries ({n_pop}).")
 
     if not all(ld.shape == lds[0].shape for ld in lds):
         raise ValueError("LD matrices do not have the same shape. Check your input.")
@@ -123,29 +130,22 @@ def infer_sushie_ss(
 
     if zs is None:
         raise ValueError("Z scores are not provided. Check your input.")
-    else:
-        if len(zs) != n_pop:
-            raise ValueError(
-                f"The number of Z scores ({len(zs)}) does not match the number of ancestries ({n_pop})."
-            )
 
-        if not all(z.shape == zs[0].shape for z in zs):
-            raise ValueError(
-                "Z scores across ancestries do not have the same shape. Check your input."
-            )
+    zs = [jnp.asarray(z) for z in zs]
+    if len(zs) != n_pop:
+        raise ValueError(f"The number of Z scores ({len(zs)}) does not match the number of ancestries ({n_pop}).")
 
-        if zs[0].shape[0] != lds[0].shape[0]:
-            raise ValueError(
-                "Z scores do not have the same number of SNPs as the LD matrices. Check your input."
-            )
+    if not all(z.shape == zs[0].shape for z in zs):
+        raise ValueError("Z scores across ancestries do not have the same shape. Check your input.")
+
+    if zs[0].shape[0] != lds[0].shape[0]:
+        raise ValueError("Z scores do not have the same number of SNPs as the LD matrices. Check your input.")
 
     if L <= 0:
         raise ValueError(f"Inferred L ({L}) is invalid, choose a positive L.")
 
     if min_tol > 0.1:
-        log.logger.warning(
-            f"Minimum intolerance ({min_tol}) is greater than 0.1. Inference may not be accurate."
-        )
+        log.logger.warning(f"Minimum intolerance ({min_tol}) is greater than 0.1. Inference may not be accurate.")
 
     if not 0 < threshold < 1:
         raise ValueError(
@@ -169,43 +169,36 @@ def infer_sushie_ss(
         )
 
     if min_snps <= 0:
-        raise ValueError(
-            "The minimum number of SNPs to fine-map is invalid. Choose a positive integer."
-        )
+        raise ValueError("The minimum number of SNPs to fine-map is invalid. Choose a positive integer.")
 
     n_snps = lds[0].shape[0]
 
-    if pi is None:
-        pi = jnp.ones(n_snps) / float(n_snps)
+    if pi_array is None:
+        pi_array = jnp.ones(n_snps) / float(n_snps)
     else:
-        if not (pi > 0).all():
+        if not (pi_array > 0).all():
             raise ValueError("Prior probability/weights must be all positive values.")
 
-        if pi.shape[0] != lds[0].shape[1]:
+        if pi_array.shape[0] != lds[0].shape[1]:
             raise ValueError(
-                f"Prior probability/weights ({pi.shape[0]}) does not match the number of SNPs ({lds[0].shape[1]})."
+                f"Prior probability/weights ({pi_array.shape[0]}) does not match "
+                + f"the number of SNPs ({lds[0].shape[1]})."
             )
 
-        if jnp.sum(pi) != 1:
-            log.logger.debug(
-                "Prior probability/weights sum is not equal to 1. Will normalize to sum to 1."
-            )
-            pi = pi.astype(float) / jnp.sum(pi)
+        if jnp.sum(pi_array) != 1:
+            log.logger.debug("Prior probability/weights sum is not equal to 1. Will normalize to sum to 1.")
+            pi_array = pi_array.astype(float) / jnp.sum(pi_array)
 
     if resid_var is None:
-        resid_var = []
-        for idx in range(n_pop):
-            resid_var.append(1)
+        resid_var_array = jnp.ones(n_pop)
     else:
         if len(resid_var) != n_pop:
             raise ValueError(
                 f"Number of specified residual prior ({len(resid_var)}) does not match ancestry number ({n_pop})."
             )
-        resid_var = [float(i) for i in resid_var]
-        if jnp.any(jnp.array(resid_var) <= 0):
-            raise ValueError(
-                f"The input of residual prior ({resid_var}) is invalid (<0). Check your input."
-            )
+        resid_var_array = jnp.array([float(i) for i in resid_var])
+        if jnp.any(resid_var_array <= 0):
+            raise ValueError(f"The input of residual prior ({resid_var}) is invalid (<0). Check your input.")
 
     if min_snps < L:
         raise ValueError(
@@ -232,9 +225,7 @@ def infer_sushie_ss(
             )
         effect_var = [float(i) for i in effect_var]
         if jnp.any(jnp.array(effect_var) <= 0):
-            raise ValueError(
-                f"The effect size prior variance ({effect_var}) must be positive."
-            )
+            raise ValueError(f"The effect size prior variance ({effect_var}) must be positive.")
 
     exp_num_rho = math.comb(n_pop, 2)
     param_rho = rho
@@ -242,21 +233,16 @@ def infer_sushie_ss(
         rho = [0.1] * exp_num_rho
     else:
         if n_pop == 1:
-            log.logger.debug(
-                "Running single-ancestry SuShiE. The '--rho' parameter is specified but will be ignored."
-            )
+            log.logger.debug("Running single-ancestry SuShiE. The '--rho' parameter is specified but will be ignored.")
 
         if (len(rho) != exp_num_rho) and n_pop != 1:
             raise ValueError(
-                f"Number of specified rho ({len(rho)}) does not match expected"
-                + f" number {exp_num_rho}.",
+                f"Number of specified rho ({len(rho)}) does not match expected" + f" number {exp_num_rho}.",
             )
         rho = [float(i) for i in rho]
         # double-check the if it's invalid rho
         if jnp.any(jnp.abs(jnp.array(rho)) > 1):
-            raise ValueError(
-                f"Effect size prior correlation ({rho}) must be between -1 and 1 (inclusive)."
-            )
+            raise ValueError(f"Effect size prior correlation ({rho}) must be between -1 and 1 (inclusive).")
 
     effect_covar = jnp.diag(jnp.array(effect_var))
     ct = 0
@@ -276,75 +262,49 @@ def infer_sushie_ss(
                 plus=effect_covar - jnp.diag(jnp.diag(effect_covar)),
             )
 
-            log.logger.info(
-                "No updates on the prior effect correlation rho while updating prior effect variance."
-            )
+            log.logger.info("No updates on the prior effect correlation rho while updating prior effect variance.")
         # if we specify no_update and effect_covar, we want to keep variance through iterations, and update rho
         elif param_effect_var is not None and param_rho is None and n_pop != 1:
             prior_adjustor = infer._PriorAdjustor(
                 times=jnp.ones((n_pop, n_pop)) - jnp.eye(n_pop),
                 plus=effect_covar * jnp.eye(n_pop),
             )
-            log.logger.info(
-                "No updates on the prior effect variance while updating prior effect correlation rho."
-            )
+            log.logger.info("No updates on the prior effect variance while updating prior effect correlation rho.")
         # if we (do not specify effect_covar and rho) or (specify both effect_covar and rho)
         # nothing is updated through iterations
         else:
-            prior_adjustor = infer._PriorAdjustor(
-                times=jnp.zeros((n_pop, n_pop)), plus=effect_covar
-            )
-            log.logger.info(
-                "No updates on the prior effect size variance/covariance matrix."
-            )
+            prior_adjustor = infer._PriorAdjustor(times=jnp.zeros((n_pop, n_pop)), plus=effect_covar)
+            log.logger.info("No updates on the prior effect size variance/covariance matrix.")
     else:
-        prior_adjustor = infer._PriorAdjustor(
-            times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop))
-        )
-
-    # define:
-    # k is ancestry
-    # n is sample size
-    # p is SNP
-    # l is the number of effects
+        prior_adjustor = infer._PriorAdjustor(times=jnp.ones((n_pop, n_pop)), plus=jnp.zeros((n_pop, n_pop)))
 
     priors = infer.Prior(
-        # p x 1
-        pi=pi,
-        # k x 1
-        resid_var=jnp.array(resid_var)[:, jnp.newaxis],
-        # l x k x k
+        pi=pi_array,
+        resid_var=resid_var_array[:, jnp.newaxis],
         effect_covar=jnp.array([effect_covar] * L),
     )
 
     posteriors = infer.Posterior(
-        # l x p
         alpha=jnp.zeros((L, n_snps)),
-        # l x p x k
         post_mean=jnp.zeros((L, n_snps, n_pop)),
-        # l x p x k x k
         post_mean_sq=jnp.zeros((L, n_snps, n_pop, n_pop)),
-        # l x n x n
         weighted_sum_covar=jnp.zeros((L, n_pop, n_pop)),
-        # l
         kl=jnp.zeros((L,)),
-        # l x p
         log_bf=jnp.zeros((L, n_snps)),
     )
 
-    # since we use prior adjustor, this is really no need
-    # opt_v_func = NoopOptFunc() would work
     opt_v_func = infer._EMOptFunc() if not no_update else infer._NoopOptFunc()
 
-    # get XtXs and Xtys
-    zs = jnp.array(zs)
-    lds = jnp.array(lds)
-    sigma2 = ns / (ns + zs ** 2)
-    Xtys = jnp.sqrt(ns) * jnp.sqrt(sigma2) * zs
-    XtXs = ns[:, :, jnp.newaxis] * lds
+    # Stack once after validation so summary-stat kernels see canonical arrays.
+    zs_array = jnp.stack(zs)
+    lds_array = jnp.stack(lds)
+    sigma2 = ns / (ns + zs_array**2)
+    Xtys = jnp.sqrt(ns) * jnp.sqrt(sigma2) * zs_array
+    XtXs = ns[:, :, jnp.newaxis] * lds_array
 
     elbo_tracker = jnp.array([-jnp.inf])
     elbo_increase = True
+    decimal_digit = len(str(min_tol)) - str(min_tol).find(".") - 1
     for o_iter in range(max_iter):
         log.logger.debug(f"Starting optimization iteration {o_iter + 1}.")
         prev_priors = priors
@@ -361,9 +321,7 @@ def infer_sushie_ss(
         )
         elbo_last = elbo_tracker[o_iter]
         elbo_tracker = jnp.append(elbo_tracker, elbo_cur)
-        elbo_increase = elbo_cur >= elbo_last or jnp.isclose(
-            elbo_cur, elbo_last, atol=1e-8
-        )
+        elbo_increase = bool(jnp.logical_or(elbo_cur >= elbo_last, jnp.isclose(elbo_cur, elbo_last, atol=1e-8)))
 
         log.logger.debug(f"Iteration {o_iter + 1} finished.")
 
@@ -378,8 +336,6 @@ def infer_sushie_ss(
             priors = prev_priors
             posteriors = prev_posteriors
             break
-
-        decimal_digit = len(str(min_tol)) - str(min_tol).find(".") - 1
 
         if jnp.abs(elbo_cur - elbo_last) < min_tol:
             log.logger.info(
@@ -396,9 +352,7 @@ def infer_sushie_ss(
 
     l_order = jnp.arange(L)
     if not no_reorder:
-        log.logger.debug(
-            "Reordering effects based on Frobenius norm of effect size covariance prior."
-        )
+        log.logger.debug("Reordering effects based on Frobenius norm of effect size covariance prior.")
         priors, posteriors, l_order = infer._reorder_l(priors, posteriors)
 
     log.logger.debug("Computing credible sets.")
@@ -408,7 +362,7 @@ def infer_sushie_ss(
         posteriors.log_bf,
         ns,
         None,
-        lds,
+        lds_array,
         threshold,
         purity,
         purity_method,
@@ -416,9 +370,7 @@ def infer_sushie_ss(
         seed,
     )
 
-    log.logger.debug(
-        "Inference and credible set computation complete. Beginning to write results."
-    )
+    log.logger.debug("Inference and credible set computation complete. Beginning to write results.")
 
     return infer.SushieResult(
         priors,
@@ -436,14 +388,14 @@ def infer_sushie_ss(
 
 @eqx.filter_jit
 def _update_effects_ss(
-    Xtys: ArrayLike,
-    XtXs: ArrayLike,
-    ns: ArrayLike,
+    Xtys: Array,
+    XtXs: Array,
+    ns: Array,
     priors: infer.Prior,
     posteriors: infer.Posterior,
     prior_adjustor: infer._PriorAdjustor,
     opt_v_func: infer._AbstractOptFunc,
-) -> Tuple[infer.Prior, infer.Posterior, Array]:
+) -> tuple[infer.Prior, infer.Posterior, Array]:
     l_dim, n_snps, n_pop = posteriors.post_mean.shape
 
     # reduce from lxpxk to pxk
@@ -481,9 +433,7 @@ def _update_effects_ss(
 def _update_l(l_iter: int, param: _LResult_ss) -> _LResult_ss:
     residual, XtXs, priors, posteriors, prior_adjustor, opt_v_func = param
 
-    residual_l = residual + jnp.einsum(
-        "kpq,kq->kp", XtXs, posteriors.post_mean[l_iter].T
-    )
+    residual_l = residual + jnp.einsum("kpq,kq->kp", XtXs, posteriors.post_mean[l_iter].T)
 
     priors, posteriors = _ssr_ss(
         residual_l,
@@ -495,9 +445,7 @@ def _update_l(l_iter: int, param: _LResult_ss) -> _LResult_ss:
         opt_v_func,
     )
 
-    residual = residual_l - jnp.einsum(
-        "kpq,kq->kp", XtXs, posteriors.post_mean[l_iter].T
-    )
+    residual = residual_l - jnp.einsum("kpq,kq->kp", XtXs, posteriors.post_mean[l_iter].T)
 
     update_param = param._replace(
         Xtys=residual,
@@ -509,14 +457,14 @@ def _update_l(l_iter: int, param: _LResult_ss) -> _LResult_ss:
 
 
 def _ssr_ss(
-    Xtys: ArrayLike,
-    XtXs: ArrayLike,
+    Xtys: Array,
+    XtXs: Array,
     priors: infer.Prior,
     posteriors: infer.Posterior,
     prior_adjustor: infer._PriorAdjustor,
     l_iter: int,
     opt_v_func: infer._AbstractOptFunc,
-) -> Tuple[infer.Prior, infer.Posterior]:
+) -> tuple[infer.Prior, infer.Posterior]:
 
     n_pop, n_snps = Xtys.shape
     # Xtys is kxp, priors.resid_var is kx1, and the result is kxp, transpose is pxk
@@ -530,31 +478,25 @@ def _ssr_ss(
 
     priors = opt_v_func(rTZDinv, inv_shat2, priors, posteriors, prior_adjustor, l_iter)
 
-    _, posteriors = infer._compute_posterior(
-        rTZDinv, inv_shat2, priors, posteriors, l_iter
-    )
+    _, posteriors = infer._compute_posterior(rTZDinv, inv_shat2, priors, posteriors, l_iter)
 
     return priors, posteriors
 
 
 def _eloglike_ss(
-    Xtys: ArrayLike,
-    XtXs: ArrayLike,
-    ns: ArrayLike,
-    beta: ArrayLike,
-    beta_sq: ArrayLike,
-    sigma_sq: ArrayLike,
+    Xtys: Array,
+    XtXs: Array,
+    ns: Array,
+    beta: Array,
+    beta_sq: Array,
+    sigma_sq: Array,
 ) -> Array:
     norm_term = -(0.5 * ns) * jnp.log(2 * jnp.pi * sigma_sq)
-    quad_term = (
-        -(0.5 / sigma_sq) * _erss_ss(Xtys, XtXs, ns, beta, beta_sq)[:, jnp.newaxis]
-    )
+    quad_term = -(0.5 / sigma_sq) * _erss_ss(Xtys, XtXs, ns, beta, beta_sq)[:, jnp.newaxis]
     return norm_term + quad_term
 
 
-def _erss_ss(
-    Xtys: ArrayLike, XtXs: ArrayLike, ns: ArrayLike, beta: ArrayLike, beta_sq: ArrayLike
-) -> Array:
+def _erss_ss(Xtys: Array, XtXs: Array, ns: Array, beta: Array, beta_sq: Array) -> Array:
 
     # beta is kxpxl
     ebeta = jnp.sum(beta, axis=2)

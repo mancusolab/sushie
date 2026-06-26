@@ -16,17 +16,15 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "jax",
     "jaxlib",
-    "pandas",
-    "pandas-plink",
+    "polars",
     "equinox",
     "scipy",
     "glimix-core",
-    "bgen-reader",
-    "cyvcf2",
+    "genoio",
 ]
 
 [project.optional-dependencies]
@@ -40,8 +38,10 @@ dev = [
     "pymdown-extensions",
     "pytest-accept",
     "pytest-cov",
+    "ruff>=0.0.243",
     "sphinx>=5",
     "sphinx-immaterial",
+    "ty>=0.0.44",
 ]
 
 [project.urls]
@@ -69,5 +69,38 @@ addopts = "--cov sushie --cov-report term-missing --verbose"
 norecursedirs = ["dist", "build", ".tox"]
 testpaths = ["tests"]
 
-[tool.mypy]
-allow_redefinition = true
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I001", "UP"]
+ignore = ["E402", "E721", "E731", "E741", "F722", "TID252"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sushie"]
+combine-as-imports = true
+lines-after-imports = 2
+lines-between-types = 1
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "jax-ecosystem",
+    "first-party",
+    "local-folder",
+]
+order-by-type = false
+
+[tool.ruff.lint.isort.sections]
+jax-ecosystem = ["equinox", "jax", "jaxtyping"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*" = ["PLR2004", "S101", "TID252"]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+include = ["sushie", "tests", "data"]

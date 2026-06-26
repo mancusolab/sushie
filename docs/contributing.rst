@@ -80,7 +80,7 @@ and use Python's built-in web server for a preview in your web browser
    install the package first::
 
        # Create and activate a conda environment with dependencies
-       conda create -n sushie-docs python=3.10
+       conda create -n sushie-docs python=3.11
        conda activate sushie-docs
 
        # Install sushie and all dependencies

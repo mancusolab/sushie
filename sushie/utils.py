@@ -1,14 +1,18 @@
-from typing import List, Optional, Tuple
+# pattern: Functional Core
 
-import pandas as pd
+import numpy as np
+import polars as pl
+
 from glimix_core.lmm import LMM
 from numpy_sugar.linalg import economic_qs
 from scipy import stats
 
 import jax.numpy as jnp
 import jax.scipy as jsp
+
 from jax import Array
 from jax.typing import ArrayLike
+
 
 __all__ = [
     "make_pip",
@@ -21,17 +25,17 @@ __all__ = [
 ]
 
 # prior argument effect_covar, resid_covar, rho, etc.
-ListFloatOrNone = Optional[List[float]]
+ListFloatOrNone = list[float] | None
 # covar process data, etc.
-ListArrayOrNone = Optional[List[ArrayLike]]
+ListArrayOrNone = list[Array] | None
 # effect_covar sushie etc.
 ArrayOrFloat = ArrayLike
 # covar paths
-ListStrOrNone = Optional[List[str]]
+ListStrOrNone = list[str] | None
 # covar raw data
-PDOrNone = Optional[pd.DataFrame]
+PDOrNone = pl.DataFrame | None
 # int or none
-IntOrNone = Optional[int]
+IntOrNone = int | None
 
 
 def make_pip(alpha: ArrayLike) -> Array:
@@ -46,6 +50,7 @@ def make_pip(alpha: ArrayLike) -> Array:
 
     """
 
+    alpha = jnp.asarray(alpha)
     pip = -jnp.expm1(jnp.sum(jnp.log1p(-alpha), axis=0))
 
     return pip
@@ -62,14 +67,15 @@ def rint(y_val: ArrayLike) -> Array:
 
     """
 
+    y_val = jnp.asarray(y_val)
     n_pt = y_val.shape[0]
-    r_y = stats.rankdata(y_val)
+    r_y = stats.rankdata(np.asarray(y_val))
     q_y = stats.norm.ppf(r_y / (n_pt + 1))
 
-    return q_y
+    return jnp.asarray(q_y)
 
 
-def ols(X: ArrayLike, y: ArrayLike) -> Tuple[Array, Array, Array]:
+def ols(X: ArrayLike, y: ArrayLike) -> tuple[Array, Array, Array]:
     """Perform ordinary linear regression using QR Factorization.
 
     Args:
@@ -85,25 +91,23 @@ def ols(X: ArrayLike, y: ArrayLike) -> Tuple[Array, Array, Array]:
 
     """
 
-    X_inter = jnp.append(jnp.ones((X.shape[0], 1)), X, axis=1)
-    y = jnp.reshape(y, (len(y), -1))
+    X = jnp.asarray(X)
+    y = jnp.asarray(y)
+    X_inter = jnp.concatenate([jnp.ones((X.shape[0], 1)), X], axis=1)
+    y = jnp.reshape(y, (y.shape[0], -1))
     q_matrix, r_matrix = jnp.linalg.qr(X_inter, mode="reduced")
     qty = q_matrix.T @ y
     beta = jsp.linalg.solve_triangular(r_matrix, qty)
     df = q_matrix.shape[0] - q_matrix.shape[1]
     residual = y - q_matrix @ qty
-    rss = jnp.sum(residual ** 2, axis=0)
-    sigma = jnp.sqrt(jnp.sum(residual ** 2, axis=0) / df)
+    rss = jnp.sum(residual**2, axis=0)
+    sigma = jnp.sqrt(jnp.sum(residual**2, axis=0) / df)
     se = (
-        jnp.sqrt(
-            jnp.diag(
-                jsp.linalg.cho_solve((r_matrix, False), jnp.eye(r_matrix.shape[0]))
-            )
-        )[:, jnp.newaxis]
+        jnp.sqrt(jnp.diag(jsp.linalg.cho_solve((r_matrix, False), jnp.eye(r_matrix.shape[0]))))[:, jnp.newaxis]
         @ sigma[jnp.newaxis, :]
     )
     t_scores = beta / se
-    p_value = jnp.array(2 * stats.t.sf(abs(t_scores), df=df))
+    p_value = jnp.asarray(2 * stats.t.sf(np.asarray(jnp.abs(t_scores)), df=df))
 
     r_sq = 1 - rss / jnp.sum((y - jnp.mean(y, axis=0)) ** 2, axis=0)
     adj_r = 1 - (1 - r_sq) * (q_matrix.shape[0] - 1) / df
@@ -111,9 +115,7 @@ def ols(X: ArrayLike, y: ArrayLike) -> Tuple[Array, Array, Array]:
     return residual, adj_r, p_value
 
 
-def regress_covar(
-    X: ArrayLike, y: ArrayLike, covar: ArrayLike, no_regress: bool
-) -> Tuple[Array, Array]:
+def regress_covar(X: ArrayLike, y: ArrayLike, covar: ArrayLike, no_regress: bool) -> tuple[Array, Array]:
     """Regress phenotypes and genotypes on covariates and return the residuals.
 
     Args:
@@ -129,6 +131,10 @@ def regress_covar(
 
     """
 
+    X = jnp.asarray(X)
+    y = jnp.asarray(y)
+    covar = jnp.asarray(covar)
+
     y, _, _ = ols(covar, y)
     if not no_regress:
         X, _, _ = ols(covar, X)
@@ -139,9 +145,9 @@ def regress_covar(
 def estimate_her(
     X: ArrayLike,
     y: ArrayLike,
-    covar: ArrayLike = None,
+    covar: ArrayLike | None = None,
     normalize: bool = True,
-) -> Tuple[float, Array, float, float]:
+) -> tuple[float, Array, float, float]:
     """Calculate proportion of expression variation explained by genotypes (cis-heritability; :math:`h_g^2`).
 
     Args:
@@ -173,6 +179,9 @@ def estimate_her(
             print(f"Heritability: {h2g:.3f}, p-value: {p_value:.4f}")
 
     """
+    X = jnp.asarray(X)
+    y = jnp.asarray(y)
+
     n, p = X.shape
 
     if normalize:
@@ -183,6 +192,8 @@ def estimate_her(
 
     if covar is None:
         covar = jnp.ones(n)
+    else:
+        covar = jnp.asarray(covar)
 
     GRM = jnp.dot(X, X.T) / p
     # normalize the covariance matrix as suggested by Limix
