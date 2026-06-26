@@ -7,14 +7,24 @@ name = "sushie"
 dynamic = ["version"]
 description = "SNP fine-mapping of molecular data across ancestries using SuShiE"
 readme = "README.md"
-license = { file = "LICENSE.txt" }
+license = "MIT"
+license-files = ["LICENSE.txt"]
 authors = [
     { name = "Zeyun Lu", email = "zeyun_lu@dfci.harvard.edu" },
     { name = "Nicholas Mancuso", email = "Nicholas.Mancuso@med.usc.edu" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 requires-python = ">=3.11"
 dependencies = [
@@ -65,7 +75,7 @@ exclude = ["tests/", "data/", "docs/", "misc/"]
 packages = ["sushie"]
 
 [tool.pytest.ini_options]
-addopts = "--cov sushie --cov-report term-missing --verbose"
+addopts = "--verbose"
 norecursedirs = ["dist", "build"]
 testpaths = ["tests"]
 

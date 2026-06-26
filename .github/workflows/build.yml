@@ -1,0 +1,72 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Package artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # needed for hatch-vcs version detection
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Build distribution
+        run: uv build
+
+      - name: Install and smoke-test wheel
+        shell: bash
+        run: |
+          uv venv smoke-venv --python 3.11
+          uv pip install --python smoke-venv dist/*.whl
+          cd /tmp
+          "$GITHUB_WORKSPACE/smoke-venv/bin/python" - <<'PY'
+          import sushie
+
+          print(f"imported sushie from {sushie.__file__}")
+          PY
+
+      - name: Install and smoke-test sdist
+        shell: bash
+        run: |
+          uv venv sdist-smoke-venv --python 3.11
+          uv pip install --python sdist-smoke-venv dist/*.tar.gz
+          cd /tmp
+          "$GITHUB_WORKSPACE/sdist-smoke-venv/bin/python" - <<'PY'
+          import sushie
+
+          print(f"imported sushie from {sushie.__file__}")
+          PY
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: dist
+          path: dist/*
+
+      - name: Prune uv cache
+        if: always()
+        run: uv cache prune --ci
