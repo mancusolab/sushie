@@ -50,6 +50,10 @@ class _FakeGenoio:
         self.calls.append(("bgen", path))
         return self.dataset
 
+    def pfile(self, path):
+        self.calls.append(("pfile", path))
+        return self.dataset
+
 
 def test_read_triplet_uses_genoio_bfile_and_preserves_contract(monkeypatch):
     fake_genoio = _FakeGenoio()
@@ -119,4 +123,41 @@ def test_read_bgen_uses_genoio_bgen_and_preserves_sushie_contract(monkeypatch):
     assert isinstance(fam, pl.DataFrame)
     assert list(bim.columns) == ["chrom", "snp", "pos", "a0", "a1"]
     assert fam.to_dict(as_series=False) == {"iid": ["S1", "S2"]}
+    np.testing.assert_allclose(np.asarray(bed), fake_genoio.dataset.matrix, equal_nan=True)
+
+
+def test_read_pfile_uses_genoio_pfile_and_preserves_contract(monkeypatch):
+    fake_genoio = _FakeGenoio()
+    monkeypatch.setattr(io, "genoio", fake_genoio, raising=False)
+
+    bim, fam, bed = io.read_pfile("plink2-prefix")
+
+    assert fake_genoio.calls == [("pfile", "plink2-prefix")]
+    assert fake_genoio.dataset.kwargs == {
+        "missing": "nan",
+        "dtype": "float64",
+        "return_samples": True,
+        "return_variants": True,
+    }
+    assert isinstance(bim, pl.DataFrame)
+    assert isinstance(fam, pl.DataFrame)
+    assert list(bim.columns) == ["chrom", "snp", "pos", "a0", "a1"]
+    assert fam.to_dict(as_series=False) == {"iid": ["S1", "S2"]}
+    np.testing.assert_allclose(np.asarray(bed), fake_genoio.dataset.matrix, equal_nan=True)
+
+
+def test_read_pfile_with_dosage_uses_genoio_pfile_dosage(monkeypatch):
+    fake_genoio = _FakeGenoio()
+    monkeypatch.setattr(io, "genoio", fake_genoio, raising=False)
+
+    _, _, bed = io.read_pfile("plink2-prefix", dosage=True)
+
+    assert fake_genoio.calls == [("pfile", "plink2-prefix")]
+    assert fake_genoio.dataset.kwargs == {
+        "dosage": "dosage",
+        "missing": "nan",
+        "dtype": "float64",
+        "return_samples": True,
+        "return_variants": True,
+    }
     np.testing.assert_allclose(np.asarray(bed), fake_genoio.dataset.matrix, equal_nan=True)

@@ -32,16 +32,9 @@ documentation.
 Install the released package from PyPI:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install sushie
-```
-
-With `uv`, install the command-line tool directly:
-
-```bash
-uv tool install sushie
+pip install sushie
+# or using uv
+uv pip install sushie
 ```
 
 To install from a source checkout:
@@ -49,7 +42,7 @@ To install from a source checkout:
 ```bash
 git clone https://github.com/mancusolab/sushie.git
 cd sushie
-python -m pip install .
+pip install .
 ```
 
 or with `uv`:

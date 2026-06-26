@@ -4,35 +4,18 @@
 Users Manual
 =================
 
-Initialize Environment
-======================
-
-SuShiE is a command-line software written in Python. We recommend installing it in an isolated Python environment:
-
-.. code:: bash
-
-    python -m venv .venv
-    source .venv/bin/activate
-    python -m pip install -U pip
-
-SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation.
-
 Installation
 ============
 
-Install the released package from PyPI with ``pip``:
+Install the released package from PyPI:
 
 .. code:: bash
 
     pip install sushie
+    # or using uv
+    uv pip install sushie
 
-With ``uv``, install the command-line tool directly:
-
-.. code:: bash
-
-    uv tool install sushie
-
-To install from a source checkout with ``pip``:
+To install from a source checkout:
 
 .. code:: bash
 
@@ -71,7 +54,7 @@ See :func:`sushie.cli.process_raw` for these QCs' source codes.
 Fine-mapping using summary-level data (GWAS statistics)
 -------------------------------------------------------
 
-To fine-map using summary-level data, SuShiE requires at least GWAS z statistics, sample sizes, and LD data. For LD data, users can provide individual-level genotype in PLINK1.9, VCF, or BGEN format and let SuShiE compute the LD matrix, or provide pre-computed LD matrix in tsv format.
+To fine-map using summary-level data, SuShiE requires at least GWAS z statistics, sample sizes, and LD data. For LD data, users can provide individual-level genotype in PLINK1.9, PLINK2, VCF, or BGEN format and let SuShiE compute the LD matrix, or provide pre-computed LD matrix in tsv format.
 
 Although we highly recommend users to perform high-quality QC on their own summary-level data, we implement following basic QCs in the software:
 
@@ -141,7 +124,7 @@ Or three-ancestry setting:
 3. Can I use other formats of genotypes?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Yes! SuShiE can take either `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, or `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_, but not `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_.
+Yes! SuShiE can take `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, or `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_.
 
 For plink 1, SuShiE read in the triplet (bed, bim, and fam) prefix.
 
@@ -149,6 +132,15 @@ For plink 1, SuShiE read in the triplet (bed, bim, and fam) prefix.
 
     cd ./data/
     sushie finemap --pheno EUR.pheno AFR.pheno --plink plink/EUR plink/AFR --output ./test_result
+
+For plink 2, SuShiE reads the pgen, pvar, and psam prefix.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --pheno EUR.pheno AFR.pheno --plink2 plink2/EUR plink2/AFR --output ./test_result
+
+Use ``--plink2-dosage`` when the plink 2 file should be read as dosage data.
 
 For bgen data, users need to make sure that the latter allele shown up in the ``allele ids`` is the reference allele.
 
@@ -377,7 +369,7 @@ Parameters
      - Boolean
      - False
      - ``--summary # will store as True``
-     - Indicator whether to run fine-mapping on summary statistics. Default is False. If True, the software will need GWAS files as input data by specifying --gwas and need LD matrix by specifying either --ld or one of the --plink, --vcf, or --bgen. If False, the software will need phenotype data by specifying --pheno and genotype data by specifying either --plink, --vcf, or --bgen.
+     - Indicator whether to run fine-mapping on summary statistics. Default is False. If True, the software will need GWAS files as input data by specifying --gwas and need LD matrix by specifying either --ld or one of the genotype inputs. If False, the software will need phenotype data by specifying --pheno and genotype data by specifying --plink, --plink2, --plink2-dosage, --vcf, or --bgen.
    * - ``--pheno``
      - String
      - Required, no default
@@ -387,7 +379,17 @@ Parameters
      - String
      - None
      - ``--plink plink/EUR plink/AFR``
-     - Genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format. The plink triplet (bed, bim, and fam) should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's. SuShiE currently does not take `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format.
+     - Genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format. The plink triplet (bed, bim, and fam) should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's.
+   * - ``--plink2``
+     - String
+     - None
+     - ``--plink2 plink2/EUR plink2/AFR``
+     - Genotype data in `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format. The pgen, pvar, and psam files should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's.
+   * - ``--plink2-dosage``
+     - String
+     - None
+     - ``--plink2-dosage plink2/EUR plink2/AFR``
+     - Dosage data in `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format. The pgen, pvar, and psam files should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's.
    * - ``--vcf``
      - String
      - None

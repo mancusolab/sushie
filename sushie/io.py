@@ -20,6 +20,7 @@ __all__ = [
     "RawData",
     "read_data",
     "read_triplet",
+    "read_pfile",
     "read_bgen",
     "read_vcf",
     "read_gwas",
@@ -239,6 +240,25 @@ def read_triplet(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
     """
 
     return _read_genoio_dataset(genoio.bfile(path))
+
+
+def read_pfile(path: str, *, dosage: bool = False) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
+    """Read genotype data in `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format.
+
+    Args:
+        path: The path for plink 2 genotype data (prefix only).
+        dosage: Read dosage values instead of hard calls.
+
+    Returns:
+        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            #. SNP information (bim; :py:obj:`pl.DataFrame`),
+            #. individuals information (fam; :py:obj:`pl.DataFrame`),
+            #. genotype matrix (bed; :py:obj:`Array`).
+
+    """
+
+    read_dosage = "dosage" if dosage else "hardcall"
+    return _read_genoio_dataset(genoio.pfile(path), dosage=read_dosage)
 
 
 def read_vcf(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:

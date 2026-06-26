@@ -10,6 +10,7 @@ import sys
 import warnings
 
 from collections.abc import Callable
+from functools import partial
 from importlib import metadata
 
 import numpy as np
@@ -495,11 +496,18 @@ def parameter_check(
 
     log.logger.info(f"Detect phenotypes for {args.trait} for {n_pop} {name_ancestry}.")
 
-    n_geno = int(args.plink is not None) + int(args.vcf is not None) + int(args.bgen is not None)
+    n_geno = (
+        int(args.plink is not None)
+        + int(args.plink2 is not None)
+        + int(args.plink2_dosage is not None)
+        + int(args.vcf is not None)
+        + int(args.bgen is not None)
+    )
 
     if n_geno > 1:
         log.logger.info(
-            f"Detect {n_geno} genotypes, will only use one type of genotypes in the order of 'plink, vcf, and bgen'"
+            f"Detect {n_geno} genotypes, will only use one type of genotypes in the order of "
+            + "'plink, plink2, plink2-dosage, vcf, and bgen'"
         )
 
     # decide genotype data
@@ -518,6 +526,36 @@ def parameter_check(
         log.logger.info(f"Detect genotype data in plink format for {n_pop} {name_ancestry}.")
         geno_path = args.plink
         geno_func = io.read_triplet
+    elif args.plink2 is not None:
+        if args.ancestry_index is not None:
+            if len(args.plink2) > 1:
+                raise ValueError(
+                    "Multiple plink2 files are detected. Expectation is one when --ancestry-index is specified."
+                )
+        else:
+            if len(args.plink2) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in plink2 geno and pheno data does not match. Check the source."
+                )
+
+        log.logger.info(f"Detect genotype data in plink2 format for {n_pop} {name_ancestry}.")
+        geno_path = args.plink2
+        geno_func = io.read_pfile
+    elif args.plink2_dosage is not None:
+        if args.ancestry_index is not None:
+            if len(args.plink2_dosage) > 1:
+                raise ValueError(
+                    "Multiple plink2 dosage files are detected. Expectation is one when --ancestry-index is specified."
+                )
+        else:
+            if len(args.plink2_dosage) != n_pop:
+                raise ValueError(
+                    "The numbers of ancestries in plink2 dosage geno and pheno data does not match. Check the source."
+                )
+
+        log.logger.info(f"Detect genotype dosage data in plink2 format for {n_pop} {name_ancestry}.")
+        geno_path = args.plink2_dosage
+        geno_func = partial(io.read_pfile, dosage=True)
     elif args.vcf is not None:
         if args.ancestry_index is not None:
             if len(args.vcf) > 1:
@@ -548,7 +586,9 @@ def parameter_check(
         geno_path = args.bgen
         geno_func = io.read_bgen
     else:
-        raise ValueError("No genotype data specified in either plink, vcf, or bgen format. Check the source.")
+        raise ValueError(
+            "No genotype data specified in either plink, plink2, plink2-dosage, vcf, or bgen format. Check the source."
+        )
 
     if args.covar is not None:
         if args.ancestry_index is not None:
@@ -676,13 +716,18 @@ def parameter_check_ss(
     log.logger.info(f"Detect GWAS files for {args.trait} for {n_pop} {name_ancestry}.")
 
     n_geno = (
-        int(args.plink is not None) + int(args.vcf is not None) + int(args.bgen is not None) + int(args.ld is not None)
+        int(args.plink is not None)
+        + int(args.plink2 is not None)
+        + int(args.plink2_dosage is not None)
+        + int(args.vcf is not None)
+        + int(args.bgen is not None)
+        + int(args.ld is not None)
     )
 
     if n_geno > 1:
         log.logger.info(
             f"Detect {n_geno} genotype or LD files,"
-            + " will only use one type of file in the order of 'plink, vcf, bgen, and ld'",
+            + " will only use one type of file in the order of 'plink, plink2, plink2-dosage, vcf, bgen, and ld'",
         )
 
     # decide genotype data
@@ -694,6 +739,22 @@ def parameter_check_ss(
         log.logger.info(f"Detect genotype data in plink format for {n_pop} {name_ancestry}.")
         geno_path = args.plink
         geno_func = io.read_triplet
+    elif args.plink2 is not None:
+        if len(args.plink2) != n_pop:
+            raise ValueError("The numbers of ancestries in plink2 geno and GWAS data does not match. Check the source.")
+
+        log.logger.info(f"Detect genotype data in plink2 format for {n_pop} {name_ancestry}.")
+        geno_path = args.plink2
+        geno_func = io.read_pfile
+    elif args.plink2_dosage is not None:
+        if len(args.plink2_dosage) != n_pop:
+            raise ValueError(
+                "The numbers of ancestries in plink2 dosage geno and GWAS data does not match. Check the source."
+            )
+
+        log.logger.info(f"Detect genotype dosage data in plink2 format for {n_pop} {name_ancestry}.")
+        geno_path = args.plink2_dosage
+        geno_func = partial(io.read_pfile, dosage=True)
     elif args.vcf is not None:
         if len(args.vcf) != n_pop:
             raise ValueError("The numbers of ancestries in vcf geno and GWAS data does not match. Check the source.")
@@ -716,7 +777,10 @@ def parameter_check_ss(
         geno_func = io.read_ld
         ld_file = True
     else:
-        raise ValueError("No genotype/LD data specified in either plink, vcf, bgen, or LD files. Check the source.")
+        raise ValueError(
+            "No genotype/LD data specified in either plink, plink2, plink2-dosage, vcf, bgen, or LD files. "
+            + "Check the source."
+        )
 
     if args.sample_size is not None:
         if len(args.sample_size) != n_pop:
@@ -2003,9 +2067,9 @@ def build_finemap_parser(subp):
             "Indicator whether to run fine-mapping on summary statistics.",
             " Default is False.",
             " If True, the software will need GWAS files as input data by specifying --gwas",
-            " and need LD matrix by specifying either --ld or one of the --plink, --vcf, or --bgen.",
+            " and need LD matrix by specifying either --ld or one of the genotype inputs.",
             " If False, the software will need phenotype data by specifying --pheno",
-            " and genotype data by specifying either --plink, --vcf, or --bgen.",
+            " and genotype data by specifying --plink, --plink2, --plink2-dosage, --vcf, or --bgen.",
         ),
     )
 
@@ -2050,10 +2114,39 @@ def build_finemap_parser(subp):
             " in the same folder with the same prefix.",
             " Use 'space' to separate ancestries if more than two.",
             " Keep the same ancestry order as phenotype's.",
-            " SuShiE currently does not take plink 2 format.",
             " Data has to only contain bialleic variant.",
             " If used in summary-level fine-mapping, the SNP ID has to match the GWAS data in --gwas.",
             " The software will flip the alleles if the counting allele in GWAS data is different from the plink data.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--plink2",
+        nargs="+",
+        type=str,
+        default=None,
+        help=_help(
+            "Genotype data in plink 2 pgen format. The plink2 pgen, pvar, and psam files should be",
+            " in the same folder with the same prefix.",
+            " Use 'space' to separate ancestries if more than two.",
+            " Keep the same ancestry order as phenotype's.",
+            " Data has to only contain biallelic variants.",
+            " If used in summary-level fine-mapping, the SNP ID has to match the GWAS data in --gwas.",
+        ),
+    )
+
+    finemap.add_argument(
+        "--plink2-dosage",
+        nargs="+",
+        type=str,
+        default=None,
+        help=_help(
+            "Dosage data in plink 2 pgen format. The plink2 pgen, pvar, and psam files should be",
+            " in the same folder with the same prefix.",
+            " Use 'space' to separate ancestries if more than two.",
+            " Keep the same ancestry order as phenotype's.",
+            " Data has to only contain biallelic variants.",
+            " If used in summary-level fine-mapping, the SNP ID has to match the GWAS data in --gwas.",
         ),
     )
 
