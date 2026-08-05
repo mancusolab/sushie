@@ -439,14 +439,14 @@ def parameter_check(
         args: The command line parameter input.
 
     Returns:
-        :py:obj:`Tuple[int, pl.DataFrame, List[str], Callable]`:
+        `Tuple[int, pl.DataFrame, List[str], Callable]`:
             A tuple of
-                #. an integer to indicate how many ancestries,
-                #. a DataFrame that contains ancestry index (can be none),
-                #. a list that contains subject ID that fine-mapping performs on.
-                #. a DataFrame that contains prior probability for each SNP to be causal.
-                #. a list of genotype data paths (:py:obj:`List[str]`),
-                #. genotype read-in function (:py:obj:`Callable`).
+                - an integer to indicate how many ancestries,
+                - a DataFrame that contains ancestry index (can be none),
+                - a list that contains subject ID that fine-mapping performs on.
+                - a DataFrame that contains prior probability for each SNP to be causal.
+                - a list of genotype data paths (`List[str]`),
+                - genotype read-in function (`Callable`).
 
     """
     if args.pheno is None:
@@ -697,13 +697,13 @@ def parameter_check_ss(
         args: The command line parameter input.
 
     Returns:
-        :py:obj:`Tuple[int, pl.DataFrame, List[str], Callable]`:
+        `Tuple[int, pl.DataFrame, List[str], Callable]`:
             A tuple of
-                #. an integer to indicate how many ancestries,
-                #. a DataFrame that contains prior probability for each SNP to be causal.
-                #. a list of genotype data paths (:py:obj:`List[str]`),
-                #. genotype read-in function (:py:obj:`Callable`).
-                #. a boolean to indicate whether the genotype data is in LD format.
+                - an integer to indicate how many ancestries,
+                - a DataFrame that contains prior probability for each SNP to be causal.
+                - a list of genotype data paths (`List[str]`),
+                - genotype read-in function (`Callable`).
+                - a boolean to indicate whether the genotype data is in LD format.
 
     """
     if args.gwas is None:
@@ -924,7 +924,7 @@ def process_raw(
         no_regress: The indicator whether to regress genotypes on covariates.
         mega: The indicator whether to prepare datasets for mega SuShiE.
         cv: The indicator whether to prepare datasets for cross-validation.
-        cv_num: The number for :math:`X`-fold cross-validation.
+        cv_num: The number for $X$-fold cross-validation.
         seed: The random seed for row-wise shuffling the datasets for cross validation.
         chrom: The chromosome to filter SNPs.
         start: The start position to filter SNPs.
@@ -932,12 +932,12 @@ def process_raw(
 
 
     Returns:
-        :py:obj:`Tuple[pl.DataFrame, io.CleanData, Optional[io.CleanData], Optional[List[io.CVData]]]`:
+        `Tuple[pl.DataFrame, io.CleanData, Optional[io.CleanData], Optional[List[io.CVData]]]`:
         A tuple of
-            #. SNP information (:py:obj:`pl.DataFrame`),
-            #. dataset for running SuShiE (:py:obj:`io.CleanData`),
-            #. dataset for mega SuShiE (:py:obj:`Optional[io.CleanData]`),
-            #. dataset for cross-validation (:py:obj:`Optional[List[io.CVData]]`).
+            - SNP information (`pl.DataFrame`),
+            - dataset for running SuShiE (`io.CleanData`),
+            - dataset for mega SuShiE (`Optional[io.CleanData]`),
+            - dataset for cross-validation (`Optional[List[io.CVData]]`).
 
     """
 
@@ -1227,10 +1227,10 @@ def process_raw_ss(
         args: The command line parameter input.
 
     Returns:
-        :py:obj:`Tuple[pl.DataFrame, io.ssData]`:
+        `Tuple[pl.DataFrame, io.ssData]`:
         A tuple of
-            #. SNP information (:py:obj:`pl.DataFrame`),
-            #. dataset for running summary-level SuShiE (:py:obj:`io.ssData`),
+            - SNP information (`pl.DataFrame`),
+            - dataset for running summary-level SuShiE (`io.ssData`),
 
     """
 
@@ -1946,7 +1946,7 @@ def sushie_wrapper_ss(
     return None
 
 
-def run_finemap(args):
+def run_finemap(args: argparse.Namespace) -> int:
     """The umbrella function to run SuShiE.
 
     Args:
