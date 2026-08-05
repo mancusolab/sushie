@@ -24,10 +24,10 @@ uv sync --extra dev
 uv run zensical build --clean --strict
 ```
 
-Preview the generated site at <http://localhost:8000>:
+Start Zensical's auto-reloading preview server at <http://localhost:8000>:
 
 ```bash
-uv run python -m http.server --directory site
+uv run zensical serve
 ```
 
 The API reference imports `sushie` and its dependencies. If API collection

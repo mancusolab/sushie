@@ -19,6 +19,7 @@ test_result*
 *.sumstats
 # some temp editing files
 ._*
+.DS_Store
 .Rhistory
 .idea/
 # make exceptions

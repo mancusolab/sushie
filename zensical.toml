@@ -106,6 +106,10 @@ pygments_lang_class = true
 
 [project.markdown_extensions.pymdownx.inlinehilite]
 
+[project.markdown_extensions.pymdownx.snippets]
+base_path = ["."]
+check_paths = true
+
 [project.markdown_extensions.pymdownx.superfences]
 
 [project.plugins.mkdocstrings.handlers.python]

@@ -50,7 +50,7 @@ dev = [
     "pytest-cov",
     "ruff>=0.0.243",
     "ty>=0.0.44",
-    "zensical==0.0.51",
+    "zensical==0.0.53",
 ]
 
 [project.urls]

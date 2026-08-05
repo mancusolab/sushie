@@ -78,9 +78,9 @@ A credible set is a set of SNPs that contains the causal variant with high proba
 
 The Posterior Inclusion Probability (PIP) represents the probability that a SNP is causal given SNPs in the model:
 
-- PIP \> 0.95: Strong evidence for causality
+- PIP > 0.95: Strong evidence for causality
 - PIP 0.5-0.95: Moderate evidence
-- PIP \< 0.5: Weak evidence
+- PIP &lt; 0.5: Weak evidence
 
 Higher PIPs in credible sets indicate better fine-mapping resolution.
 
@@ -88,7 +88,7 @@ Higher PIPs in credible sets indicate better fine-mapping resolution.
 
 Purity is the minimum absolute correlation (r²) between any pair of SNPs in a credible set:
 
-- High purity (\>0.5): SNPs are in high LD, harder to distinguish
+- High purity (>0.5): SNPs are in high LD, harder to distinguish
 - Low purity: SNPs are more independent, but set may contain false positives
 
 The `--purity` threshold (default 0.5) filters out low-quality credible sets.
