@@ -126,6 +126,8 @@ Or three-ancestry setting:
 
 Yes! SuShiE can take `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, or `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_.
 
+For VCF data, SuShiE uses ``a0=REF`` and ``a1=ALT`` and counts copies of the ALT allele. This differs from SuShiE 0.19 and earlier, which counted the REF allele for VCF input. Consequently, signed VCF weights from the newer convention have the opposite sign when their ``a0`` and ``a1`` columns are reversed relative to older results.
+
 For plink 1, SuShiE read in the triplet (bed, bim, and fam) prefix.
 
 .. code:: bash

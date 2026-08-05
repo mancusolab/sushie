@@ -2157,7 +2157,7 @@ def build_finemap_parser(subp):
         default=None,
         help=_help(
             "Genotype data in vcf format. Use 'space' to separate ancestries if more than two.",
-            " Keep the same ancestry order as phenotype's. The software will count RFE allele.",
+            " Keep the same ancestry order as phenotype's. The software will count ALT allele.",
             " If gt_types is UNKNOWN, it will be coded as NA, and be imputed by allele frequency.",
             " Data has to only contain bialleic variant.",
             " If used in summary-level fine-mapping, the SNP ID has to match the GWAS data in --gwas.",

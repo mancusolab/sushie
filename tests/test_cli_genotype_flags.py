@@ -153,3 +153,13 @@ def test_main_parses_plink2_dosage_flag(monkeypatch, tmp_path):
     assert captured_args is not None
     assert captured_args.plink2 is None
     assert captured_args.plink2_dosage == ["unused-pgen-prefix"]
+
+
+def test_vcf_help_describes_alt_as_counting_allele():
+    parser = argparse.ArgumentParser()
+    finemap = cli.build_finemap_parser(parser.add_subparsers())
+
+    help_text = " ".join(finemap.format_help().split())
+
+    assert "count ALT allele" in help_text
+    assert "count RFE allele" not in help_text

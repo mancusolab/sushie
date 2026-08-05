@@ -267,7 +267,7 @@ def read_vcf(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
         Missing genotypes are coded as NA.
 
     Args:
-        path: The path for vcf genotype data (full file name). It will count REF allele.
+        path: The path for vcf genotype data (full file name). It will count ALT allele.
 
     Returns:
         :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
@@ -277,18 +277,7 @@ def read_vcf(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
 
     """
 
-    bim, fam, bed = _read_genoio_dataset(genoio.vcf(path))
-    # this flipping behavior is to stay consistent with previous version of sushie
-    bim = bim.select(
-        "chrom",
-        "snp",
-        "pos",
-        pl.col("a1").alias("a0"),
-        pl.col("a0").alias("a1"),
-    )
-    bed = 2 - bed
-
-    return bim, fam, bed
+    return _read_genoio_dataset(genoio.vcf(path))
 
 
 def read_bgen(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:

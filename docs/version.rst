@@ -9,6 +9,8 @@ Version History
 
    * - Version
      - Description
+   * - 0.20
+     - VCF input now uses ``a0=REF`` and ``a1=ALT`` and counts ALT alleles. Compared with 0.19 and earlier, VCF ``a0``/``a1`` and signed weights may be reversed while allele-aware results remain equivalent.
    * - 0.19
      - Improve code quality. Add troubleshooting section to README and comprehensive FAQ documentation. **This update was completely done using** `Claude Code <https://claude.ai/claude-code>`_ with human tuning.
    * - 0.18
