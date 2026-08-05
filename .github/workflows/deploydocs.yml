@@ -37,13 +37,13 @@ jobs:
         run: uv sync --frozen --extra dev
 
       - name: Build docs
-        run: uv run make -C docs html
+        run: uv run zensical build --clean --strict
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
-          path: ./docs/_build/html/
+          path: ./site/
 
       - name: Prune uv cache
         if: always()

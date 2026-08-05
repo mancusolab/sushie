@@ -56,61 +56,63 @@ def infer_sushie_ss(
         ns: Sample size for each ancestry.
         L: Inferred number of eQTLs for the gene.
         no_update: Do not update the effect size prior. Default is to update.
-        pi: The probability prior for one SNP to be causal (:math:`\\pi` in :ref:`Model`). Default is :math:`1` over
-            the number of SNPs by specifying it as ``None``.
-        resid_var: Prior residual variance (:math:`\\sigma^2_e` in :ref:`Model`).
-            Default is :math:`0.001` by specifying it as ``None``.
-        effect_var: Prior causal effect size variance (:math:`\\sigma^2_{i,b}` in :ref:`Model`).
-            Default is :math:`0.001` by specifying it as ``None``.
-        rho: Prior effect size correlation (:math:`\\rho` in :ref:`Model`).
-            Default is :math:`0.1` by specifying it as ``None``.
-        max_iter: The maximum iteration for optimization. Default is :math:`500`.
-        min_tol: The convergence tolerance. Default is :math:`10^{-4}`.
-        threshold: The credible set threshold. Default is :math:`0.95`.
+        pi: The probability prior for one SNP to be causal ($\\pi$ in [model description](../model.md)).
+            Default is $1$ over the number of SNPs by specifying it as ``None``.
+        resid_var: Prior residual variance ($\\sigma^2_e$ in [model description](../model.md)).
+            Default is $0.001$ by specifying it as ``None``.
+        effect_var: Prior causal effect size variance ($\\sigma^2_{i,b}$ in [model description](../model.md)).
+            Default is $0.001$ by specifying it as ``None``.
+        rho: Prior effect size correlation ($\\rho$ in [model description](../model.md)).
+            Default is $0.1$ by specifying it as ``None``.
+        max_iter: The maximum iteration for optimization. Default is $500$.
+        min_tol: The convergence tolerance. Default is $10^{-4}$.
+        threshold: The credible set threshold. Default is $0.95$.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-            Default is :math:`0.5`.
+            Default is $0.5$.
         purity_method: The method to compute purity across ancestries. Default is ``weighted``.
-        max_select: The maximum number of selected SNPs to compute purity. Default is :math:`250`.
-        min_snps: The minimum number of SNPs to fine-map. Default is :math:`100`.
+        max_select: The maximum number of selected SNPs to compute purity. Default is $250$.
+        min_snps: The minimum number of SNPs to fine-map. Default is $100$.
         no_reorder: Do not re-order single effects based on Frobenius norm of effect size covariance prior.
             Default is to re-order.
-        seed: The randomization seed for selecting SNPs in the credible set to compute purity. Default is :math:`12345`.
+        seed: The randomization seed for selecting SNPs in the credible set to compute purity. Default is $12345$.
 
     Returns:
-        :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
-        posterior (:py:obj:`Posterior`), ``cs``, ``pip``, ``elbo``, and ``elbo_increase``.
+        `SushieResult`: A SuShiE result object that contains prior (`Prior`),
+        posterior (`Posterior`), ``cs``, ``pip``, ``elbo``, and ``elbo_increase``.
 
     Example:
-        Basic usage with two-ancestry summary statistics::
+        Basic usage with two-ancestry summary statistics:
 
-            import numpy as np
-            from sushie.infer_ss import infer_sushie_ss
+        ```python
+        import numpy as np
+        from sushie.infer_ss import infer_sushie_ss
 
-            # Generate example data for 2 ancestries, 500 SNPs
-            n_snps = 500
+        # Generate example data for 2 ancestries, 500 SNPs
+        n_snps = 500
 
-            # LD matrices (correlation matrices)
-            LD1 = np.eye(n_snps)  # Identity for simplicity
-            LD2 = np.eye(n_snps)
+        # LD matrices (correlation matrices)
+        LD1 = np.eye(n_snps)  # Identity for simplicity
+        LD2 = np.eye(n_snps)
 
-            # Z-scores from GWAS
-            z1 = np.random.randn(n_snps)
-            z2 = np.random.randn(n_snps)
+        # Z-scores from GWAS
+        z1 = np.random.randn(n_snps)
+        z2 = np.random.randn(n_snps)
 
-            # Sample sizes
-            ns = np.array([1000, 1500])
+        # Sample sizes
+        ns = np.array([1000, 1500])
 
-            # Run SuShiE fine-mapping with summary statistics
-            result = infer_sushie_ss(
-                lds=[LD1, LD2],
-                zs=[z1, z2],
-                ns=ns,
-                L=5
-            )
+        # Run SuShiE fine-mapping with summary statistics
+        result = infer_sushie_ss(
+            lds=[LD1, LD2],
+            zs=[z1, z2],
+            ns=ns,
+            L=5,
+        )
 
-            # Access results
-            print(result.pip)       # Posterior inclusion probabilities
-            print(result.cs)        # Credible sets
+        # Access results
+        print(result.pip_all)  # Posterior inclusion probabilities
+        print(result.cs)       # Credible sets
+        ```
 
     """
     ns = jnp.asarray(ns)

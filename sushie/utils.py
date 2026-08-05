@@ -42,11 +42,11 @@ def make_pip(alpha: ArrayLike) -> Array:
     """The function to calculate posterior inclusion probability (PIP).
 
     Args:
-        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
-            (i.e., :math:`\\alpha` in :ref:`Model`).
+        alpha: $L \\times p$ matrix that contains posterior probability for SNP to be causal
+            (i.e., $\\alpha$ in [model description](../model.md)).
 
     Returns:
-        :py:obj:`Array`: :math:`p \\times 1` vector for the posterior inclusion probability.
+        `Array`: $p \\times 1$ vector for the posterior inclusion probability.
 
     """
 
@@ -60,10 +60,10 @@ def rint(y_val: ArrayLike) -> Array:
     """Perform rank inverse normalization transformation.
 
     Args:
-        y_val: :math:`n \\times 1` vector for dependent variables.
+        y_val: $n \\times 1$ vector for dependent variables.
 
     Returns:
-        :py:obj:`Array`: A array of transformed value.
+        `Array`: A array of transformed value.
 
     """
 
@@ -79,15 +79,15 @@ def ols(X: ArrayLike, y: ArrayLike) -> tuple[Array, Array, Array]:
     """Perform ordinary linear regression using QR Factorization.
 
     Args:
-        X: :math:`n \\times p` matrix for independent variables with no intercept vector.
-        y: :math:`n \\times m` matrix for dependent variables. If :math:`m > 1`, then
-            perform :math:`m` ordinary regression in parallel.
+        X: $n \\times p$ matrix for independent variables with no intercept vector.
+        y: $n \\times m$ matrix for dependent variables. If $m > 1$, then
+            perform $m$ ordinary regression in parallel.
 
     Returns:
-        :py:obj:`Tuple[Array, Array, Array]`: A tuple of
-            #. contains residuals (:py:obj:`Array`),
-            #. adjusted :math:`r^2` (:py:obj:`Array`) for of the regression,
-            #. :math:`p` values (:py:obj:`Array`) for the coefficients.
+        `Tuple[Array, Array, Array]`: A tuple of
+            - contains residuals (`Array`),
+            - adjusted $r^2$ (`Array`) for of the regression,
+            - $p$ values (`Array`) for the coefficients.
 
     """
 
@@ -119,15 +119,15 @@ def regress_covar(X: ArrayLike, y: ArrayLike, covar: ArrayLike, no_regress: bool
     """Regress phenotypes and genotypes on covariates and return the residuals.
 
     Args:
-        X: :math:`n \\times p` genotype matrix.
-        y: :math:`n \\times 1` phenotype vector.
-        covar: :math:`n \\times m` matrix for covariates.
+        X: $n \\times p$ genotype matrix.
+        y: $n \\times 1$ phenotype vector.
+        covar: $n \\times m$ matrix for covariates.
         no_regress: boolean indicator whether to regress genotypes on covariates.
 
     Returns:
-        :py:obj:`Tuple[Array, Array]`: A tuple of
-            #. genotype residual matrix after regressing out covariates effects (:py:obj:`Array`),
-            #. phenotype residual vector (:py:obj:`Array`) after regressing out covariates effects.
+        `Tuple[Array, Array]`: A tuple of
+            - genotype residual matrix after regressing out covariates effects (`Array`),
+            - phenotype residual vector (`Array`) after regressing out covariates effects.
 
     """
 
@@ -148,35 +148,37 @@ def estimate_her(
     covar: ArrayLike | None = None,
     normalize: bool = True,
 ) -> tuple[float, Array, float, float]:
-    """Calculate proportion of expression variation explained by genotypes (cis-heritability; :math:`h_g^2`).
+    """Calculate proportion of expression variation explained by genotypes (cis-heritability; $h_g^2$).
 
     Args:
-        X: :math:`n \\times p` matrix for independent variables with no intercept vector.
-        y: :math:`n \\times 1` vector for gene expression.
-        covar: :math:`n \\times m` matrix for covariates.
+        X: $n \\times p$ matrix for independent variables with no intercept vector.
+        y: $n \\times 1$ vector for gene expression.
+        covar: $n \\times m$ matrix for covariates.
         normalize: Boolean value to indicate whether normalize X and y
 
     Returns:
-        :py:obj:`Tuple[float, Array, float, float]`: A tuple of
-            #. genetic variance (:py:obj:`float`) of the complex trait,
-            #. :math:`h_g^2` (:py:obj:`Array`) from `limix <https://github.com/limix/limix>`_ definition,
-            #. LRT test statistics (:py:obj:`float`) for :math:`h_g^2`,
-            #. LRT :math:`p` value (:py:obj:`float`) for :math:`h_g^2`.
+        `Tuple[float, Array, float, float]`: A tuple of
+            - genetic variance (`float`) of the complex trait,
+            - $h_g^2$ (`Array`) from [limix](https://github.com/limix/limix) definition,
+            - LRT test statistics (`float`) for $h_g^2$,
+            - LRT $p$ value (`float`) for $h_g^2$.
 
     Example:
-        Estimate cis-heritability for a gene::
+        Estimate cis-heritability for a gene:
 
-            import numpy as np
-            from sushie.utils import estimate_her
+        ```python
+        import numpy as np
+        from sushie.utils import estimate_her
 
-            # Genotype matrix (100 samples, 500 SNPs)
-            X = np.random.randn(100, 500)
-            # Gene expression
-            y = np.random.randn(100)
+        # Genotype matrix (100 samples, 500 SNPs)
+        X = np.random.randn(100, 500)
+        # Gene expression
+        y = np.random.randn(100)
 
-            # Estimate heritability
-            g, h2g, lrt_stat, p_value = estimate_her(X, y)
-            print(f"Heritability: {h2g:.3f}, p-value: {p_value:.4f}")
+        # Estimate heritability
+        g, h2g, lrt_stat, p_value = estimate_her(X, y)
+        print(f"Heritability: {h2g:.3f}, p-value: {p_value:.4f}")
+        ```
 
     """
     X = jnp.asarray(X)

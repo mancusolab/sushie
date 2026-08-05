@@ -124,7 +124,7 @@ def read_data(
         geno_func: The function to read in genotypes depending on the format.
 
     Returns:
-        :py:obj:`List[RawData]`: A list of Raw data object (:py:obj:`RawData`).
+        `List[RawData]`: A list of Raw data object (`RawData`).
 
     """
 
@@ -225,17 +225,17 @@ def _read_genoio_dataset(
 
 
 def read_triplet(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
-    """Read in genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format.
-        `genoio <https://github.com/mancusolab/genoio>`_ package is used to read in the plink file.
+    """Read in genotype data in [plink 1](https://www.cog-genomics.org/plink/1.9/input#bed) format.
+        [genoio](https://github.com/mancusolab/genoio) package is used to read in the plink file.
 
     Args:
         path: The path for plink genotype data (suffix only).
 
     Returns:
-        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
-            #. SNP information (bim; :py:obj:`pl.DataFrame`),
-            #. individuals information (fam; :py:obj:`pl.DataFrame`),
-            #. genotype matrix (bed; :py:obj:`Array`).
+        `Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            - SNP information (bim; `pl.DataFrame`),
+            - individuals information (fam; `pl.DataFrame`),
+            - genotype matrix (bed; `Array`).
 
     """
 
@@ -243,17 +243,17 @@ def read_triplet(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
 
 
 def read_pfile(path: str, *, dosage: bool = False) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
-    """Read genotype data in `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format.
+    """Read genotype data in [plink 2](https://www.cog-genomics.org/plink/2.0/input#pgen) format.
 
     Args:
         path: The path for plink 2 genotype data (prefix only).
         dosage: Read dosage values instead of hard calls.
 
     Returns:
-        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
-            #. SNP information (bim; :py:obj:`pl.DataFrame`),
-            #. individuals information (fam; :py:obj:`pl.DataFrame`),
-            #. genotype matrix (bed; :py:obj:`Array`).
+        `Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            - SNP information (bim; `pl.DataFrame`),
+            - individuals information (fam; `pl.DataFrame`),
+            - genotype matrix (bed; `Array`).
 
     """
 
@@ -262,18 +262,18 @@ def read_pfile(path: str, *, dosage: bool = False) -> tuple[pl.DataFrame, pl.Dat
 
 
 def read_vcf(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
-    """Read in genotype data in `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_ format.
-        `genoio <https://github.com/mancusolab/genoio>`_ package is used to read in the vcf file.
+    """Read in genotype data in [vcf](https://en.wikipedia.org/wiki/Variant_Call_Format) format.
+        [genoio](https://github.com/mancusolab/genoio) package is used to read in the vcf file.
         Missing genotypes are coded as NA.
 
     Args:
         path: The path for vcf genotype data (full file name). It will count ALT allele.
 
     Returns:
-        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
-            #. SNP information (bim; :py:obj:`pl.DataFrame`),
-            #. participants information (fam; :py:obj:`pl.DataFrame`),
-            #. genotype matrix (bed; :py:obj:`Array`).
+        `Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            - SNP information (bim; `pl.DataFrame`),
+            - participants information (fam; `pl.DataFrame`),
+            - genotype matrix (bed; `Array`).
 
     """
 
@@ -281,17 +281,17 @@ def read_vcf(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
 
 
 def read_bgen(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
-    """Read in genotype data in `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
-     `genoio <https://github.com/mancusolab/genoio>`_ package is used to read in the bgen file.
+    """Read in genotype data in [bgen](https://www.well.ox.ac.uk/~gav/bgen_format/) 1.3 format.
+     [genoio](https://github.com/mancusolab/genoio) package is used to read in the bgen file.
 
     Args:
         path: The path for bgen genotype data (full file name).
 
     Returns:
-        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
-            #. SNP information (bim; :py:obj:`pl.DataFrame`),
-            #. individuals information (fam; :py:obj:`pl.DataFrame`),
-            #. genotype matrix (bed; :py:obj:`Array`).
+        `Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            - SNP information (bim; `pl.DataFrame`),
+            - individuals information (fam; `pl.DataFrame`),
+            - genotype matrix (bed; `Array`).
 
     """
 
@@ -315,7 +315,7 @@ def read_gwas(
         end: The end position.
 
     Returns:
-        :py:obj:`pl.DataFrame`
+        `pl.DataFrame`
 
     """
 
@@ -400,16 +400,17 @@ def read_ld(path: str) -> pl.DataFrame:
         path: The path to the LD matrix file (tab-separated, .tsv format).
 
     Returns:
-        :py:obj:`pl.DataFrame`: LD correlation matrix with SNP IDs as index and columns.
+        `pl.DataFrame`: LD correlation matrix with SNP IDs as index and columns.
 
     Example:
-        Read LD matrix for fine-mapping::
+        Read an LD matrix for fine-mapping:
 
-            from sushie.io import read_ld
+        ```python
+        from sushie.io import read_ld
 
-            # Read LD matrix
-            ld = read_ld("path/to/ld_matrix.tsv")
-            print(ld.shape)  # Should be (n_snps, n_snps)
+        ld = read_ld("path/to/ld_matrix.tsv")
+        print(ld.shape)  # Should be (n_snps, n_snps)
+        ```
 
     Note:
         The LD matrix must be computed using the same reference alleles as the
@@ -439,7 +440,8 @@ def output_cs(
     compress: bool,
     method_type: str,
 ) -> pl.DataFrame:
-    """Output credible set (after pruning for purity) file ``*cs.tsv`` (see :ref:`csfile`).
+    """Output credible set (after pruning for purity) file ``*cs.tsv``
+        (see [credible-set output](../files.md#credible-set)).
 
     Args:
         result: The sushie inference result.
@@ -451,7 +453,7 @@ def output_cs(
         method_type: Which method the result belongs to: sushie, mega, or meta.
 
     Returns:
-        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*cs.tsv`` file (:py:obj:`pl.DataFrame`).
+        `pl.DataFrame`: A data frame that outputs to the ``*cs.tsv`` file (`pl.DataFrame`).
 
     """
     cs = []
@@ -509,7 +511,7 @@ def output_weights(
     compress: bool,
     method_type: str,
 ) -> pl.DataFrame:
-    """Output prediction weights file ``*weights.tsv`` (see :ref:`weightsfile`).
+    """Output prediction weights file ``*weights.tsv`` (see [prediction-weight output](../files.md#prediction-weights)).
 
     Args:
         result: The sushie inference result.
@@ -521,7 +523,7 @@ def output_weights(
         method_type: Which method the result belongs to: sushie, mega, or meta.
 
     Returns:
-        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*weights.tsv`` file (:py:obj:`pl.DataFrame`).
+        `pl.DataFrame`: A data frame that outputs to the ``*weights.tsv`` file (`pl.DataFrame`).
 
     """
 
@@ -603,7 +605,8 @@ def output_alphas(
     method_type: str,
     purity: float,
 ) -> pl.DataFrame:
-    """Output full credible set (before pruning for purity) file ``*alphas.tsv`` (see :ref:`alphasfile`).
+    """Output full credible set (before pruning for purity) file ``*alphas.tsv``
+        (see [full credible-set output](../files.md#full-credible-set-with-alphas)).
 
     Args:
         result: The sushie inference result.
@@ -615,7 +618,7 @@ def output_alphas(
         purity: The purity threshold.
 
     Returns:
-        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (:py:obj:`pl.DataFrame`).
+        `pl.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (`pl.DataFrame`).
 
     """
     alphas = []
@@ -656,7 +659,7 @@ def output_her(
     trait: str,
     compress: bool,
 ) -> pl.DataFrame:
-    """Output heritability estimation file ``*her.tsv`` (see :ref:`herfile`).
+    """Output heritability estimation file ``*her.tsv`` (see [heritability output](../files.md#heritability)).
 
     Args:
         data: The clean data that are used to estimate traits' heritability.
@@ -665,7 +668,7 @@ def output_her(
         compress: The indicator whether to compress the output files.
 
     Returns:
-        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*her.tsv`` file (:py:obj:`pl.DataFrame`).
+        `pl.DataFrame`: A data frame that outputs to the ``*her.tsv`` file (`pl.DataFrame`).
 
     """
 
@@ -706,7 +709,8 @@ def output_corr(
     trait: str,
     compress: bool,
 ) -> pl.DataFrame:
-    """Output effect size correlation file ``*corr.tsv`` (see :ref:`corrfile`).
+    """Output effect size correlation file ``*corr.tsv``
+        (see [effect-size correlation output](../files.md#effect-size-correlation)).
 
     Args:
         result: The sushie inference result.
@@ -715,7 +719,7 @@ def output_corr(
         compress: The indicator whether to compress the output files.
 
     Returns:
-        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*corr.tsv`` file (:py:obj:`pl.DataFrame`).
+        `pl.DataFrame`: A data frame that outputs to the ``*corr.tsv`` file (`pl.DataFrame`).
 
     """
 
@@ -759,17 +763,18 @@ def output_cv(
     compress: bool,
 ) -> pl.DataFrame:
     """Output cross validation file ``*cv.tsv`` for
-        future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipeline (see :ref:`cvfile`).
+        future [FUSION](http://gusevlab.org/projects/fusion/) pipeline
+        (see [cross-validation output](../files.md#cross-validation)).
 
     Args:
-        cv_res: The cross-validation result (adjusted :math:`r^2` and corresponding :math:`p` values).
+        cv_res: The cross-validation result (adjusted $r^2$ and corresponding $p$ values).
         sample_size: The sample size for the SuShiE inference.
         output: The output file prefix.
         trait: The trait name better for post-hoc analysis index.
         compress: The indicator whether to compress the output files.
 
     Returns:
-        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*cv.tsv`` file (:py:obj:`pl.DataFrame`).
+        `pl.DataFrame`: A data frame that outputs to the ``*cv.tsv`` file (`pl.DataFrame`).
 
     """
 
@@ -797,7 +802,7 @@ def output_cv(
 
 
 def output_numpy(result: list[infer.SushieResult], snps: pl.DataFrame, output: str) -> None:
-    """Output all results in ``*.npy`` file (no compress option) (see :ref:`npyfile`).
+    """Output all results in ``*.npy`` file (no compress option) (see [NumPy output](../files.md#numpy-results)).
 
     Args:
         result: The sushie inference result.
@@ -805,7 +810,7 @@ def output_numpy(result: list[infer.SushieResult], snps: pl.DataFrame, output: s
         output: The output file prefix.
 
     Returns:
-        :py:obj:`None`: This function returns nothing (:py:obj:`None`:).
+        `None`: This function returns nothing (`None`:).
 
     """
     jnp.save(f"{output}.all.results.npy", [snps, result])

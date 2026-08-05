@@ -21,12 +21,6 @@ test_result*
 ._*
 .Rhistory
 .idea/
-# api doc
-docs/api/infer/*
-docs/api/io/*
-docs/api/utils/*
-docs/api/cli/*
-
 # make exceptions
 !run_sushie.sh
 
@@ -161,9 +155,6 @@ instance/
 
 # Scrapy stuff:
 .scrapy
-
-# Sphinx documentation
-docs/_build/
 
 # PyBuilder
 target/

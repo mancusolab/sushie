@@ -53,14 +53,15 @@ class Posterior(NamedTuple):
     """Define the class for the posterior parameter of SuShiE model.
 
     Attributes:
-        alpha: Posterior probability for SNP to be causal (i.e., :math:`\\alpha` in :ref:`Model`; :math:`L \\times p`).
-        post_mean: The alpha-weighted posterior mean for each SNP (:math:`L \\times p \\times k`).
-        post_mean_sq: The alpha-weighted posterior mean square for each SNP (:math:`L \\times p \\times k \\times k`
-            , a diagonal matrix for :math:`k \\times k`).
+        alpha: Posterior probability for SNP to be causal
+            (i.e., $\\alpha$ in [model description](../model.md); $L \\times p$).
+        post_mean: The alpha-weighted posterior mean for each SNP ($L \\times p \\times k$).
+        post_mean_sq: The alpha-weighted posterior mean square for each SNP ($L \\times p \\times k \\times k$
+            , a diagonal matrix for $k \\times k$).
         weighted_sum_covar: The alpha-weighted sum of posterior effect covariance across SNPs
-            (:math:`L \\times k \\times k`).
-        kl: The Kullback–Leibler (KL) divergence for each :math:`L`.
-        log_bf: The log Bayes factor for each SNP (:math:`L \\times p`).
+            ($L \\times k \\times k$).
+        kl: The Kullback–Leibler (KL) divergence for each $L$.
+        log_bf: The log Bayes factor for each SNP ($L \\times p$).
     """
 
     alpha: Array
@@ -77,7 +78,7 @@ class SushieResult(NamedTuple):
     Attributes:
         priors: The final prior parameter for the inference.
         posteriors: The final posterior parameter for the inference.
-        pip_all: The PIP for each SNP across :math:`L` credible sets.
+        pip_all: The PIP for each SNP across $L$ credible sets.
         pip_cs:  The PIP across credible sets that are not pruned.
         cs: The credible sets output after filtering on purity.
         alphas: The full credible sets before filtering on purity.
@@ -198,51 +199,53 @@ def infer_sushie(
         no_scale: Do not scale the genotype and phenotype. Default is to scale.
         no_regress: Do not regress covariates on genotypes. Default is to regress.
         no_update: Do not update the effect size prior. Default is to update.
-        pi: The probability prior for one SNP to be causal (:math:`\\pi` in :ref:`Model`). Default is :math:`1` over
-            the number of SNPs by specifying it as ``None``.
-        resid_var: Prior residual variance (:math:`\\sigma^2_e` in :ref:`Model`).
-            Default is :math:`0.001` by specifying it as ``None``.
-        effect_var: Prior causal effect size variance (:math:`\\sigma^2_{i,b}` in :ref:`Model`).
-            Default is :math:`0.001` by specifying it as ``None``.
-        rho: Prior effect size correlation (:math:`\\rho` in :ref:`Model`).
-            Default is :math:`0.1` by specifying it as ``None``.
-        max_iter: The maximum iteration for optimization. Default is :math:`500`.
-        min_tol: The convergence tolerance. Default is :math:`10^{-4}`.
-        threshold: The credible set threshold. Default is :math:`0.95`.
+        pi: The probability prior for one SNP to be causal ($\\pi$ in [model description](../model.md)).
+            Default is $1$ over the number of SNPs by specifying it as ``None``.
+        resid_var: Prior residual variance ($\\sigma^2_e$ in [model description](../model.md)).
+            Default is $0.001$ by specifying it as ``None``.
+        effect_var: Prior causal effect size variance ($\\sigma^2_{i,b}$ in [model description](../model.md)).
+            Default is $0.001$ by specifying it as ``None``.
+        rho: Prior effect size correlation ($\\rho$ in [model description](../model.md)).
+            Default is $0.1$ by specifying it as ``None``.
+        max_iter: The maximum iteration for optimization. Default is $500$.
+        min_tol: The convergence tolerance. Default is $10^{-4}$.
+        threshold: The credible set threshold. Default is $0.95$.
         purity: The minimum pairwise correlation across SNPs to be eligible as output credible set.
-            Default is :math:`0.5`.
+            Default is $0.5$.
         purity_method: The method to compute purity across ancestries. Default is ``weighted``.
-        max_select: The maximum number of selected SNPs to compute purity. Default is :math:`250`.
-        min_snps: The minimum number of SNPs to fine-map. Default is :math:`100`.
+        max_select: The maximum number of selected SNPs to compute purity. Default is $250$.
+        min_snps: The minimum number of SNPs to fine-map. Default is $100$.
         no_reorder: Do not re-order single effects based on Frobenius norm of effect size covariance prior.
             Default is to re-order.
-        seed: The randomization seed for selecting SNPs in the credible set to compute purity. Default is :math:`12345`.
+        seed: The randomization seed for selecting SNPs in the credible set to compute purity. Default is $12345$.
 
     Returns:
-        :py:obj:`SushieResult`: A SuShiE result object that contains prior (:py:obj:`Prior`),
-        posterior (:py:obj:`Posterior`), ``cs``, ``pip``, ``elbo``, and ``elbo_increase``.
+        `SushieResult`: A SuShiE result object that contains prior (`Prior`),
+        posterior (`Posterior`), ``cs``, ``pip``, ``elbo``, and ``elbo_increase``.
 
     Example:
-        Basic usage with two-ancestry data::
+        Basic usage with two-ancestry data:
 
-            import numpy as np
-            from sushie.infer import infer_sushie
+        ```python
+        import numpy as np
+        from sushie.infer import infer_sushie
 
-            # Generate example data for 2 ancestries
-            # Ancestry 1: 100 samples, 500 SNPs
-            X1 = np.random.randn(100, 500)
-            y1 = np.random.randn(100)
+        # Generate example data for 2 ancestries
+        # Ancestry 1: 100 samples, 500 SNPs
+        X1 = np.random.randn(100, 500)
+        y1 = np.random.randn(100)
 
-            # Ancestry 2: 150 samples, 500 SNPs
-            X2 = np.random.randn(150, 500)
-            y2 = np.random.randn(150)
+        # Ancestry 2: 150 samples, 500 SNPs
+        X2 = np.random.randn(150, 500)
+        y2 = np.random.randn(150)
 
-            # Run SuShiE fine-mapping
-            result = infer_sushie(Xs=[X1, X2], ys=[y1, y2], L=5)
+        # Run SuShiE fine-mapping
+        result = infer_sushie(Xs=[X1, X2], ys=[y1, y2], L=5)
 
-            # Access results
-            print(result.pip)       # Posterior inclusion probabilities
-            print(result.cs)        # Credible sets
+        # Access results
+        print(result.pip_all)  # Posterior inclusion probabilities
+        print(result.cs)       # Credible sets
+        ```
 
     """
     Xs = [jnp.asarray(X) for X in Xs]
@@ -808,9 +811,9 @@ def make_cs(
     """The function to compute the credible sets.
 
     Args:
-        alpha: :math:`L \\times p` matrix that contains posterior probability for SNP to be causal
-            (i.e., :math:`\\alpha` in :ref:`Model`).
-        log_bf: :math:`L \\times p` matrix that contains log Bayes factor for each SNP in each effect.
+        alpha: $L \\times p$ matrix that contains posterior probability for SNP to be causal
+            (i.e., $\\alpha$ in [model description](../model.md)).
+        log_bf: $L \\times p$ matrix that contains log Bayes factor for each SNP in each effect.
         Xs: Genotype data for multiple ancestries. It cannot be None if lds is None.
         lds: LD matrix for multiple ancestries. It cannot be None if Xs is None.
         ns: Sample size for each ancestry.
@@ -821,30 +824,35 @@ def make_cs(
         seed: The randomization seed for selecting SNPs in the credible set to compute purity.
 
     Returns:
-        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array, Array]`: A tuple of
-            #. credible set (:py:obj:`pl.DataFrame`) after pruning for purity,
-            #. full credible set (:py:obj:`pl.DataFrame`) before pruning for purity,
-            #. PIPs (:py:obj:`Array`) across :math:`L` credible sets,
-            #. PIPs (:py:obj:`Array`) across credible sets that are not pruned. An array of zero if all credible sets
+        `Tuple[pl.DataFrame, pl.DataFrame, Array, Array]`: A tuple of
+            - credible set (`pl.DataFrame`) after pruning for purity,
+            - full credible set (`pl.DataFrame`) before pruning for purity,
+            - PIPs (`Array`) across $L$ credible sets,
+            - PIPs (`Array`) across credible sets that are not pruned. An array of zero if all credible sets
                 are pruned.
 
     Example:
-        Compute credible sets from SuShiE posterior::
+        Compute credible sets from a SuShiE posterior:
 
-            from sushie.infer import infer_sushie, make_cs
+        ```python
+        import numpy as np
 
-            # Run SuShiE first
-            result = infer_sushie(Xs=[X1, X2], ys=[y1, y2], L=5)
+        from sushie.infer import infer_sushie, make_cs
 
-            # Extract credible sets with custom threshold
-            cs, full_cs, pip_all, pip_cs = make_cs(
-                alpha=result.posteriors.alpha,
-                log_bf=result.posteriors.log_bf,
-                ns=np.array([X1.shape[0], X2.shape[0]]),
-                Xs=[X1, X2],
-                threshold=0.9,
-                purity=0.5
-            )
+        X1 = np.random.randn(100, 500)
+        X2 = np.random.randn(150, 500)
+        y1 = np.random.randn(100)
+        y2 = np.random.randn(150)
+        result = infer_sushie(Xs=[X1, X2], ys=[y1, y2], L=5)
+        cs, full_cs, pip_all, pip_cs = make_cs(
+            alpha=result.posteriors.alpha,
+            log_bf=result.posteriors.log_bf,
+            ns=np.array([X1.shape[0], X2.shape[0]]),
+            Xs=[X1, X2],
+            threshold=0.9,
+            purity=0.5,
+        )
+        ```
 
     """
     if Xs is None and lds is None:

@@ -44,14 +44,13 @@ testing = [
     "pytest-cov",
 ]
 dev = [
+    "mkdocstrings-python==2.0.5",
     "pre-commit",
-    "pymdown-extensions",
     "pytest-accept",
     "pytest-cov",
     "ruff>=0.0.243",
-    "sphinx>=5",
-    "sphinx-immaterial",
     "ty>=0.0.44",
+    "zensical==0.0.51",
 ]
 
 [project.urls]
