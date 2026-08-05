@@ -29,6 +29,7 @@ What data formats does SuShiE support?
 **Genotype data:**
 
 - PLINK (.bed/.bim/.fam)
+- PLINK2 (.pgen/.pvar/.psam)
 - VCF (.vcf, .vcf.gz)
 - BGEN (.bgen)
 

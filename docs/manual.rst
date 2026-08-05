@@ -4,43 +4,30 @@
 Users Manual
 =================
 
-Initialize Environment
-======================
-
-SuShiE is a command-line software written in Python. Before installation, we recommend to create a new environment using `conda <https://docs.conda.io/en/latest/>`_ so that it will not affect the software versions of users' other projects:
-
-.. code:: bash
-
-    conda create -n env-sushie python=3.10
-    conda activate env-sushie
-
-SuShiE uses `JAX <https://github.com/google/jax>`_ with `Just In Time  <https://jax.readthedocs.io/en/latest/jax-101/02-jitting.html>`_ compilation to achieve high-speed computation. However, there are some `issues <https://github.com/google/jax/issues/5501>`_ for JAX with Mac M1 chip. To solve this, users need to initiate conda using `miniforge <https://github.com/conda-forge/miniforge>`_, and install ``cbgen`` from conda-forge first:
-
-.. code:: bash
-
-    conda install -c conda-forge cbgen
-
-Then install SuShiE using ``pip`` in the desired environment.
-
 Installation
 ============
 
-..
-    The easiest way to install is with ``pip``:
+Install the released package from PyPI:
 
-    .. code:: bash
+.. code:: bash
 
     pip install sushie
+    # or using uv
+    uv pip install sushie
 
-    Alternatively
-
-Users can download the latest repository and then use ``pip``:
+To install from a source checkout:
 
 .. code:: bash
 
     git clone https://github.com/mancusolab/sushie.git
     cd sushie
     pip install .
+
+or with ``uv``:
+
+.. code:: bash
+
+    uv sync
 
 Data Preparation
 ================
@@ -67,7 +54,7 @@ See :func:`sushie.cli.process_raw` for these QCs' source codes.
 Fine-mapping using summary-level data (GWAS statistics)
 -------------------------------------------------------
 
-To fine-map using summary-level data, SuShiE requires at least GWAS z statistics, sample sizes, and LD data. For LD data, users can provide individual-level genotype in PLINK1.9, VCF, or BGEN format and let SuShiE compute the LD matrix, or provide pre-computed LD matrix in tsv format.
+To fine-map using summary-level data, SuShiE requires at least GWAS z statistics, sample sizes, and LD data. For LD data, users can provide individual-level genotype in PLINK1.9, PLINK2, VCF, or BGEN format and let SuShiE compute the LD matrix, or provide pre-computed LD matrix in tsv format.
 
 Although we highly recommend users to perform high-quality QC on their own summary-level data, we implement following basic QCs in the software:
 
@@ -137,7 +124,9 @@ Or three-ancestry setting:
 3. Can I use other formats of genotypes?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Yes! SuShiE can take either `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, or `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_, but not `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_.
+Yes! SuShiE can take `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_, `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_, `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_, or `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_.
+
+For VCF data, SuShiE uses ``a0=REF`` and ``a1=ALT`` and counts copies of the ALT allele. This differs from SuShiE 0.19 and earlier, which counted the REF allele for VCF input. Consequently, signed VCF weights from the newer convention have the opposite sign when their ``a0`` and ``a1`` columns are reversed relative to older results.
 
 For plink 1, SuShiE read in the triplet (bed, bim, and fam) prefix.
 
@@ -145,6 +134,15 @@ For plink 1, SuShiE read in the triplet (bed, bim, and fam) prefix.
 
     cd ./data/
     sushie finemap --pheno EUR.pheno AFR.pheno --plink plink/EUR plink/AFR --output ./test_result
+
+For plink 2, SuShiE reads the pgen, pvar, and psam prefix.
+
+.. code:: bash
+
+    cd ./data/
+    sushie finemap --pheno EUR.pheno AFR.pheno --plink2 plink2/EUR plink2/AFR --output ./test_result
+
+Use ``--plink2-dosage`` when the plink 2 file should be read as dosage data.
 
 For bgen data, users need to make sure that the latter allele shown up in the ``allele ids`` is the reference allele.
 
@@ -154,6 +152,7 @@ For bgen data, users need to make sure that the latter allele shown up in the ``
     sushie finemap --pheno EUR.pheno AFR.pheno --bgen bgen/EUR.bgen bgen/AFR.bgen --output ./test_result
 
 .. _index:
+
 4. My data contains all the participants and I do not want to separate them
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -165,6 +164,7 @@ No problem! If all the subjects are in single phenotype, genotype, and covariate
     sushie finemap --pheno all.pheno --plink plink/all --ancestry-index all.ancestry.index --output ./test_result
 
 .. _meta:
+
 5. How about mega or meta SuShiE?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -188,6 +188,7 @@ We define the mega SuShiE as running single-ancestry SuShiE on genotype and phen
     sushie finemap --pheno EUR.pheno AFR.pheno --vcf vcf/EUR.vcf vcf/AFR.vcf --mega --output ./test_result
 
 .. _cv:
+
 6. Let's estimate heritability, run CV, and make FUSION files!
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -370,7 +371,7 @@ Parameters
      - Boolean
      - False
      - ``--summary # will store as True``
-     - Indicator whether to run fine-mapping on summary statistics. Default is False. If True, the software will need GWAS files as input data by specifying --gwas and need LD matrix by specifying either --ld or one of the --plink, --vcf, or --bgen. If False, the software will need phenotype data by specifying --pheno and genotype data by specifying either --plink, --vcf, or --bgen.
+     - Indicator whether to run fine-mapping on summary statistics. Default is False. If True, the software will need GWAS files as input data by specifying --gwas and need LD matrix by specifying either --ld or one of the genotype inputs. If False, the software will need phenotype data by specifying --pheno and genotype data by specifying --plink, --plink2, --plink2-dosage, --vcf, or --bgen.
    * - ``--pheno``
      - String
      - Required, no default
@@ -380,7 +381,17 @@ Parameters
      - String
      - None
      - ``--plink plink/EUR plink/AFR``
-     - Genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format. The plink triplet (bed, bim, and fam) should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's. SuShiE currently does not take `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format.
+     - Genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format. The plink triplet (bed, bim, and fam) should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's.
+   * - ``--plink2``
+     - String
+     - None
+     - ``--plink2 plink2/EUR plink2/AFR``
+     - Genotype data in `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format. The pgen, pvar, and psam files should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's.
+   * - ``--plink2-dosage``
+     - String
+     - None
+     - ``--plink2-dosage plink2/EUR plink2/AFR``
+     - Dosage data in `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format. The pgen, pvar, and psam files should be in the same folder with the same prefix. Use ``space`` to separate ancestries if more than two. Keep the same ancestry order as phenotype's.
    * - ``--vcf``
      - String
      - None
@@ -464,7 +475,7 @@ Parameters
    * - ``--effect-var``
      - Float
      - 1e-3
-     - ``--effect-var 5.21 0.99 ``
+     - ``--effect-var 5.21 0.99``
      - Specify the prior for the causal effect size variance (:math:`\sigma^2_{i,b}` in :ref:`Model`) for ancestries. Values have to be positive. Use ``space`` to separate ancestries if more than two. If ``--no-update`` is specified and ``--rho`` is not, specifying this parameter will only fix ``effect-var`` as prior through optimizations and update ``rho``. If ``--effect-var``, ``--rho``, and ``--no-update`` all three are specified, both ``--effect-var`` and ``--rho`` will be fixed as prior through optimizations. If ``--no-update`` is specified, but neither ``--effect-var`` nor ``--rho``, both ``--effect-var`` and ``--rho`` will be fixed as default prior value through optimizations.
    * - ``--rho``
      - Float

@@ -1,7 +1,6 @@
 [![Documentation-webpage](https://img.shields.io/badge/Docs-Available-brightgreen)](https://mancusolab.github.io/sushie/)
 [![Github](https://img.shields.io/github/stars/mancusolab/sushie?style=social)](https://github.com/mancusolab/sushie)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Project generated with PyScaffold](https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold)](https://pyscaffold.org/)
 
 # SuShiE🍣
 
@@ -30,26 +29,27 @@ documentation.
 
 ## Installation
 
-1. **Before installation**, we *highly* recommend to create a new environment using [conda](https://docs.conda.io/en/latest/) so that it will not affect the software versions of the other projects. For example, use following codes:
+Install the released package from PyPI:
 
-    ```bash
-    conda create -n env-sushie python=3.10
-    conda activate env-sushie
-    ```
+```bash
+pip install sushie
+# or using uv
+uv pip install sushie
+```
 
-2. If you are using a Mac with an Apple M1 or newer chip, you should install `cbgen` package or other required packages from conda-forge first to ensure compatibility (see this [link](https://github.com/google/jax/issues/5501) for previous issue). One easy workaround is to initiate your conda using `miniforge`. **On most HPC systems**, this is usually not necessary.
+To install from a source checkout:
 
-    ```bash
-    conda install -c conda-forge cbgen
-    ```
+```bash
+git clone https://github.com/mancusolab/sushie.git
+cd sushie
+pip install .
+```
 
-3. Last, users can download the latest repository and then use `pip`:
+or with `uv`:
 
-    ``` bash
-    git clone https://github.com/mancusolab/sushie.git
-    cd sushie
-    pip install .
-    ```
+```bash
+uv sync
+```
 
 ## Get Started with Example
 
@@ -107,13 +107,6 @@ You can customize this function with your own ideas!
 
 ### Installation Issues
 
-**JAX installation fails on Apple M1/M2/M3 chips:**
-```bash
-# Use miniforge and install cbgen from conda-forge first
-conda install -c conda-forge cbgen
-pip install .
-```
-
 **Import errors with JAX:**
 ```bash
 # Ensure you have compatible versions
@@ -145,6 +138,7 @@ For more help, see the [full documentation](https://mancusolab.github.io/sushie/
 
 | Version | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 |---------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.20 | VCF input now uses `a0=REF` and `a1=ALT` and counts ALT alleles. Compared with 0.19 and earlier, VCF `a0`/`a1` and signed weights may be reversed while allele-aware results remain equivalent. |
 | 0.19 | Improve code quality. Add troubleshooting section to README and comprehensive FAQ documentation. **This update was completely done using [Claude Code](https://claude.ai/claude-code) with human tuning.** |
 | 0.18 | Add function that outputs log bayes factor in the alphas file. Update the documentation. |
 | 0.17 | Fix several bugs, add debug checkpoints, add chrom, start, and end filtering to individual-level fine-mapping, enhance codes quality, and update readme for official publication.  |
@@ -184,9 +178,4 @@ Lab](https://www.mancusolab.com/):
 -   [HAMSTA](https://github.com/tszfungc/hamsta): a Python software to
     estimate heritability explained by local ancestry data from
     admixture mapping summary statistics.
--   [Traceax](https://github.com/tszfungc/traceax): a Python library to perform stochastic trace estimation for linear operators.
-
-------------------------------------------------------------------------
-
-This project has been set up using PyScaffold 4.1.1. For details and
-usage information on PyScaffold see <https://pyscaffold.org/>.
+-   [Traceax](https://github.com/mancusolab/traceax): a Python library to perform stochastic trace estimation for linear operators.

@@ -7,26 +7,34 @@ name = "sushie"
 dynamic = ["version"]
 description = "SNP fine-mapping of molecular data across ancestries using SuShiE"
 readme = "README.md"
-license = { file = "LICENSE.txt" }
+license = "MIT"
+license-files = ["LICENSE.txt"]
 authors = [
     { name = "Zeyun Lu", email = "zeyun_lu@dfci.harvard.edu" },
     { name = "Nicholas Mancuso", email = "Nicholas.Mancuso@med.usc.edu" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "jax",
-    "jaxlib",
-    "pandas",
-    "pandas-plink",
-    "equinox",
-    "scipy",
-    "glimix-core",
-    "bgen-reader",
-    "cyvcf2",
+    "jax>=0.10,<0.11",
+    "jaxlib>=0.10,<0.11",
+    "polars>=1.42,<2",
+    "equinox>=0.13,<0.14",
+    "scipy>=1.17,<2",
+    "glimix-core>=3.1,<4",
+    "genoio>=0.2,<0.3",
 ]
 
 [project.optional-dependencies]
@@ -40,8 +48,10 @@ dev = [
     "pymdown-extensions",
     "pytest-accept",
     "pytest-cov",
+    "ruff>=0.0.243",
     "sphinx>=5",
     "sphinx-immaterial",
+    "ty>=0.0.44",
 ]
 
 [project.urls]
@@ -65,9 +75,42 @@ exclude = ["tests/", "data/", "docs/", "misc/"]
 packages = ["sushie"]
 
 [tool.pytest.ini_options]
-addopts = "--cov sushie --cov-report term-missing --verbose"
-norecursedirs = ["dist", "build", ".tox"]
+addopts = "--verbose"
+norecursedirs = ["dist", "build"]
 testpaths = ["tests"]
 
-[tool.mypy]
-allow_redefinition = true
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I001", "UP"]
+ignore = ["E402", "E721", "E731", "E741", "F722", "TID252"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sushie"]
+combine-as-imports = true
+lines-after-imports = 2
+lines-between-types = 1
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "jax-ecosystem",
+    "first-party",
+    "local-folder",
+]
+order-by-type = false
+
+[tool.ruff.lint.isort.sections]
+jax-ecosystem = ["equinox", "jax", "jaxtyping"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*" = ["PLR2004", "S101", "TID252"]
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.src]
+include = ["sushie", "tests", "data"]

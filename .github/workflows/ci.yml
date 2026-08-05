@@ -3,42 +3,89 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          python-version: "3.10"
-
-      - name: Run pre-commit hooks
-        run: uvx pre-commit run --all-files
-
   test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Test (uv, Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: ubuntu-latest
+            python-version: "3.14"
+          - os: macos-latest
+            python-version: "3.11"
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out repository
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Set up Python
+        uses: actions/setup-python@v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install package with testing extras
-        run: uv sync --extra testing
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install test environment
+        run: uv sync --frozen --extra dev
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest -p no:capture --cov sushie --cov-report term-missing
+
+      - name: Prune uv cache
+        if: always()
+        run: uv cache prune --ci
+
+  lint:
+    name: Lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.3.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install lint environment
+        run: uv sync --frozen --extra dev
+
+      - name: Python lint
+        run: uv run ruff check sushie tests data
+
+      - name: Python format
+        run: uv run ruff format --check sushie tests data
+
+      - name: Type check
+        run: uv run ty check sushie tests data
+
+      - name: Prune uv cache
+        if: always()
+        run: uv cache prune --ci

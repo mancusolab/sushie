@@ -1,18 +1,18 @@
-import copy
-import warnings
-from typing import Callable, List, NamedTuple, Optional, Tuple
+# pattern: Mixed (needs refactoring)
 
-import pandas as pd
+from collections.abc import Callable
+from typing import Literal, NamedTuple
+
+import genoio
+import numpy as np
+import polars as pl
+
+import jax.numpy as jnp
 
 from jax import Array
 
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    from pandas_plink import read_plink
-    from bgen_reader import open_bgen
-    import jax.numpy as jnp
-
 from . import infer, log, utils
+
 
 __all__ = [
     "CVData",
@@ -20,6 +20,7 @@ __all__ = [
     "RawData",
     "read_data",
     "read_triplet",
+    "read_pfile",
     "read_bgen",
     "read_vcf",
     "read_gwas",
@@ -45,10 +46,10 @@ class CVData(NamedTuple):
 
     """
 
-    train_geno: List[Array]
-    train_pheno: List[Array]
-    valid_geno: List[Array]
-    valid_pheno: List[Array]
+    train_geno: list[Array]
+    train_pheno: list[Array]
+    valid_geno: list[Array]
+    valid_pheno: list[Array]
 
 
 class CleanData(NamedTuple):
@@ -62,10 +63,10 @@ class CleanData(NamedTuple):
 
     """
 
-    geno: List[Array]
-    pheno: List[Array]
+    geno: list[Array]
+    pheno: list[Array]
     covar: utils.ListArrayOrNone
-    pi: utils.ListArrayOrNone
+    pi: Array | None
 
 
 class ssData(NamedTuple):
@@ -79,10 +80,10 @@ class ssData(NamedTuple):
 
     """
 
-    zs: List[Array]
-    lds: List[Array]
+    zs: list[Array]
+    lds: list[Array]
     ns: Array
-    pi: utils.ListArrayOrNone
+    pi: Array | None
 
 
 class RawData(NamedTuple):
@@ -97,21 +98,21 @@ class RawData(NamedTuple):
 
     """
 
-    bim: pd.DataFrame
-    fam: pd.DataFrame
+    bim: pl.DataFrame
+    fam: pl.DataFrame
     bed: Array
-    pheno: pd.DataFrame
+    pheno: pl.DataFrame
     covar: utils.PDOrNone
 
 
 def read_data(
     n_pop: int,
-    ancestry_index: pd.DataFrame,
-    pheno_paths: List[str],
+    ancestry_index: pl.DataFrame,
+    pheno_paths: list[str],
     covar_paths: utils.ListStrOrNone,
-    geno_paths: List[str],
-    geno_func: Callable,
-) -> List[RawData]:
+    geno_paths: list[str],
+    geno_func: Callable[[str], tuple[pl.DataFrame, pl.DataFrame, Array]],
+) -> list[RawData]:
     """Read in pheno, covar, and genotype data and convert it to raw data object.
 
     Args:
@@ -139,41 +140,39 @@ def read_data(
 
             log.logger.debug(f"Read in phenotype data for ancestry {idx + 1}.")
 
-            pheno = (
-                pd.read_csv(pheno_paths[idx], sep="\t", header=None, dtype={0: object})
-                .rename(columns={0: "iid", 1: "pheno"})
-                .reset_index(drop=True)
-            )
+            pheno = pl.read_csv(
+                pheno_paths[idx],
+                separator="\t",
+                has_header=False,
+                schema_overrides={"column_1": pl.String},
+            ).rename({"column_1": "iid", "column_2": "pheno"})
 
             log.logger.debug(f"Read in covariate data for ancestry {idx + 1}.")
 
             if covar_paths is not None:
-                covar = (
-                    pd.read_csv(
-                        covar_paths[idx], sep="\t", header=None, dtype={0: object}
-                    )
-                    .rename(columns={0: "iid"})
-                    .reset_index(drop=True)
-                )
+                covar = pl.read_csv(
+                    covar_paths[idx],
+                    separator="\t",
+                    has_header=False,
+                    schema_overrides={"column_1": pl.String},
+                ).rename({"column_1": "iid"})
             else:
                 covar = None
 
-        # it has some pycharm warnings. It's okay to ingore them.
-        # I couldn't think of a way to remove these warnings other than pre-specify them before for loops
-        # but the codes will look silly
         tmp_bim = bim
         tmp_bed = bed
         tmp_fam = fam
         tmp_pheno = pheno
         tmp_covar = covar
         if index_file:
-            tmp_pt = ancestry_index.loc[ancestry_index[1] == (idx + 1)][0]
-            tmp_fam = fam.loc[fam.iid.isin(tmp_pt)].reset_index(drop=True)
-            tmp_bed = bed[fam.iid.isin(tmp_pt).values, :]
-            tmp_pheno = pheno.loc[pheno.iid.isin(tmp_pt)].reset_index(drop=True)
+            tmp_pt = ancestry_index.filter(pl.col("column_2") == (idx + 1)).get_column("column_1").to_list()
+            fam_mask = fam["iid"].is_in(tmp_pt).to_numpy()
+            tmp_fam = fam.filter(pl.col("iid").is_in(tmp_pt))
+            tmp_bed = bed[fam_mask, :]
+            tmp_pheno = pheno.filter(pl.col("iid").is_in(tmp_pt))
 
-            if covar_paths is not None:
-                tmp_covar = covar.loc[covar.iid.isin(tmp_pt)].reset_index(drop=True)
+            if covar is not None:
+                tmp_covar = covar.filter(pl.col("iid").is_in(tmp_pt))
             else:
                 tmp_covar = None
 
@@ -186,118 +185,126 @@ def read_data(
         if len(tmp_pheno) == 0:
             raise ValueError(f"Ancestry {idx + 1}: No pheno data found.")
 
-        if covar_paths is not None and len(tmp_covar) == 0:
+        if tmp_covar is not None and len(tmp_covar) == 0:
             raise ValueError(f"Ancestry {idx + 1}: No covar data found.")
 
-        rawData.append(
-            RawData(
-                bim=tmp_bim, fam=tmp_fam, bed=tmp_bed, pheno=tmp_pheno, covar=tmp_covar
-            )
-        )
+        rawData.append(RawData(bim=tmp_bim, fam=tmp_fam, bed=tmp_bed, pheno=tmp_pheno, covar=tmp_covar))
 
     log.logger.debug("Finish read in data for all ancestries.")
 
     return rawData
 
 
-def read_triplet(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
+def _read_genoio_dataset(
+    dataset: genoio.Dataset,
+    *,
+    dosage: Literal["hardcall", "dosage"] = "hardcall",
+) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
+    """Read a genoio dataset into SuShiE's canonical metadata and array types."""
+    if dosage == "dosage":
+        bed, fam, bim = dataset.read(
+            dosage="dosage",
+            missing="nan",
+            dtype="float64",
+            return_samples=True,
+            return_variants=True,
+        )
+    else:
+        bed, fam, bim = dataset.read(
+            missing="nan",
+            dtype="float64",
+            return_samples=True,
+            return_variants=True,
+        )
+
+    bim = bim.rename({"id": "snp"}).select(["chrom", "snp", "pos", "a0", "a1"])
+    fam = fam.select(["iid"])
+    bed = jnp.asarray(bed)
+
+    return bim, fam, bed
+
+
+def read_triplet(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
     """Read in genotype data in `plink 1 <https://www.cog-genomics.org/plink/1.9/input#bed>`_ format.
-        `pandas_plink <https://pandas-plink.readthedocs.io/>`_ package is used to read in the plink file.
+        `genoio <https://github.com/mancusolab/genoio>`_ package is used to read in the plink file.
 
     Args:
         path: The path for plink genotype data (suffix only).
 
     Returns:
-        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array]`: A tuple of
-            #. SNP information (bim; :py:obj:`pd.DataFrame`),
-            #. individuals information (fam; :py:obj:`pd.DataFrame`),
+        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            #. SNP information (bim; :py:obj:`pl.DataFrame`),
+            #. individuals information (fam; :py:obj:`pl.DataFrame`),
             #. genotype matrix (bed; :py:obj:`Array`).
 
     """
 
-    bim, fam, bed = read_plink(path, verbose=False)
-    bim = bim[["chrom", "snp", "pos", "a0", "a1"]]
-    fam = fam[["iid"]]
-    # we want bed file to be nxp
-    bed = jnp.array(bed.compute().T, dtype="float64")
-    return bim, fam, bed
+    return _read_genoio_dataset(genoio.bfile(path))
 
 
-def read_vcf(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
-    """Read in genotype data in `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_ format.
-        `cyvcf2 <https://brentp.github.io/cyvcf2/>`_ package is used to read in the vcf file.
-        gt_types are used to determine the genotype matrix. It it is UNKNOWN, it will be coded as NA.
+def read_pfile(path: str, *, dosage: bool = False) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
+    """Read genotype data in `plink 2 <https://www.cog-genomics.org/plink/2.0/input#pgen>`_ format.
 
     Args:
-        path: The path for vcf genotype data (full file name). It will count REF allele.
+        path: The path for plink 2 genotype data (prefix only).
+        dosage: Read dosage values instead of hard calls.
 
     Returns:
-        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array]`: A tuple of
-            #. SNP information (bim; :py:obj:`pd.DataFrame`),
-            #. participants information (fam; :py:obj:`pd.DataFrame`),
+        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            #. SNP information (bim; :py:obj:`pl.DataFrame`),
+            #. individuals information (fam; :py:obj:`pl.DataFrame`),
             #. genotype matrix (bed; :py:obj:`Array`).
 
     """
 
-    vcf = __import__("cyvcf2").VCF(path, gts012=True)
-    fam = pd.DataFrame(vcf.samples).rename(columns={0: "iid"})
-    bim_list = []
-    bed_list = []
-    for var in vcf:
-        # var.ALT is a list of alternative allele
-        bim_list.append([var.CHROM, var.ID, var.POS, var.ALT[0], var.REF])
-        tmp_gt_types = jnp.where(var.gt_types == 3, jnp.nan, var.gt_types)
-        tmp_bed = 2 - tmp_gt_types
-        bed_list.append(tmp_bed)
-
-    bim = pd.DataFrame(bim_list, columns=["chrom", "snp", "pos", "a0", "a1"])
-    bed = jnp.array(bed_list, dtype="float64").T
-
-    return bim, fam, bed
+    read_dosage = "dosage" if dosage else "hardcall"
+    return _read_genoio_dataset(genoio.pfile(path), dosage=read_dosage)
 
 
-def read_bgen(path: str) -> Tuple[pd.DataFrame, pd.DataFrame, Array]:
+def read_vcf(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
+    """Read in genotype data in `vcf <https://en.wikipedia.org/wiki/Variant_Call_Format>`_ format.
+        `genoio <https://github.com/mancusolab/genoio>`_ package is used to read in the vcf file.
+        Missing genotypes are coded as NA.
+
+    Args:
+        path: The path for vcf genotype data (full file name). It will count ALT allele.
+
+    Returns:
+        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            #. SNP information (bim; :py:obj:`pl.DataFrame`),
+            #. participants information (fam; :py:obj:`pl.DataFrame`),
+            #. genotype matrix (bed; :py:obj:`Array`).
+
+    """
+
+    return _read_genoio_dataset(genoio.vcf(path))
+
+
+def read_bgen(path: str) -> tuple[pl.DataFrame, pl.DataFrame, Array]:
     """Read in genotype data in `bgen <https://www.well.ox.ac.uk/~gav/bgen_format/>`_ 1.3 format.
-     `bgen-reader <https://pypi.org/project/bgen-reader/>`_ package is used to read in the bgen file.
+     `genoio <https://github.com/mancusolab/genoio>`_ package is used to read in the bgen file.
 
     Args:
         path: The path for bgen genotype data (full file name).
 
     Returns:
-        :py:obj:`Tuple[pd.DataFrame, pd.DataFrame, Array]`: A tuple of
-            #. SNP information (bim; :py:obj:`pd.DataFrame`),
-            #. individuals information (fam; :py:obj:`pd.DataFrame`),
+        :py:obj:`Tuple[pl.DataFrame, pl.DataFrame, Array]`: A tuple of
+            #. SNP information (bim; :py:obj:`pl.DataFrame`),
+            #. individuals information (fam; :py:obj:`pl.DataFrame`),
             #. genotype matrix (bed; :py:obj:`Array`).
 
     """
 
-    bgen = open_bgen(path, verbose=False)
-    fam = pd.DataFrame(bgen.samples).rename(columns={0: "iid"})
-    bim = pd.DataFrame(
-        data={"chrom": bgen.chromosomes, "snp": bgen.rsids, "pos": bgen.positions}
-    )
-    allele = (
-        pd.DataFrame(bgen.allele_ids)[0]
-        .str.split(",", expand=True)
-        .rename(columns={0: "a0", 1: "a1"})
-    )
-    bim = pd.concat([bim, allele], axis=1).reset_index(drop=True)[
-        ["chrom", "snp", "pos", "a0", "a1"]
-    ]
-    bed = jnp.array(
-        jnp.einsum("ijk,k->ij", bgen.read(), jnp.array([0, 1, 2])), dtype="float64"
-    )
-
-    return bim, fam, bed
+    return _read_genoio_dataset(genoio.bgen(path), dosage="dosage")
 
 
 def read_gwas(
     path: str,
-    header: List[str],
+    header: list[str],
     chrom: utils.IntOrNone,
     start: utils.IntOrNone,
     end: utils.IntOrNone,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Read in GWAS data in tsv file.
 
     Args:
@@ -308,19 +315,19 @@ def read_gwas(
         end: The end position.
 
     Returns:
-        :py:obj:`pd.DataFrame`
+        :py:obj:`pl.DataFrame`
 
     """
 
-    df_gwas = pd.read_csv(path, sep="\t").dropna()
+    df_gwas = pl.read_csv(path, separator="\t").drop_nulls()
 
     if not all(col in df_gwas.columns for col in header):
         raise ValueError("The specified GWAS columns are not in the GWAS data.")
 
     df_gwas = (
-        df_gwas[header]
+        df_gwas.select(header)
         .rename(
-            columns={
+            {
                 header[0]: "chrom",
                 header[1]: "snp",
                 header[2]: "pos",
@@ -329,31 +336,28 @@ def read_gwas(
                 header[5]: "z",
             }
         )
-        .replace([jnp.inf, -jnp.inf], jnp.nan, inplace=False)
-        .dropna(inplace=False)
+        .with_columns(
+            pl.col("chrom").cast(pl.Int64),
+            pl.col("pos").cast(pl.Int64),
+            pl.when(pl.col("z").is_infinite()).then(None).otherwise(pl.col("z")).alias("z"),
+        )
+        .drop_nulls()
     )
-
-    df_gwas[["chrom"]] = df_gwas[["chrom"]].astype(int)
-    df_gwas[["pos"]] = df_gwas[["pos"]].astype(int)
 
     log.logger.debug("Filter GWAS data based on Chrom, Start, and End.")
     if chrom is not None:
         old_num = df_gwas.shape[0]
-        df_gwas = df_gwas[df_gwas.chrom == chrom]
+        df_gwas = df_gwas.filter(pl.col("chrom") == chrom)
         del_num = old_num - df_gwas.shape[0]
 
         if df_gwas.shape[0] == 0:
-            raise ValueError(
-                f"No SNPs remain after filtering on chromosome {chrom} for GWAS data from {path}."
-            )
+            raise ValueError(f"No SNPs remain after filtering on chromosome {chrom} for GWAS data from {path}.")
 
         if del_num != 0:
-            log.logger.debug(
-                f"Drop {del_num} SNPs that are not on chromosome {chrom} for GWAS data from {path}."
-            )
+            log.logger.debug(f"Drop {del_num} SNPs that are not on chromosome {chrom} for GWAS data from {path}.")
 
         old_num = df_gwas.shape[0]
-        df_gwas = df_gwas[df_gwas.pos >= start]
+        df_gwas = df_gwas.filter(pl.col("pos") >= start)
         del_num = old_num - df_gwas.shape[0]
 
         if df_gwas.shape[0] == 0:
@@ -368,7 +372,7 @@ def read_gwas(
             )
 
         old_num = df_gwas.shape[0]
-        df_gwas = df_gwas[df_gwas.pos <= end]
+        df_gwas = df_gwas.filter(pl.col("pos") <= end)
         del_num = old_num - df_gwas.shape[0]
 
         if df_gwas.shape[0] == 0:
@@ -382,12 +386,10 @@ def read_gwas(
                 + " for GWAS data from {path}."
             )
 
-    df_gwas = df_gwas.copy().reset_index(drop=True)
-
     return df_gwas
 
 
-def read_ld(path: str) -> Array:
+def read_ld(path: str) -> pl.DataFrame:
     """Read in LD (linkage disequilibrium) matrix from a TSV file.
 
     The LD matrix should be a symmetric correlation matrix where rows and columns
@@ -398,7 +400,7 @@ def read_ld(path: str) -> Array:
         path: The path to the LD matrix file (tab-separated, .tsv format).
 
     Returns:
-        :py:obj:`pd.DataFrame`: LD correlation matrix with SNP IDs as index and columns.
+        :py:obj:`pl.DataFrame`: LD correlation matrix with SNP IDs as index and columns.
 
     Example:
         Read LD matrix for fine-mapping::
@@ -415,27 +417,28 @@ def read_ld(path: str) -> Array:
 
     """
 
-    ld = pd.read_csv(path, sep="\t").replace([jnp.inf, -jnp.inf], jnp.nan)
+    ld = pl.read_csv(path, separator="\t")
+    ld = ld.with_columns(pl.when(pl.all().is_infinite()).then(None).otherwise(pl.all()).name.keep())
 
-    rows_to_drop = ld.index[ld.isna().any(axis=1)]
-    cols_to_drop = ld.columns[ld.isna().any(axis=0)]
+    keep_rows = ld.select(pl.any_horizontal(pl.all().is_null()).not_().alias("keep")).get_column("keep")
+    keep_idx = keep_rows.arg_true().to_list()
+    keep_cols = [ld.columns[idx] for idx in keep_idx if idx < ld.width]
 
-    ld = ld.drop(rows_to_drop).drop(cols_to_drop, axis=1)
-    ld.index = ld.columns
+    ld = ld.filter(keep_rows).select(keep_cols)
 
     return ld
 
 
 # output functions
 def output_cs(
-    result: List[infer.SushieResult],
-    meta_pip: Optional[List[Array]],
-    snps: pd.DataFrame,
+    result: list[infer.SushieResult],
+    meta_pip: list[Array] | None,
+    snps: pl.DataFrame,
     output: str,
     trait: str,
     compress: bool,
     method_type: str,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Output credible set (after pruning for purity) file ``*cs.tsv`` (see :ref:`csfile`).
 
     Args:
@@ -448,23 +451,32 @@ def output_cs(
         method_type: Which method the result belongs to: sushie, mega, or meta.
 
     Returns:
-        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*cs.tsv`` file (:py:obj:`pd.DataFrame`).
+        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*cs.tsv`` file (:py:obj:`pl.DataFrame`).
 
     """
     cs = []
 
     for idx in range(len(result)):
         tmp_cs = (
-            snps.merge(result[idx].cs, how="inner", on=["SNPIndex"])
-            .assign(trait=trait, n_snps=snps.shape[0])
-            .sort_values(
-                by=["CSIndex", "alpha", "c_alpha"], ascending=[True, False, True]
+            snps.join(
+                result[idx].cs,
+                how="inner",
+                on=["SNPIndex"],
+                maintain_order="left",
             )
+            .with_columns(
+                pl.lit(trait).alias("trait"),
+                pl.lit(snps.shape[0]).alias("n_snps"),
+            )
+            .sort(["CSIndex", "alpha", "c_alpha"], descending=[False, True, False])
         )
 
         if meta_pip is not None:
-            tmp_cs["meta_pip_all"] = meta_pip[0][tmp_cs.SNPIndex.values.astype(int)]
-            tmp_cs["meta_pip_cs"] = meta_pip[1][tmp_cs.SNPIndex.values.astype(int)]
+            snp_idx = tmp_cs["SNPIndex"].to_numpy().astype(int)
+            tmp_cs = tmp_cs.with_columns(
+                pl.Series("meta_pip_all", np.asarray(meta_pip[0][snp_idx])),
+                pl.Series("meta_pip_cs", np.asarray(meta_pip[1][snp_idx])),
+            )
 
         if method_type == "meta":
             ancestry_idx = f"ancestry_{idx + 1}"
@@ -473,30 +485,30 @@ def output_cs(
         else:
             ancestry_idx = "sushie"
 
-        tmp_cs["ancestry"] = ancestry_idx
+        tmp_cs = tmp_cs.with_columns(pl.lit(ancestry_idx).alias("ancestry"))
         cs.append(tmp_cs)
-    cs = pd.concat(cs)
+    cs = pl.concat(cs) if len(cs) != 0 else pl.DataFrame()
 
     # add a placeholder better for post-hoc analysis
     if cs.shape[0] == 0:
-        cs = cs.append({"trait": trait}, ignore_index=True)
+        cs = pl.DataFrame({"trait": [trait]})
 
     file_name = f"{output}.cs.tsv.gz" if compress else f"{output}.cs.tsv"
 
-    cs.to_csv(file_name, sep="\t", index=False)
+    cs.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return cs
 
 
 def output_weights(
-    result: List[infer.SushieResult],
-    meta_pip: Optional[List[Array]],
-    snps: pd.DataFrame,
+    result: list[infer.SushieResult],
+    meta_pip: list[Array] | None,
+    snps: pl.DataFrame,
     output: str,
     trait: str,
     compress: bool,
     method_type: str,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Output prediction weights file ``*weights.tsv`` (see :ref:`weightsfile`).
 
     Args:
@@ -509,12 +521,15 @@ def output_weights(
         method_type: Which method the result belongs to: sushie, mega, or meta.
 
     Returns:
-        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*weights.tsv`` file (:py:obj:`pd.DataFrame`).
+        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*weights.tsv`` file (:py:obj:`pl.DataFrame`).
 
     """
 
     n_pop = len(result[0].priors.resid_var)
-    weights = copy.deepcopy(snps).assign(trait=trait, n_snps=snps.shape[0])
+    weights = snps.with_columns(
+        pl.lit(trait).alias("trait"),
+        pl.lit(snps.shape[0]).alias("n_snps"),
+    )
 
     for idx in range(len(result)):
         if method_type == "meta":
@@ -533,56 +548,61 @@ def output_weights(
             cname_pip_cs = "sushie_pip_cs"
             cname_cs = "sushie_cs_index"
 
-        tmp_weights = pd.DataFrame(
-            data=jnp.sum(result[idx].posteriors.post_mean, axis=0),
-            columns=cname_idx,
+        tmp_weights = pl.DataFrame(
+            np.asarray(jnp.sum(result[idx].posteriors.post_mean, axis=0)),
+            schema=cname_idx,
         )
 
-        tmp_weights[cname_pip_all] = result[idx].pip_all
-        tmp_weights[cname_pip_cs] = result[idx].pip_cs
-        weights = pd.concat([weights, tmp_weights], axis=1)
+        tmp_weights = tmp_weights.with_columns(
+            pl.Series(cname_pip_all, np.asarray(result[idx].pip_all)),
+            pl.Series(cname_pip_cs, np.asarray(result[idx].pip_cs)),
+        )
+        weights = pl.concat([weights, tmp_weights], how="horizontal")
 
         df_cs = (
             result[idx]
-            .cs[["SNPIndex", "CSIndex"]]
-            .groupby("SNPIndex")["CSIndex"]
-            .agg(lambda x: ",".join(x.astype(str)))
-            .reset_index()
+            .cs.select(["SNPIndex", "CSIndex"])
+            .group_by("SNPIndex")
+            .agg(pl.col("CSIndex").cast(pl.String).str.join(",").alias("CSIndex"))
         )
 
         # although for super rare cases, we have the same snp in more credible sets
-        # to record this situation in the weights file (we introduce WARNING in the inference function),
-        # we just concatenate the CS index with comma by creating this tmp_cs pandas data frame
+        # to record this situation in the weights file (we introduce WARNING in the inference function).
         tmp_cs = (
-            weights[["SNPIndex"]]
-            .merge(df_cs, on="SNPIndex", how="left")
-            .fillna("No CS")
+            weights.select(["SNPIndex"])
+            .join(df_cs, on="SNPIndex", how="left", maintain_order="left")
+            .with_columns(pl.col("CSIndex").fill_null("No CS"))
         )
 
-        weights = weights.merge(
-            tmp_cs.rename(columns={"CSIndex": cname_cs}), on="SNPIndex"
+        weights = weights.join(
+            tmp_cs.rename({"CSIndex": cname_cs}),
+            on="SNPIndex",
+            how="left",
+            maintain_order="left",
         )
 
     if meta_pip is not None:
-        weights["meta_pip_all"] = meta_pip[0]
-        weights["meta_pip_cs"] = meta_pip[1]
+        weights = weights.with_columns(
+            pl.Series("meta_pip_all", np.asarray(meta_pip[0])),
+            pl.Series("meta_pip_cs", np.asarray(meta_pip[1])),
+        )
 
     file_name = f"{output}.weights.tsv.gz" if compress else f"{output}.weights.tsv"
 
-    weights.to_csv(file_name, sep="\t", index=False)
+    weights.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return weights
 
 
 def output_alphas(
-    result: List[infer.SushieResult],
-    snps: pd.DataFrame,
+    result: list[infer.SushieResult],
+    snps: pl.DataFrame,
     output: str,
     trait: str,
     compress: bool,
     method_type: str,
     purity: float,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Output full credible set (before pruning for purity) file ``*alphas.tsv`` (see :ref:`alphasfile`).
 
     Args:
@@ -595,17 +615,20 @@ def output_alphas(
         purity: The purity threshold.
 
     Returns:
-        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (:py:obj:`pd.DataFrame`).
+        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*alphas.tsv`` file (:py:obj:`pl.DataFrame`).
 
     """
     alphas = []
     for idx in range(len(result)):
-        tmp_alphas = snps.merge(
-            result[idx].alphas, how="inner", on=["SNPIndex"]
-        ).assign(
-            trait=trait,
-            n_snps=snps.shape[0],
-            purity_threshold=purity,
+        tmp_alphas = snps.join(
+            result[idx].alphas,
+            how="inner",
+            on=["SNPIndex"],
+            maintain_order="left",
+        ).with_columns(
+            pl.lit(trait).alias("trait"),
+            pl.lit(snps.shape[0]).alias("n_snps"),
+            pl.lit(purity).alias("purity_threshold"),
         )
 
         if method_type == "meta":
@@ -615,14 +638,14 @@ def output_alphas(
         else:
             ancestry_idx = "sushie"
 
-        tmp_alphas["ancestry"] = ancestry_idx
+        tmp_alphas = tmp_alphas.with_columns(pl.lit(ancestry_idx).alias("ancestry"))
         alphas.append(tmp_alphas)
 
-    alphas = pd.concat(alphas, axis=0)
+    alphas = pl.concat(alphas) if len(alphas) != 0 else pl.DataFrame()
 
     file_name = f"{output}.alphas.tsv.gz" if compress else f"{output}.alphas.tsv"
 
-    alphas.to_csv(file_name, sep="\t", index=False)
+    alphas.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return alphas
 
@@ -632,7 +655,7 @@ def output_her(
     output: str,
     trait: str,
     compress: bool,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Output heritability estimation file ``*her.tsv`` (see :ref:`herfile`).
 
     Args:
@@ -642,7 +665,7 @@ def output_her(
         compress: The indicator whether to compress the output files.
 
     Returns:
-        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*her.tsv`` file (:py:obj:`pd.DataFrame`).
+        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*her.tsv`` file (:py:obj:`pl.DataFrame`).
 
     """
 
@@ -658,31 +681,31 @@ def output_her(
         her_result.append(tmp_her_result)
 
     est_her = (
-        pd.DataFrame(
-            data=her_result,
-            columns=["genetic_var", "h2g", "lrt_stats", "p_value"],
-            index=[idx + 1 for idx in range(n_pop)],
+        pl.DataFrame(
+            her_result,
+            schema=["genetic_var", "h2g", "lrt_stats", "p_value"],
+            orient="row",
         )
-        .reset_index(names="ancestry")
-        .assign(trait=trait)
+        .with_row_index("ancestry", offset=1)
+        .with_columns(pl.lit(trait).alias("trait"))
     )
 
     if est_her.shape[0] == 0:
-        est_her = est_her.append({"trait": trait}, ignore_index=True)
+        est_her = pl.DataFrame({"trait": [trait]})
 
     file_name = f"{output}.her.tsv.gz" if compress else f"{output}.her.tsv"
 
-    est_her.to_csv(file_name, sep="\t", index=False)
+    est_her.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return est_her
 
 
 def output_corr(
-    result: List[infer.SushieResult],
+    result: list[infer.SushieResult],
     output: str,
     trait: str,
     compress: bool,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Output effect size correlation file ``*corr.tsv`` (see :ref:`corrfile`).
 
     Args:
@@ -692,7 +715,7 @@ def output_corr(
         compress: The indicator whether to compress the output files.
 
     Returns:
-        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*corr.tsv`` file (:py:obj:`pd.DataFrame`).
+        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*corr.tsv`` file (:py:obj:`pl.DataFrame`).
 
     """
 
@@ -700,39 +723,41 @@ def output_corr(
     raw_corr = result[0].posteriors.weighted_sum_covar
     n_l = len(raw_corr)
     tmp_corr = jnp.transpose(raw_corr)
-    corr = pd.DataFrame(data={"trait": trait, "CSIndex": (jnp.arange(n_l) + 1)})
+    corr = pl.DataFrame({"trait": [trait] * n_l, "CSIndex": np.asarray(jnp.arange(n_l) + 1)})
 
     for idx in range(n_pop):
         _var = tmp_corr[idx, idx]
-        tmp_pd = pd.DataFrame(data={f"ancestry{idx + 1}_est_var": _var})
-        corr = pd.concat([corr, tmp_pd], axis=1)
+        corr = corr.with_columns(pl.Series(f"ancestry{idx + 1}_est_var", np.asarray(_var)))
         for jdx in range(idx + 1, n_pop):
             _covar = tmp_corr[idx, jdx]
             _var1 = tmp_corr[idx, idx]
             _var2 = tmp_corr[jdx, jdx]
             _corr = _covar / jnp.sqrt(_var1 * _var2)
-            tmp_pd_covar = pd.DataFrame(
-                data={f"ancestry{idx + 1}_ancestry{jdx + 1}_est_covar": _covar}
+            corr = corr.with_columns(
+                pl.Series(
+                    f"ancestry{idx + 1}_ancestry{jdx + 1}_est_covar",
+                    np.asarray(_covar),
+                ),
+                pl.Series(
+                    f"ancestry{idx + 1}_ancestry{jdx + 1}_est_corr",
+                    np.asarray(_corr),
+                ),
             )
-            tmp_pd_corr = pd.DataFrame(
-                data={f"ancestry{idx + 1}_ancestry{jdx + 1}_est_corr": _corr}
-            )
-            corr = pd.concat([corr, tmp_pd_covar, tmp_pd_corr], axis=1)
 
     file_name = f"{output}.corr.tsv.gz" if compress else f"{output}.corr.tsv"
 
-    corr.to_csv(file_name, sep="\t", index=False)
+    corr.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return corr
 
 
 def output_cv(
-    cv_res: List,
-    sample_size: List[int],
+    cv_res: list,
+    sample_size: list[int],
     output: str,
     trait: str,
     compress: bool,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     """Output cross validation file ``*cv.tsv`` for
         future `FUSION <http://gusevlab.org/projects/fusion/>`_ pipeline (see :ref:`cvfile`).
 
@@ -744,33 +769,34 @@ def output_cv(
         compress: The indicator whether to compress the output files.
 
     Returns:
-        :py:obj:`pd.DataFrame`: A data frame that outputs to the ``*cv.tsv`` file (:py:obj:`pd.DataFrame`).
+        :py:obj:`pl.DataFrame`: A data frame that outputs to the ``*cv.tsv`` file (:py:obj:`pl.DataFrame`).
 
     """
 
     cv_r2 = (
-        pd.DataFrame(
-            data=cv_res,
-            index=[idx + 1 for idx in range(len(sample_size))],
-            columns=["rsq", "p_value"],
+        pl.DataFrame(
+            cv_res,
+            schema=["rsq", "p_value"],
+            orient="row",
         )
-        .reset_index(names="ancestry")
-        .assign(N=sample_size, trait=trait)
+        .with_row_index("ancestry", offset=1)
+        .with_columns(
+            pl.Series("N", np.asarray(sample_size)),
+            pl.lit(trait).alias("trait"),
+        )
     )
 
     if cv_r2.shape[0] == 0:
-        cv_r2 = cv_r2.append({"trait": trait}, ignore_index=True)
+        cv_r2 = pl.DataFrame({"trait": [trait]})
 
     file_name = f"{output}.cv.tsv.gz" if compress else f"{output}.cv.tsv"
 
-    cv_r2.to_csv(file_name, sep="\t", index=False)
+    cv_r2.write_csv(file_name, separator="\t", compression="gzip" if compress else "uncompressed")
 
     return cv_r2
 
 
-def output_numpy(
-    result: List[infer.SushieResult], snps: pd.DataFrame, output: str
-) -> None:
+def output_numpy(result: list[infer.SushieResult], snps: pl.DataFrame, output: str) -> None:
     """Output all results in ``*.npy`` file (no compress option) (see :ref:`npyfile`).
 
     Args:
